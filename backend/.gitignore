@@ -1,17 +1,44 @@
-# dependencies
+# Dependencies
 node_modules/
+.pnpm-store/
 
-# env files
+# Environment variables
 .env
-.env.local
+.env.*
+!.env.example
 
-# build outputs
+# Build output
 dist/
 build/
 
-# logs
+# Logs
+logs/
+*.log
 npm-debug.log*
+pnpm-debug.log*
 yarn-debug.log*
+
+# Coverage
+coverage/
+
+# TypeScript
+*.tsbuildinfo
+
+# Prisma
+prisma/dev.db
+prisma/dev.db-journal
 
 # OS files
 .DS_Store
+Thumbs.db
+
+# IDE
+.vscode/
+.idea/
+
+# Temporary files
+tmp/
+temp/
+
+# Generated files
+*.tgz
