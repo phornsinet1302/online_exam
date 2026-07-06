@@ -6,6 +6,7 @@ import morgan from 'morgan';
 import swaggerUi from 'swagger-ui-express';
 import { swaggerSpec } from './swagger.js';
 import authRoutes from './routes/auth.routes.js';
+import questionRoutes from './routes/question.routes.js';
 
 const app = express();
 
@@ -16,6 +17,7 @@ app.use(morgan('dev'));
 
 app.use('/api-docs', swaggerUi.serve, swaggerUi.setup(swaggerSpec));
 app.use('/api/auth', authRoutes);
+app.use('/api', questionRoutes);
 
 // Global error handler
 app.use((err: any, req: any, res: any, next: any) => {

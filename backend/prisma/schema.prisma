@@ -16,6 +16,7 @@ model User {
   role        String   @default("teacher")
   createdAt   DateTime @default(now())
   updatedAt   DateTime @updatedAt
+  exams       Exam[]
 
   // ... other relations
 }
@@ -25,4 +26,103 @@ enum Role {
   STUDENT
   COLLABORATOR
   INVIGILATOR
+}
+
+model Exam {
+  id          String    @id @default(cuid())
+  title       String
+  description String?
+  status      ExamStatus @default(DRAFT)
+  ownerId     String    @map("owner_id") // Supabase user ID
+  owner       User      @relation(fields: [ownerId], references: [supabaseId])
+  createdAt   DateTime  @default(now())
+  updatedAt   DateTime  @updatedAt
+
+  // Scheduling fields (from 8.2)
+  subject     String?
+  startDate   DateTime?
+  endDate     DateTime?
+  duration    Int?      // in minutes
+  passingScore Float?
+  maxAttempts Int?
+  isPublic    Boolean   @default(false)
+
+  sections    Section[]
+  materials Material[]
+  // ... other fields
+
+  @@map("exams")
+}
+
+enum ExamStatus {
+  DRAFT
+  PUBLISHED
+  ARCHIVED
+}
+
+model Section {
+  id          String   @id @default(cuid())
+  examId      String   @map("exam_id")
+  exam        Exam     @relation(fields: [examId], references: [id], onDelete: Cascade)
+  title       String
+  order       Int      // display order
+  randomization Boolean @default(false)
+  shuffleAnswers Boolean @default(false)
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  questions   Question[]
+
+  @@map("sections")
+}
+
+model Question {
+  id          String   @id @default(cuid())
+  sectionId   String   @map("section_id")
+  section     Section  @relation(fields: [sectionId], references: [id], onDelete: Cascade)
+  type        QuestionType
+  text        String   // question stem
+  points      Float    @default(1.0)
+  difficulty  Int?     // 1-5
+  bloomLevel  String?  // Remember, Understand, Apply, Analyze, Evaluate, Create
+  order       Int
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+  reviewed  Boolean  @default(false) // for AI-generated drafts
+
+  options     Option[] // for MCQ/True-False
+  // For essay, we might store expected answer separately
+
+  @@map("questions")
+}
+
+enum QuestionType {
+  MCQ
+  TRUE_FALSE
+  ESSAY
+  // can add more: MATCHING, FILL_BLANK, etc.
+}
+
+model Option {
+  id          String   @id @default(cuid())
+  questionId  String   @map("question_id")
+  question    Question @relation(fields: [questionId], references: [id], onDelete: Cascade)
+  text        String
+  isCorrect   Boolean  @default(false)
+  order       Int
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  @@map("options")
+}
+
+model Material {
+  id        String   @id @default(cuid())
+  examId    String   @map("exam_id")
+  exam      Exam     @relation(fields: [examId], references: [id], onDelete: Cascade)
+  content   String?  // text content
+  fileUrl   String?  // if file uploaded, store URL
+  createdAt DateTime @default(now())
+  
+  @@map("materials")
 }

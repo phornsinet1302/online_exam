@@ -1,0 +1,18 @@
+# backend/docker-compose.yml (remove the obsolete "version" line)
+
+services:
+  online-exam-backend:
+    build:
+      context: .          # use the current directory (backend/)
+      dockerfile: Dockerfile
+    container_name: exam-backend
+    ports:
+      - "5000:5000"
+    environment:
+      - NODE_ENV=development
+    env_file:
+      - .env.local        # or .env – whichever you have
+    volumes:
+      - .:/app            # mount entire backend folder
+      - /app/node_modules # keep container’s node_modules intact
+    command: pnpm dev     # ensure your package.json has a "dev" script
