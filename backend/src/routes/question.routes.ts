@@ -10,6 +10,7 @@ import {
   uploadMaterial,
   generateAIQuestions,
   batchReviewQuestions,
+  duplicateQuestion,
 } from '../controllers/question.controller.js';
 import { authMiddleware } from '../middleware/auth.middleware.js';
 import multer from 'multer';
@@ -274,5 +275,7 @@ router.post('/exams/:examId/questions/ai/generate', generateAIQuestions);
  *         description: Review completed
  */
 router.post('/questions/ai/batch-review', batchReviewQuestions);
+
+router.post('/questions/:questionId/duplicate', duplicateQuestion);
 
 export default router;

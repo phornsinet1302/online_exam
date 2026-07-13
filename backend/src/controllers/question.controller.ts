@@ -114,3 +114,15 @@ export const batchReviewQuestions = async (req: Request, res: Response) => {
     res.status(400).json({ message: error.message });
   }
 };
+
+// backend/src/controllers/question.controller.ts
+
+export const duplicateQuestion = async (req: Request, res: Response) => {
+  try {
+    const questionId = getParam(req.params.questionId, "questionId");
+    const question = await questionService.duplicateQuestion(questionId);
+    res.status(201).json(question);
+  } catch (error: any) {
+    res.status(400).json({ message: error.message });
+  }
+};

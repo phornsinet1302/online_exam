@@ -16,7 +16,7 @@ const router = Router();
 
 /**
  * @openapi
- * /auth/register:
+ * /api/auth/register:
  *   post:
  *     tags:
  *       - Authentication
@@ -70,7 +70,7 @@ router.post('/register', register);
 
 /**
  * @openapi
- * /auth/login:
+ * /api/auth/login:
  *   post:
  *     tags:
  *       - Authentication
@@ -137,7 +137,7 @@ router.post('/login', login);
 
 /**
  * @openapi
- * /auth/forgot-password:
+ * /api/auth/forgot-password:
  *   post:
  *     tags:
  *       - Authentication
@@ -181,7 +181,7 @@ router.post('/forgot-password', forgotPassword);
 
 /**
  * @openapi
- * /auth/reset-password:
+ * /api/auth/reset-password:
  *   post:
  *     tags:
  *       - Authentication
@@ -231,7 +231,7 @@ router.post('/reset-password', resetPassword);
 
 /**
  * @openapi
- * /auth/refresh:
+ * /api/auth/refresh:
  *   post:
  *     tags:
  *       - Authentication
@@ -276,7 +276,7 @@ router.post('/refresh', refreshToken);
 
 /**
  * @openapi
- * /auth/logout:
+ * /api/auth/logout:
  *   post:
  *     tags:
  *       - Authentication
@@ -298,7 +298,7 @@ router.post('/logout', logout);
 
 /**
  * @openapi
- * /auth/me:
+ * /api/auth/me:
  *   get:
  *     tags:
  *       - Authentication
@@ -346,7 +346,7 @@ router.get('/me', authMiddleware, getMe);
 
 /**
  * @openapi
- * /auth/google:
+ * /api/auth/google:
  *   post:
  *     tags:
  *       - Authentication

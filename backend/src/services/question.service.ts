@@ -8,7 +8,7 @@ import { generateAIQuestions } from '../utils/aiGenerator.js';
 // This interface should match what processFileImport returns
 // We'll make all fields optional except the required ones.
 interface ParsedQuestion {
-  type: string;                // will be mapped to QuestionType
+  type: string; // will be mapped to QuestionType
   text: string;
   points?: number;
   difficulty?: number;
@@ -22,7 +22,6 @@ export class QuestionService {
   async createSection(examId: string, title: string, order?: number, randomization = false, shuffleAnswers = false) {
     const exam = await prisma.exam.findUnique({ where: { id: examId } });
     if (!exam) throw new Error('Exam not found');
-    if (exam.status !== 'DRAFT') throw new Error('Cannot modify a published or archived exam');
 
     if (order === undefined) {
       const lastSection = await prisma.section.findFirst({
@@ -79,7 +78,7 @@ export class QuestionService {
       include: { exam: true },
     });
     if (!section) throw new Error('Section not found');
-    if (section.exam.status !== 'DRAFT') throw new Error('Cannot modify a published or archived exam');
+    
 
     const lastQuestion = await prisma.question.findFirst({
       where: { sectionId },
@@ -121,17 +120,29 @@ export class QuestionService {
       include: { section: { include: { exam: true } } },
     });
     if (!question) throw new Error('Question not found');
-    if (question.section.exam.status !== 'DRAFT') throw new Error('Cannot modify a published or archived exam');
+    // if (question.section.exam.status !== 'DRAFT') throw new Error('Cannot modify a published or archived exam');
 
     const { options, ...questionData } = data;
     // If updating type, validate
     if (questionData.type && !Object.values(QuestionType).includes(questionData.type as QuestionType)) {
       throw new Error(`Invalid question type: ${questionData.type}`);
     }
+    let optionsUpdate = undefined;
+    if (options) {
+      // Delete existing options and create new ones
+      await prisma.option.deleteMany({ where: { questionId } });
+      optionsUpdate = {
+        create: options.map((opt: any, idx: number) => ({
+          text: opt.text,
+          isCorrect: opt.isCorrect,
+          order: opt.order ?? idx,
+        })),
+      };
+    }
 
     return prisma.question.update({
       where: { id: questionId },
-      data: questionData,
+      data: { ...questionData, options: optionsUpdate },
       include: { options: true },
     });
   }
@@ -142,7 +153,7 @@ export class QuestionService {
       include: { section: { include: { exam: true } } },
     });
     if (!question) throw new Error('Question not found');
-    if (question.section.exam.status !== 'DRAFT') throw new Error('Cannot modify a published or archived exam');
+    // if (question.section.exam.status !== 'DRAFT') throw new Error('Cannot modify a published or archived exam');
 
     await prisma.question.delete({ where: { id: questionId } });
     return { message: 'Question deleted successfully' };
@@ -152,7 +163,7 @@ export class QuestionService {
   async importQuestions(examId: string, fileBuffer: Buffer, fileName: string) {
     const exam = await prisma.exam.findUnique({ where: { id: examId } });
     if (!exam) throw new Error('Exam not found');
-    if (exam.status !== 'DRAFT') throw new Error('Cannot modify a published or archived exam');
+    // if (exam.status !== 'DRAFT') throw new Error('Cannot modify a published or archived exam');
 
     const parsedQuestions: ParsedQuestion[] = await processFileImport(fileBuffer, fileName);
 
@@ -292,4 +303,44 @@ export class QuestionService {
       return { message: `Accepted ${questionIds.length} questions` };
     }
   }
+  // backend/src/services/question.service.ts (partial)
+
+async duplicateQuestion(questionId: string) {
+  const question = await prisma.question.findUnique({
+    where: { id: questionId },
+    include: { options: true }
+  });
+  if (!question) throw new Error('Question not found');
+
+  // Build new data – omit metadata if null/undefined
+  const newData: any = {
+    sectionId: question.sectionId,
+    type: question.type,
+    text: question.text + ' (copy)',
+    points: question.points,
+    difficulty: question.difficulty,
+    bloomLevel: question.bloomLevel,
+    order: question.order + 1,
+    reviewed: false,
+    options: question.options.length > 0
+      ? {
+          create: question.options.map(opt => ({
+            text: opt.text,
+            isCorrect: opt.isCorrect,
+            order: opt.order,
+          })),
+        }
+      : undefined,
+  };
+
+  // Only include metadata if it exists (not null)
+  if (question.metadata) {
+    newData.metadata = question.metadata;
+  }
+
+  return prisma.question.create({
+    data: newData,
+    include: { options: true },
+  });
+}
 }
