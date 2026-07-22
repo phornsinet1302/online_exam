@@ -9,7 +9,7 @@ import {
   Twitter, Linkedin, Youtube, Globe, Lock,
   CheckCircle2, GraduationCap,
   LayoutDashboard, TrendingUp, Bell, Settings,
-  LogOut, Home, Download, RefreshCw,
+  LogOut, Download, RefreshCw,
   ChevronUp, User, Camera,
   CheckCheck, AlertTriangle,
   Award, Activity,
@@ -571,7 +571,6 @@ type DashboardTabItem = {
 const TEACHER_NAV: TeacherNavItem[] = [
   { id:"overview", label:"Overview",   icon:LayoutDashboard, path:"/dashboard" },
   { id:"exams",    label:"Exams",      icon:FileText,        path:"/dashboard/exams" },
-  { id:"questions",label:"Questions",  icon:BookMarked,      path:"/dashboard/questions" },
   { id:"monitoring",label:"Monitoring",icon:Monitor,         path:"/dashboard/monitoring" },
   { id:"reports",  label:"Reports",    icon:BarChart2,       path:"/dashboard/reports" },
   { id:"settings", label:"Settings",   icon:Settings,        path:"/dashboard/settings" },
@@ -587,11 +586,6 @@ const SECTION_TABS: Record<string, DashboardTabItem[]> = {
     { id:"exams-create", label:"Create", path:"/dashboard/exams/create" },
     { id:"grading", label:"Auto-Grade", path:"/dashboard/grading" },
     { id:"grading-manual", label:"Manual Grading", path:"/dashboard/grading/manual" },
-  ],
-  questions: [
-    { id:"questions", label:"Question Bank", path:"/dashboard/questions" },
-    { id:"question-create", label:"Create", path:"/dashboard/questions/create" },
-    { id:"ai", label:"AI Generator", path:"/dashboard/ai" },
   ],
   monitoring: [
     { id:"monitoring", label:"Live Monitor", path:"/dashboard/monitoring" },
@@ -617,7 +611,6 @@ const SECTION_TABS: Record<string, DashboardTabItem[]> = {
 function getTeacherSection(active: string) {
   if (["charts"].includes(active)) return "overview";
   if (["exams","exams-create","grading","grading-manual"].includes(active)) return "exams";
-  if (["questions","question-create","ai"].includes(active)) return "questions";
   if (["monitoring","rules","logs"].includes(active)) return "monitoring";
   if (["reports","reports-scores","reports-attend","reports-cheat","reports-qana","filters"].includes(active)) return "reports";
   if (["settings","notifications","collab-invite","collab-manage"].includes(active)) return "settings";
@@ -649,11 +642,6 @@ function DashboardSidebar({ active }: { active:string }) {
             </button>
           );
         })}
-        <div className="pt-1 border-t" style={{ borderColor:"rgba(255,255,255,0.07)" }}>
-          <button onClick={()=>navigate("/")} className="w-full flex items-center gap-3 px-3 py-2.5 rounded-xl text-sm font-medium text-gray-600 hover:text-white hover:bg-white/5 transition-all" style={{ fontFamily:I }}>
-            <Home size={16}/> Back to site
-          </button>
-        </div>
       </nav>
       <div className="px-4 py-4 border-t" style={{ borderColor:"rgba(255,255,255,0.07)" }}>
         <div className="flex items-center gap-3 px-2 py-2 rounded-xl hover:bg-white/5 transition-all cursor-pointer">
@@ -662,7 +650,14 @@ function DashboardSidebar({ active }: { active:string }) {
             <p className="text-sm font-semibold text-white truncate" style={{ fontFamily:U }}>Jane Robertson</p>
             <p className="text-xs text-gray-500 truncate" style={{ fontFamily:I }}>Mathematics · Year 9–12</p>
           </div>
-          <LogOut size={14} className="text-gray-600 hover:text-red-400 transition-colors flex-shrink-0"/>
+          <button
+            type="button"
+            onClick={()=>navigate("/")}
+            aria-label="Log out and return to landing page"
+            className="rounded-md p-1 text-gray-600 transition-colors hover:text-red-400 focus:outline-none focus:ring-2 focus:ring-white/20"
+          >
+            <LogOut size={14} className="flex-shrink-0"/>
+          </button>
         </div>
       </div>
     </aside>
@@ -682,7 +677,7 @@ function DashboardSectionTabs({ active }: { active:string }) {
             const isActive = active===id || (active==="exams-create"&&id==="exams-create");
             return (
               <button key={id} onClick={()=>navigate(path)}
-                className={`flex items-center gap-2 whitespace-nowrap rounded-lg px-3 py-2 text-xs font-semibold transition-all ${isActive?"bg-white text-gray-950 shadow-sm":"text-gray-500 hover:text-gray-800"}`}
+                className={`dashboard-tab flex items-center gap-2 whitespace-nowrap rounded-lg px-3 py-2 text-xs font-semibold transition-all duration-200 ease-out active:scale-[0.98] ${isActive?"dashboard-tab-active bg-white text-gray-950 shadow-sm":"text-gray-500 hover:bg-white/60 hover:text-gray-800"}`}
                 style={{ fontFamily:U }}>
                 {label}
                 {badge?<span className="rounded-full px-1.5 py-0.5 text-[9px] font-bold text-white" style={{ background:"#ef4444" }}>{badge}</span>:null}
@@ -720,13 +715,14 @@ function DashboardHeader({ title, subtitle, actions }: { title:string; subtitle?
 }
 
 function DashboardLayout({ children, active, title, subtitle, actions }: { children:React.ReactNode; active:string; title:string; subtitle?:string; actions?:React.ReactNode }) {
+  const pathname = usePathname();
   return (
     <div className="min-h-screen" style={{ background:CREAM }}>
       <DashboardSidebar active={active}/>
       <DashboardHeader title={title} subtitle={subtitle} actions={actions}/>
       <DashboardSectionTabs active={active}/>
       <main className="min-h-screen pt-32" style={{ marginLeft:SIDEBAR_W }}>
-        <div className="p-7">{children}</div>
+        <div key={pathname} className="dashboard-page-transition p-7">{children}</div>
       </main>
     </div>
   );
@@ -793,17 +789,45 @@ function QRPattern() {
 // ═══════════════════════════════════════════════════════════════════════════════
 function DashboardOverview() {
   const navigate = useNavigate();
+  const primaryStats = [
+    { label:"Total Exams", value:"48", meta:"+3 this week", icon:FileText, bg:"#F0EDE8" },
+    { label:"Active Students", value:"1,240", meta:"+87 active", icon:Users, bg:"#e6f4ff" },
+    { label:"Pass Rate", value:"78.4%", meta:"+2.1% trend", icon:CheckCircle2, bg:"#f0fdf4" },
+    { label:"Avg Score", value:"74.2", meta:"out of 100", icon:Award, bg:"#fff7ed" },
+  ];
+  const examStatus = [
+    { label:"Ongoing", value:"3", color:"#2563eb" },
+    { label:"Upcoming", value:"7", color:CAMEL },
+    { label:"Completed", value:"38", color:"#16a34a" },
+    { label:"Review", value:"31", color:"#ef4444" },
+  ];
+
   return (
     <DashboardLayout active="overview" title="Overview" subtitle="Monday, 13 July 2026"
       actions={<button onClick={()=>navigate("/dashboard/exams/create")} className="flex items-center gap-2 text-white text-xs font-bold px-4 py-2 rounded-xl hover:opacity-90 transition-opacity" style={{ background:INK, fontFamily:U }}><Plus size={14}/>New exam</button>}>
-      <div className="grid grid-cols-2 lg:grid-cols-4 gap-4 mb-5">
-        <StatCard label="Total Exams" value="48" trend="+3" trendUp icon={FileText} iconBg="#F0EDE8"/>
-        <StatCard label="Active Students" value="1,240" trend="+87" trendUp icon={Users} iconBg="#e6f4ff"/>
-        <StatCard label="Pass Rate" value="78.4%" trend="+2.1%" trendUp icon={CheckCircle2} iconBg="#f0fdf4"/>
-        <StatCard label="Avg Score" value="74.2" sub="out of 100" icon={Award} iconBg="#fff7ed"/>
-      </div>
-      <div className="grid grid-cols-2 lg:grid-cols-5 gap-4 mb-5">
-        {[{label:"Ongoing",value:"3",icon:Activity,iconBg:"#eff6ff"},{label:"Upcoming",value:"7",icon:CalendarDays,iconBg:`${CAMEL}18`},{label:"Completed",value:"38",icon:CheckCheck,iconBg:"#f0fdf4"},{label:"Highest Score",value:"98",sub:"John Smith",icon:TrendingUp,iconBg:"#f0fdf4"},{label:"Lowest Score",value:"31",sub:"Needs review",icon:AlertTriangle,iconBg:"#fff0f0"}].map(p=><StatCard key={p.label} {...p}/>)}
+      <div className="bg-white rounded-2xl border border-gray-100 p-5 mb-5">
+        <div className="flex flex-col gap-4 xl:flex-row xl:items-center xl:justify-between">
+          <div className="grid grid-cols-2 lg:grid-cols-4 gap-3 xl:flex-1">
+            {primaryStats.map(({ label, value, meta, icon:Icon, bg })=>(
+              <div key={label} className="flex items-center gap-3 rounded-xl bg-gray-50 px-4 py-3">
+                <div className="w-9 h-9 rounded-xl flex items-center justify-center flex-shrink-0" style={{ background:bg }}><Icon size={17} style={{ color:INK }}/></div>
+                <div className="min-w-0">
+                  <p className="text-xl font-black leading-none" style={{ fontFamily:U, color:INK }}>{value}</p>
+                  <p className="text-xs font-bold text-gray-500 truncate mt-1" style={{ fontFamily:U }}>{label}</p>
+                  <p className="text-[10px] text-gray-400 truncate mt-0.5" style={{ fontFamily:I }}>{meta}</p>
+                </div>
+              </div>
+            ))}
+          </div>
+          <div className="grid grid-cols-4 gap-2 xl:w-[360px]">
+            {examStatus.map(({ label, value, color })=>(
+              <div key={label} className="rounded-xl border border-gray-100 px-3 py-3 text-center">
+                <p className="text-lg font-black leading-none" style={{ fontFamily:U, color }}>{value}</p>
+                <p className="text-[10px] text-gray-400 mt-1" style={{ fontFamily:I }}>{label}</p>
+              </div>
+            ))}
+          </div>
+        </div>
       </div>
       <div className="grid lg:grid-cols-[1fr_300px] gap-5">
         <div className="bg-white rounded-2xl border border-gray-100 overflow-hidden">
@@ -829,7 +853,7 @@ function DashboardOverview() {
         </div>
         <div className="flex flex-col gap-4">
           <div className="bg-white rounded-2xl border border-gray-100 p-5">
-            <h3 className="text-sm font-black mb-4" style={{ fontFamily:U, color:INK }}>Pass / Fail</h3>
+            <h3 className="text-sm font-black mb-4" style={{ fontFamily:U, color:INK }}>Performance</h3>
             <div className="flex items-center gap-4">
               <div className="relative w-20 h-20 flex-shrink-0">
                 <svg viewBox="0 0 36 36" className="w-full h-full -rotate-90">
@@ -844,14 +868,14 @@ function DashboardOverview() {
                 ))}
               </div>
             </div>
-          </div>
-          <div className="bg-white rounded-2xl border border-gray-100 p-5">
-            <h3 className="text-sm font-black mb-3" style={{ fontFamily:U, color:INK }}>Quick Actions</h3>
-            {[{label:"Create new exam",icon:Plus,path:"/dashboard/exams/create"},{label:"AI question generator",icon:Sparkles,path:"/dashboard/ai"},{label:"View question bank",icon:BookMarked,path:"/dashboard/questions"},{label:"Export reports",icon:Download,path:"/dashboard/filters"}].map(({label,icon:Icon,path})=>(
+            <div className="mt-5 border-t border-gray-100 pt-4">
+              <h3 className="text-xs font-black uppercase tracking-wider text-gray-400 mb-2" style={{ fontFamily:U }}>Quick Actions</h3>
+              {[{label:"Create new exam",icon:Plus,path:"/dashboard/exams/create"},{label:"Use AI in exam builder",icon:Sparkles,path:"/dashboard/exams/create"},{label:"Export reports",icon:Download,path:"/dashboard/filters"}].map(({label,icon:Icon,path})=>(
               <button key={label} onClick={()=>navigate(path)} className="w-full flex items-center gap-3 px-3 py-2.5 rounded-xl text-sm text-gray-600 hover:bg-gray-50 hover:text-gray-900 transition-all text-left" style={{ fontFamily:I }}>
                 <Icon size={14} style={{ color:CAMEL }}/>{label}
               </button>
-            ))}
+              ))}
+            </div>
           </div>
         </div>
       </div>
@@ -868,12 +892,19 @@ function ExamList() {
   const [search, setSearch] = useState("");
   const [menuOpen, setMenuOpen] = useState<string|null>(null);
   const [archiveConfirm, setArchiveConfirm] = useState<string|null>(null);
+  const [copiedCode, setCopiedCode] = useState<string|null>(null);
 
   const exams = MOCK_EXAMS.filter(e=>{
     const matchStatus = statusFilter==="all"||e.status===statusFilter;
     const matchSearch = e.title.toLowerCase().includes(search.toLowerCase())||e.subject.toLowerCase().includes(search.toLowerCase());
     return matchStatus&&matchSearch;
   });
+
+  const copyExamCode = (code: string) => {
+    navigator.clipboard.writeText(code).catch(()=>{});
+    setCopiedCode(code);
+    setTimeout(()=>setCopiedCode(null), 1600);
+  };
 
   return (
     <DashboardLayout active="exams" title="My Exams" subtitle={`${MOCK_EXAMS.length} exams total`}
@@ -918,19 +949,27 @@ function ExamList() {
       ):(
         <div className="grid sm:grid-cols-2 xl:grid-cols-3 gap-4">
           {exams.map(exam=>(
-            <div key={exam.id} className="bg-white rounded-2xl border border-gray-100 hover:shadow-md transition-all overflow-hidden">
+            <div key={exam.id} className="relative bg-white rounded-2xl border border-gray-100 hover:shadow-md transition-all overflow-visible">
               <div className="p-5">
                 <div className="flex items-start justify-between mb-3">
                   <div>
                     <StatusBadge status={exam.status}/>
                     <h3 className="text-sm font-black mt-2 mb-1 leading-snug" style={{ fontFamily:U, color:INK }}>{exam.title}</h3>
                     <p className="text-xs text-gray-400" style={{ fontFamily:I }}>{exam.subject} · {exam.date}</p>
+                    <button onClick={()=>copyExamCode(exam.code)}
+                      className="mt-3 inline-flex items-center gap-2 rounded-lg border border-gray-200 bg-gray-50 px-3 py-1.5 text-[11px] font-bold text-gray-600 hover:border-gray-300 hover:bg-white hover:text-gray-900 transition-all"
+                      style={{ fontFamily:U }}>
+                      <Hash size={12} style={{ color:CAMEL }}/>
+                      <span className="font-mono">{exam.code}</span>
+                      <Copy size={12}/>
+                      {copiedCode===exam.code&&<span className="text-green-600">Copied</span>}
+                    </button>
                   </div>
                   <div className="relative flex-shrink-0 ml-2">
                     <button onClick={e=>{e.stopPropagation();setMenuOpen(menuOpen===exam.id?null:exam.id);}} className="w-8 h-8 rounded-lg flex items-center justify-center text-gray-400 hover:bg-gray-100 hover:text-gray-600 transition-all"><MoreVertical size={15}/></button>
                     {menuOpen===exam.id&&(
-                      <div className="absolute right-0 top-9 bg-white border border-gray-200 rounded-xl shadow-lg z-20 w-40 py-1" onClick={e=>e.stopPropagation()}>
-                        {[{icon:Eye,label:"Preview",action:()=>navigate(`/dashboard/exams/${exam.id}?tab=preview`)},{icon:Pencil,label:"Edit",action:()=>navigate(`/dashboard/exams/${exam.id}/edit`)},{icon:Copy,label:"Duplicate",action:()=>{}},{icon:Archive,label:"Archive",action:()=>{setArchiveConfirm(exam.id);setMenuOpen(null);}},{icon:Trash2,label:"Delete",action:()=>{}}].map(({icon:Icon,label,action})=>(
+                      <div className="absolute right-0 top-9 bg-white border border-gray-200 rounded-xl shadow-xl z-50 w-44 py-1" onClick={e=>e.stopPropagation()}>
+                        {[{icon:Eye,label:"Preview",action:()=>navigate(`/dashboard/exams/${exam.id}?tab=preview`)},{icon:Pencil,label:"Edit",action:()=>navigate(`/dashboard/exams/${exam.id}/edit`)},{icon:Hash,label:"Copy code",action:()=>copyExamCode(exam.code)},{icon:Copy,label:"Duplicate",action:()=>{}},{icon:Archive,label:"Archive",action:()=>{setArchiveConfirm(exam.id);setMenuOpen(null);}},{icon:Trash2,label:"Delete",action:()=>{}}].map(({icon:Icon,label,action})=>(
                           <button key={label} onClick={()=>{action();setMenuOpen(null);}} className={`w-full flex items-center gap-2.5 px-4 py-2 text-sm hover:bg-gray-50 transition-colors text-left ${label==="Delete"?"text-red-500":"text-gray-700"}`} style={{ fontFamily:I }}>
                             <Icon size={13}/>{label}
                           </button>
@@ -968,6 +1007,63 @@ function ExamList() {
 // ═══════════════════════════════════════════════════════════════════════════════
 // CREATE / EDIT EXAM
 // ═══════════════════════════════════════════════════════════════════════════════
+type ExamBuilderOption = {
+  id: string;
+  text: string;
+  correct: boolean;
+};
+
+type ExamBuilderPair = {
+  id: string;
+  left: string;
+  right: string;
+};
+
+type ExamBuilderQuestion = {
+  id: string;
+  type: string;
+  title: string;
+  description: string;
+  points: string;
+  required: boolean;
+  options: ExamBuilderOption[];
+  pairs: ExamBuilderPair[];
+  answer: string;
+  fileTypes: string;
+  maxFiles: string;
+  wordLimit: string;
+};
+
+type ExamBuilderSection = {
+  id: string;
+  title: string;
+  description: string;
+  questions: ExamBuilderQuestion[];
+};
+
+function makeBuilderQuestion(id: string, type = "mcq"): ExamBuilderQuestion {
+  return {
+    id,
+    type,
+    title:"",
+    description:"",
+    points:"1",
+    required:true,
+    options:[
+      { id:`${id}-opt-1`, text:"Option 1", correct:true },
+      { id:`${id}-opt-2`, text:"Option 2", correct:false },
+    ],
+    pairs:[
+      { id:`${id}-pair-1`, left:"", right:"" },
+      { id:`${id}-pair-2`, left:"", right:"" },
+    ],
+    answer:type==="truefalse"?"True":"",
+    fileTypes:"PDF, DOCX, JPG, PNG",
+    maxFiles:"1",
+    wordLimit:"300",
+  };
+}
+
 function ExamCreate() {
   const navigate = useNavigate();
   const { id } = useParams();
@@ -987,13 +1083,318 @@ function ExamCreate() {
   const [randomize, setRandomize] = useState(true);
   const [showResults, setShowResults] = useState(true);
   const [saved, setSaved]       = useState(false);
+  const idRef = useRef(3);
+  const aiFileRef = useRef<HTMLInputElement|null>(null);
+  const [sections, setSections] = useState<ExamBuilderSection[]>([
+    {
+      id:"section-1",
+      title:"Section 1",
+      description:"Add instructions for this part of the exam.",
+      questions:[makeBuilderQuestion("question-1","mcq"), makeBuilderQuestion("question-2","short")],
+    },
+  ]);
+  const [activeQuestionId, setActiveQuestionId] = useState("question-1");
+  const [showAiAssist, setShowAiAssist] = useState(false);
+  const [aiTopic, setAiTopic] = useState("");
+  const [aiFile, setAiFile] = useState<string|null>(null);
+  const [aiCount, setAiCount] = useState(5);
+  const [aiDifficulty, setAiDifficulty] = useState("Mixed");
+  const [aiGenerating, setAiGenerating] = useState(false);
+  const [aiAdded, setAiAdded] = useState(false);
 
   const subjects = ["Mathematics","Science","English","History","Computer Science","Physics","Chemistry","Geography"];
   const timezones = ["UTC+0 London","UTC+1 Paris","UTC+2 Cairo","UTC+3 Nairobi","UTC+5:30 Mumbai","UTC+8 Singapore","UTC+10 Sydney","UTC-5 New York","UTC-8 Los Angeles"];
+  const totalQuestions = sections.reduce((sum, section)=>sum + section.questions.length, 0);
+  const totalPoints = sections.reduce((sum, section)=>sum + section.questions.reduce((qSum, q)=>qSum + (Number(q.points)||0), 0), 0);
+  const activeSection = sections.find(section=>section.questions.some(question=>question.id===activeQuestionId)) || sections[0];
+
+  const nextId = (prefix: string) => `${prefix}-${idRef.current++}`;
+
+  const updateSection = (sectionId: string, patch: Partial<ExamBuilderSection>) => {
+    setSections(prev=>prev.map(section=>section.id===sectionId?{...section,...patch}:section));
+  };
+
+  const updateQuestion = (sectionId: string, questionId: string, patch: Partial<ExamBuilderQuestion>) => {
+    setSections(prev=>prev.map(section=>section.id===sectionId?{
+      ...section,
+      questions:section.questions.map(question=>question.id===questionId?{...question,...patch}:question),
+    }:section));
+  };
+
+  const changeQuestionType = (sectionId: string, question: ExamBuilderQuestion, type: string) => {
+    const nextQuestion = makeBuilderQuestion(question.id, type);
+    updateQuestion(sectionId, question.id, {
+      ...nextQuestion,
+      title:question.title,
+      description:question.description,
+      points:question.points,
+      required:question.required,
+    });
+  };
+
+  const addQuestion = (sectionId: string, type = "mcq") => {
+    const question = makeBuilderQuestion(nextId("question"), type);
+    setSections(prev=>prev.map(section=>section.id===sectionId?{...section,questions:[...section.questions, question]}:section));
+    setActiveQuestionId(question.id);
+  };
+
+  const addSection = () => {
+    const sectionId = nextId("section");
+    const question = makeBuilderQuestion(nextId("question"), "mcq");
+    setSections(prev=>[...prev, { id:sectionId, title:`Section ${prev.length + 1}`, description:"", questions:[question] }]);
+    setActiveQuestionId(question.id);
+  };
+
+  const addAiQuestions = () => {
+    if (!aiTopic && !aiFile) return;
+    const sample = [
+      { type:"mcq", title:"Which concept best matches the main topic?", options:["Primary idea","Unrelated detail","Example only","Exception"], answer:"Primary idea" },
+      { type:"short", title:"Explain the key idea in your own words.", answer:"Clear explanation of the topic" },
+      { type:"truefalse", title:"The statement is always true for this topic.", answer:"False" },
+      { type:"essay", title:"Analyze the topic and include evidence or examples.", answer:"Reasoned analysis with evidence" },
+      { type:"fill", title:"Fill in the blank: The core term is ___.", answer:aiTopic || "topic" },
+      { type:"mcq", title:"Which answer is the strongest example?", options:["Accurate example","Distractor one","Distractor two","Distractor three"], answer:"Accurate example" },
+      { type:"checkbox", title:"Select all correct statements.", options:["Correct statement","Another correct statement","Incorrect statement","Unrelated statement"], answer:"Correct statement, Another correct statement" },
+      { type:"matching", title:"Match each term with its meaning.", answer:"Terms matched correctly" },
+      { type:"math", title:"Write the formula or calculation that applies.", answer:"Expected formula" },
+      { type:"dropdown", title:"Choose the best category.", options:["Category A","Category B","Category C"], answer:"Category A" },
+    ];
+
+    setAiGenerating(true);
+    setAiAdded(false);
+    setTimeout(()=>{
+      const topicLabel = aiTopic.trim() || aiFile || "uploaded material";
+      const questions = sample.slice(0, aiCount).map((item, index)=>{
+        const question = makeBuilderQuestion(nextId("question"), item.type);
+        const optionValues = item.options || ["Correct answer","Distractor","Another option","Final option"];
+        return {
+          ...question,
+          title:`${item.title} (${topicLabel})`,
+          description:`AI generated · ${aiDifficulty}`,
+          answer:item.answer,
+          options:optionValues.map((text, optionIndex)=>({ id:nextId("option"), text, correct:optionIndex===0 })),
+          pairs:item.type==="matching"?[
+            { id:nextId("pair"), left:"Term 1", right:"Meaning 1" },
+            { id:nextId("pair"), left:"Term 2", right:"Meaning 2" },
+            { id:nextId("pair"), left:"Term 3", right:"Meaning 3" },
+          ]:question.pairs,
+          points:index<2?"1":"2",
+        };
+      });
+      const firstId = questions[0]?.id;
+      setSections(prev=>prev.map(section=>section.id===activeSection.id?{...section,questions:[...section.questions, ...questions]}:section));
+      if (firstId) setActiveQuestionId(firstId);
+      setAiGenerating(false);
+      setAiAdded(true);
+    }, 900);
+  };
+
+  const duplicateQuestion = (sectionId: string, question: ExamBuilderQuestion) => {
+    const copyId = nextId("question");
+    const copy: ExamBuilderQuestion = {
+      ...question,
+      id:copyId,
+      title:question.title?`${question.title} copy`:"",
+      options:question.options.map(option=>({...option,id:nextId("option")})),
+      pairs:question.pairs.map(pair=>({...pair,id:nextId("pair")})),
+    };
+    setSections(prev=>prev.map(section=>section.id===sectionId?{...section,questions:[...section.questions, copy]}:section));
+    setActiveQuestionId(copy.id);
+  };
+
+  const deleteQuestion = (sectionId: string, questionId: string) => {
+    setSections(prev=>prev.map(section=>{
+      if (section.id!==sectionId) return section;
+      const nextQuestions = section.questions.filter(question=>question.id!==questionId);
+      return {...section, questions:nextQuestions.length?nextQuestions:[makeBuilderQuestion(nextId("question"), "mcq")]};
+    }));
+  };
+
+  const addOption = (sectionId: string, questionId: string) => {
+    setSections(prev=>prev.map(section=>section.id===sectionId?{
+      ...section,
+      questions:section.questions.map(question=>question.id===questionId?{
+        ...question,
+        options:[...question.options, { id:nextId("option"), text:`Option ${question.options.length + 1}`, correct:false }],
+      }:question),
+    }:section));
+  };
+
+  const updateOption = (sectionId: string, questionId: string, optionId: string, text: string) => {
+    setSections(prev=>prev.map(section=>section.id===sectionId?{
+      ...section,
+      questions:section.questions.map(question=>question.id===questionId?{
+        ...question,
+        options:question.options.map(option=>option.id===optionId?{...option,text}:option),
+      }:question),
+    }:section));
+  };
+
+  const removeOption = (sectionId: string, questionId: string, optionId: string) => {
+    setSections(prev=>prev.map(section=>section.id===sectionId?{
+      ...section,
+      questions:section.questions.map(question=>question.id===questionId?{
+        ...question,
+        options:question.options.length>2?question.options.filter(option=>option.id!==optionId):question.options,
+      }:question),
+    }:section));
+  };
+
+  const toggleCorrectOption = (sectionId: string, questionId: string, optionId: string, multi = false) => {
+    setSections(prev=>prev.map(section=>section.id===sectionId?{
+      ...section,
+      questions:section.questions.map(question=>question.id===questionId?{
+        ...question,
+        options:question.options.map(option=>option.id===optionId?{...option,correct:multi?!option.correct:true}:{...option,correct:multi?option.correct:false}),
+      }:question),
+    }:section));
+  };
+
+  const addPair = (sectionId: string, questionId: string) => {
+    setSections(prev=>prev.map(section=>section.id===sectionId?{
+      ...section,
+      questions:section.questions.map(question=>question.id===questionId?{
+        ...question,
+        pairs:[...question.pairs, { id:nextId("pair"), left:"", right:"" }],
+      }:question),
+    }:section));
+  };
+
+  const updatePair = (sectionId: string, questionId: string, pairId: string, key: "left"|"right", value: string) => {
+    setSections(prev=>prev.map(section=>section.id===sectionId?{
+      ...section,
+      questions:section.questions.map(question=>question.id===questionId?{
+        ...question,
+        pairs:question.pairs.map(pair=>pair.id===pairId?{...pair,[key]:value}:pair),
+      }:question),
+    }:section));
+  };
+
+  const removePair = (sectionId: string, questionId: string, pairId: string) => {
+    setSections(prev=>prev.map(section=>section.id===sectionId?{
+      ...section,
+      questions:section.questions.map(question=>question.id===questionId?{
+        ...question,
+        pairs:question.pairs.length>2?question.pairs.filter(pair=>pair.id!==pairId):question.pairs,
+      }:question),
+    }:section));
+  };
 
   const handleSave = (status = "draft") => {
     setSaved(true);
     setTimeout(()=>{ setSaved(false); navigate("/dashboard/exams"); }, 800);
+  };
+
+  const renderQuestionBody = (sectionId: string, question: ExamBuilderQuestion) => {
+    const isChoice = ["mcq","checkbox","dropdown"].includes(question.type);
+    const multi = question.type==="checkbox";
+
+    if (isChoice) {
+      return (
+        <div className="space-y-2">
+          <div className="flex items-center justify-between">
+            <p className="text-xs font-bold text-gray-500 uppercase tracking-wider" style={{ fontFamily:U }}>Answer choices</p>
+            <p className="text-[11px] text-gray-400" style={{ fontFamily:I }}>{multi?"Select all correct answers":"Mark the correct answer"}</p>
+          </div>
+          {question.options.map((option, index)=>(
+            <div key={option.id} className="flex items-center gap-3 rounded-xl border border-gray-100 bg-gray-50/60 px-3 py-2.5">
+              <button onClick={()=>toggleCorrectOption(sectionId, question.id, option.id, multi)}
+                className={`h-5 w-5 flex-shrink-0 border-2 flex items-center justify-center transition-all ${multi?"rounded-md":"rounded-full"} ${option.correct?"border-green-500 bg-green-500":"border-gray-300 bg-white"}`}>
+                {option.correct&&<Check size={12} className="text-white"/>}
+              </button>
+              <input value={option.text} onChange={e=>updateOption(sectionId, question.id, option.id, e.target.value)}
+                placeholder={`Option ${index + 1}`}
+                className="min-w-0 flex-1 bg-transparent text-sm text-gray-800 placeholder:text-gray-400 focus:outline-none" style={{ fontFamily:I }}/>
+              <button onClick={()=>removeOption(sectionId, question.id, option.id)} className="h-7 w-7 rounded-lg flex items-center justify-center text-gray-300 hover:bg-white hover:text-red-400 transition-all">
+                <X size={14}/>
+              </button>
+            </div>
+          ))}
+          <button onClick={()=>addOption(sectionId, question.id)} className="flex items-center gap-2 text-xs font-bold px-3 py-2 rounded-xl border border-dashed border-gray-200 text-gray-500 hover:text-gray-800 hover:border-gray-300 transition-all" style={{ fontFamily:U }}>
+            <Plus size={13}/>Add option
+          </button>
+        </div>
+      );
+    }
+
+    if (question.type==="truefalse") {
+      return (
+        <div>
+          <p className="text-xs font-bold text-gray-500 uppercase tracking-wider mb-2" style={{ fontFamily:U }}>Correct answer</p>
+          <div className="grid grid-cols-2 gap-3">
+            {["True","False"].map(value=>(
+              <button key={value} onClick={()=>updateQuestion(sectionId, question.id, { answer:value })}
+                className={`rounded-xl border-2 py-3 text-sm font-bold transition-all ${question.answer===value?"text-white border-transparent":"border-gray-200 text-gray-600 hover:border-gray-300"}`}
+                style={{ background:question.answer===value?INK:undefined, fontFamily:U }}>{value}</button>
+            ))}
+          </div>
+        </div>
+      );
+    }
+
+    if (question.type==="matching") {
+      return (
+        <div className="space-y-2">
+          <p className="text-xs font-bold text-gray-500 uppercase tracking-wider" style={{ fontFamily:U }}>Matching pairs</p>
+          {question.pairs.map((pair, index)=>(
+            <div key={pair.id} className="grid gap-2 sm:grid-cols-[1fr_auto_1fr_auto] sm:items-center">
+              <input value={pair.left} onChange={e=>updatePair(sectionId, question.id, pair.id, "left", e.target.value)} placeholder={`Prompt ${index + 1}`}
+                className="border border-gray-200 rounded-xl px-3 py-2.5 text-sm focus:outline-none focus:border-gray-400" style={{ fontFamily:I }}/>
+              <ArrowLeftRight size={15} className="hidden text-gray-300 sm:block"/>
+              <input value={pair.right} onChange={e=>updatePair(sectionId, question.id, pair.id, "right", e.target.value)} placeholder={`Match ${index + 1}`}
+                className="border border-gray-200 rounded-xl px-3 py-2.5 text-sm focus:outline-none focus:border-gray-400" style={{ fontFamily:I }}/>
+              <button onClick={()=>removePair(sectionId, question.id, pair.id)} className="h-9 w-9 rounded-lg flex items-center justify-center text-gray-300 hover:bg-red-50 hover:text-red-400 transition-all"><X size={14}/></button>
+            </div>
+          ))}
+          <button onClick={()=>addPair(sectionId, question.id)} className="flex items-center gap-2 text-xs font-bold px-3 py-2 rounded-xl border border-dashed border-gray-200 text-gray-500 hover:text-gray-800 hover:border-gray-300 transition-all" style={{ fontFamily:U }}>
+            <Plus size={13}/>Add pair
+          </button>
+        </div>
+      );
+    }
+
+    if (question.type==="file") {
+      return (
+        <div className="grid gap-4 sm:grid-cols-2">
+          <div>
+            <label className="text-xs font-bold text-gray-500 uppercase tracking-wider mb-1.5 block" style={{ fontFamily:U }}>Allowed file types</label>
+            <input value={question.fileTypes} onChange={e=>updateQuestion(sectionId, question.id, { fileTypes:e.target.value })}
+              className="w-full border border-gray-200 rounded-xl px-4 py-3 text-sm focus:outline-none focus:border-gray-400" style={{ fontFamily:I }}/>
+          </div>
+          <div>
+            <label className="text-xs font-bold text-gray-500 uppercase tracking-wider mb-1.5 block" style={{ fontFamily:U }}>Max files</label>
+            <input type="number" min="1" max="10" value={question.maxFiles} onChange={e=>updateQuestion(sectionId, question.id, { maxFiles:e.target.value })}
+              className="w-full border border-gray-200 rounded-xl px-4 py-3 text-sm focus:outline-none focus:border-gray-400" style={{ fontFamily:I }}/>
+          </div>
+        </div>
+      );
+    }
+
+    if (question.type==="essay") {
+      return (
+        <div className="grid gap-4 sm:grid-cols-[180px_1fr]">
+          <div>
+            <label className="text-xs font-bold text-gray-500 uppercase tracking-wider mb-1.5 block" style={{ fontFamily:U }}>Word limit</label>
+            <input type="number" value={question.wordLimit} onChange={e=>updateQuestion(sectionId, question.id, { wordLimit:e.target.value })}
+              className="w-full border border-gray-200 rounded-xl px-4 py-3 text-sm focus:outline-none focus:border-gray-400" style={{ fontFamily:I }}/>
+          </div>
+          <div>
+            <label className="text-xs font-bold text-gray-500 uppercase tracking-wider mb-1.5 block" style={{ fontFamily:U }}>Rubric notes</label>
+            <input value={question.answer} onChange={e=>updateQuestion(sectionId, question.id, { answer:e.target.value })} placeholder="What should a strong answer include?"
+              className="w-full border border-gray-200 rounded-xl px-4 py-3 text-sm focus:outline-none focus:border-gray-400" style={{ fontFamily:I }}/>
+          </div>
+        </div>
+      );
+    }
+
+    return (
+      <div>
+        <label className="text-xs font-bold text-gray-500 uppercase tracking-wider mb-1.5 block" style={{ fontFamily:U }}>{question.type==="math"?"Formula / answer key":"Correct answer"}</label>
+        <input value={question.answer} onChange={e=>updateQuestion(sectionId, question.id, { answer:e.target.value })}
+          placeholder={question.type==="fill"?"e.g. photosynthesis":"Type the expected answer"}
+          className="w-full border border-gray-200 rounded-xl px-4 py-3 text-sm text-gray-900 placeholder:text-gray-400 focus:outline-none focus:border-gray-400" style={{ fontFamily:I }}/>
+      </div>
+    );
   };
 
   return (
@@ -1095,6 +1496,193 @@ function ExamCreate() {
                   <div><p className="text-sm font-bold text-gray-800" style={{ fontFamily:U }}>{opt.label}</p><p className="text-xs text-gray-400 mt-0.5" style={{ fontFamily:I }}>{opt.desc}</p></div>
                 </label>
               ))}
+            </div>
+          </div>
+
+          {/* AI Assist */}
+          <div className="bg-white rounded-2xl border border-gray-100 p-6 xl:col-span-2">
+            <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+              <div className="flex items-center gap-3">
+                <div className="h-11 w-11 rounded-xl flex items-center justify-center" style={{ background:"#F0EDE8" }}><Sparkles size={20} style={{ color:CAMEL }}/></div>
+                <div>
+                  <h3 className="text-sm font-black" style={{ fontFamily:U, color:INK }}>AI Question Generator</h3>
+                  <p className="text-xs text-gray-400 mt-1" style={{ fontFamily:I }}>Add generated questions directly into this exam.</p>
+                </div>
+              </div>
+              <button onClick={()=>setShowAiAssist(s=>!s)}
+                className={`flex items-center justify-center gap-2 rounded-xl px-4 py-2.5 text-xs font-bold transition-all ${showAiAssist?"border border-gray-200 text-gray-700 hover:bg-gray-50":"text-white hover:opacity-90"}`}
+                style={{ background:showAiAssist?undefined:INK, fontFamily:U }}>
+                {showAiAssist?<><ChevronUp size={14}/>Hide AI</>:<><Sparkles size={14}/>Use AI</>}
+              </button>
+            </div>
+
+            {showAiAssist&&(
+              <div className="mt-5 grid gap-4 xl:grid-cols-2">
+                <div>
+                  <label className="text-xs font-bold text-gray-500 uppercase tracking-wider mb-1.5 block" style={{ fontFamily:U }}>Material</label>
+                  <input ref={aiFileRef} type="file" accept=".pdf,.doc,.docx,.txt,.ppt,.pptx" className="hidden" onChange={e=>setAiFile(e.target.files?.[0]?.name||null)}/>
+                  {aiFile?(
+                    <div className="flex items-center gap-3 rounded-xl border border-gray-200 bg-gray-50 px-4 py-3">
+                      <FileText size={16} style={{ color:CAMEL }}/>
+                      <span className="min-w-0 flex-1 truncate text-sm text-gray-700" style={{ fontFamily:I }}>{aiFile}</span>
+                      <button onClick={()=>setAiFile(null)} className="text-gray-400 hover:text-gray-700"><X size={14}/></button>
+                    </div>
+                  ):(
+                    <button onClick={()=>aiFileRef.current?.click()} className="w-full rounded-xl border-2 border-dashed border-gray-200 py-6 text-center text-sm font-semibold text-gray-500 hover:border-gray-300 hover:bg-gray-50 transition-all" style={{ fontFamily:U }}>
+                      <Upload size={18} className="mx-auto mb-2" style={{ color:CAMEL }}/>Upload lesson material
+                    </button>
+                  )}
+                </div>
+                <div>
+                  <label className="text-xs font-bold text-gray-500 uppercase tracking-wider mb-1.5 block" style={{ fontFamily:U }}>Topic</label>
+                  <textarea value={aiTopic} onChange={e=>setAiTopic(e.target.value)} rows={4}
+                    placeholder="e.g. Calculus chain rule, product rule, and definite integrals"
+                    className="w-full resize-none rounded-xl border border-gray-200 px-4 py-3 text-sm text-gray-900 placeholder:text-gray-400 focus:border-gray-400 focus:outline-none" style={{ fontFamily:I }}/>
+                </div>
+                <div>
+                  <label className="text-xs font-bold text-gray-500 uppercase tracking-wider mb-2 block" style={{ fontFamily:U }}>Questions: <span style={{ color:INK }}>{aiCount}</span></label>
+                  <input type="range" min={3} max={10} step={1} value={aiCount} onChange={e=>setAiCount(+e.target.value)} className="w-full accent-gray-900"/>
+                </div>
+                <div>
+                  <label className="text-xs font-bold text-gray-500 uppercase tracking-wider mb-2 block" style={{ fontFamily:U }}>Difficulty</label>
+                  <div className="grid grid-cols-4 gap-2">
+                    {["Easy","Medium","Hard","Mixed"].map(level=>(
+                      <button key={level} onClick={()=>setAiDifficulty(level)}
+                        className={`rounded-lg border py-2 text-xs font-bold transition-all ${aiDifficulty===level?"border-transparent text-white":"border-gray-200 text-gray-500 hover:border-gray-300"}`}
+                        style={{ background:aiDifficulty===level?INK:undefined, fontFamily:U }}>{level}</button>
+                    ))}
+                  </div>
+                </div>
+                <div className="flex flex-col gap-2 sm:flex-row sm:items-center xl:col-span-2">
+                  <button onClick={addAiQuestions} disabled={(!aiTopic&&!aiFile)||aiGenerating}
+                    className="flex items-center justify-center gap-2 rounded-xl px-5 py-3 text-sm font-bold text-white transition-all hover:opacity-90 disabled:opacity-40"
+                    style={{ background:INK, fontFamily:U }}>
+                    {aiGenerating?<><RefreshCw size={15} className="animate-spin"/>Generating...</>:<><Sparkles size={15}/>Generate into exam</>}
+                  </button>
+                  {aiAdded&&<span className="text-xs font-semibold text-green-600" style={{ fontFamily:U }}>Questions added to {activeSection.title || "current section"}.</span>}
+                </div>
+              </div>
+            )}
+          </div>
+
+          {/* Google Forms style builder */}
+          <div className="xl:col-span-2 grid gap-4 xl:grid-cols-[minmax(0,1fr)_280px]">
+            <div className="space-y-4">
+              <div className="bg-white rounded-2xl border border-gray-100 p-6">
+                <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+                  <div>
+                    <h3 className="text-sm font-black" style={{ fontFamily:U, color:INK }}>Exam Questions</h3>
+                    <p className="text-xs text-gray-400 mt-1" style={{ fontFamily:I }}>Build sections and mix question types in the same exam.</p>
+                  </div>
+                  <div className="flex items-center gap-2">
+                    <span className="rounded-full bg-gray-50 px-3 py-1.5 text-xs font-bold text-gray-600" style={{ fontFamily:U }}>{totalQuestions} questions</span>
+                    <span className="rounded-full bg-gray-50 px-3 py-1.5 text-xs font-bold text-gray-600" style={{ fontFamily:U }}>{totalPoints} points</span>
+                  </div>
+                </div>
+              </div>
+
+              {sections.map((section, sectionIndex)=>(
+                <div key={section.id} className="rounded-2xl border border-gray-100 bg-white overflow-hidden">
+                  <div className="border-l-4 px-6 py-5" style={{ borderColor:CAMEL }}>
+                    <div className="grid gap-3 sm:grid-cols-[1fr_auto] sm:items-start">
+                      <div className="space-y-3">
+                        <input value={section.title} onChange={e=>updateSection(section.id, { title:e.target.value })}
+                          className="w-full text-lg font-black text-gray-900 placeholder:text-gray-300 focus:outline-none" placeholder={`Section ${sectionIndex + 1}`}
+                          style={{ fontFamily:U }}/>
+                        <input value={section.description} onChange={e=>updateSection(section.id, { description:e.target.value })}
+                          className="w-full text-sm text-gray-500 placeholder:text-gray-300 focus:outline-none" placeholder="Section description or instructions"
+                          style={{ fontFamily:I }}/>
+                      </div>
+                      <span className="rounded-full bg-gray-50 px-3 py-1.5 text-xs font-bold text-gray-500" style={{ fontFamily:U }}>{section.questions.length} items</span>
+                    </div>
+                  </div>
+
+                  <div className="space-y-3 bg-gray-50/60 p-4">
+                    {section.questions.map((question, questionIndex)=>{
+                      const typeInfo = Q_TYPES.find(type=>type.id===question.type) || Q_TYPES[0];
+                      const TypeIcon = typeInfo.icon;
+                      const isActive = activeQuestionId===question.id;
+
+                      return (
+                        <div key={question.id} onClick={()=>setActiveQuestionId(question.id)}
+                          className={`rounded-2xl border bg-white p-5 transition-all ${isActive?"border-gray-300 shadow-sm":"border-gray-100 hover:border-gray-200"}`}>
+                          <div className="mb-4 flex flex-col gap-3 lg:flex-row lg:items-start">
+                            <div className="flex min-w-0 flex-1 gap-3">
+                              <div className="mt-1 flex h-8 w-8 flex-shrink-0 items-center justify-center rounded-xl text-xs font-black" style={{ background:typeInfo.color, color:INK, fontFamily:U }}>
+                                {questionIndex + 1}
+                              </div>
+                              <div className="min-w-0 flex-1 space-y-3">
+                                <input value={question.title} onChange={e=>updateQuestion(section.id, question.id, { title:e.target.value })}
+                                  placeholder="Question"
+                                  className="w-full border-b border-gray-200 px-0 py-2 text-base font-bold text-gray-900 placeholder:text-gray-300 focus:border-gray-500 focus:outline-none"
+                                  style={{ fontFamily:U }}/>
+                                <input value={question.description} onChange={e=>updateQuestion(section.id, question.id, { description:e.target.value })}
+                                  placeholder="Description or helper text"
+                                  className="w-full border-b border-transparent px-0 py-1 text-sm text-gray-500 placeholder:text-gray-300 focus:border-gray-200 focus:outline-none"
+                                  style={{ fontFamily:I }}/>
+                              </div>
+                            </div>
+                            <div className="grid gap-2 sm:grid-cols-[1fr_96px] lg:w-[360px]">
+                              <div className="relative">
+                                <select value={question.type} onChange={e=>changeQuestionType(section.id, question, e.target.value)}
+                                  className="w-full appearance-none rounded-xl border border-gray-200 bg-white py-3 pl-11 pr-9 text-sm font-semibold text-gray-700 focus:border-gray-400 focus:outline-none"
+                                  style={{ fontFamily:U }}>
+                                  {Q_TYPES.map(type=><option key={type.id} value={type.id}>{type.label}</option>)}
+                                </select>
+                                <TypeIcon size={16} className="absolute left-4 top-1/2 -translate-y-1/2 text-gray-400"/>
+                                <ChevronDown size={15} className="pointer-events-none absolute right-3 top-1/2 -translate-y-1/2 text-gray-400"/>
+                              </div>
+                              <input type="number" min="0" value={question.points} onChange={e=>updateQuestion(section.id, question.id, { points:e.target.value })}
+                                className="rounded-xl border border-gray-200 px-3 py-3 text-sm font-bold text-gray-800 focus:border-gray-400 focus:outline-none" style={{ fontFamily:U }}/>
+                            </div>
+                          </div>
+
+                          <div className="mb-4">{renderQuestionBody(section.id, question)}</div>
+
+                          <div className="flex flex-col gap-3 border-t border-gray-100 pt-4 sm:flex-row sm:items-center">
+                            <div className="flex items-center gap-3">
+                              <span className="text-xs font-bold text-gray-500" style={{ fontFamily:U }}>Required</span>
+                              <Toggle on={question.required} onChange={()=>updateQuestion(section.id, question.id, { required:!question.required })}/>
+                            </div>
+                            <div className="flex items-center gap-1 sm:ml-auto">
+                              <button onClick={()=>duplicateQuestion(section.id, question)} className="h-9 w-9 rounded-lg flex items-center justify-center text-gray-400 hover:bg-gray-50 hover:text-gray-700 transition-all" title="Duplicate question"><Copy size={15}/></button>
+                              <button onClick={()=>deleteQuestion(section.id, question.id)} className="h-9 w-9 rounded-lg flex items-center justify-center text-gray-400 hover:bg-red-50 hover:text-red-500 transition-all" title="Delete question"><Trash2 size={15}/></button>
+                            </div>
+                          </div>
+                        </div>
+                      );
+                    })}
+
+                    <div className="flex flex-wrap gap-2">
+                      <button onClick={()=>addQuestion(section.id)} className="flex items-center gap-2 rounded-xl border border-dashed border-gray-200 bg-white px-4 py-3 text-xs font-bold text-gray-600 hover:border-gray-300 hover:text-gray-900 transition-all" style={{ fontFamily:U }}>
+                        <Plus size={14}/>Add question
+                      </button>
+                      <button onClick={addSection} className="flex items-center gap-2 rounded-xl border border-dashed border-gray-200 bg-white px-4 py-3 text-xs font-bold text-gray-600 hover:border-gray-300 hover:text-gray-900 transition-all" style={{ fontFamily:U }}>
+                        <Layers size={14}/>Add section
+                      </button>
+                    </div>
+                  </div>
+                </div>
+              ))}
+            </div>
+
+            <div className="xl:sticky xl:top-36 xl:self-start">
+              <div className="rounded-2xl border border-gray-100 bg-white p-4">
+                <p className="mb-3 text-xs font-black uppercase tracking-wider text-gray-400" style={{ fontFamily:U }}>Builder tools</p>
+                <div className="grid gap-2">
+                  <button onClick={()=>setShowAiAssist(true)} className="flex items-center gap-3 rounded-xl px-3 py-3 text-left text-sm font-bold text-gray-700 hover:bg-gray-50" style={{ fontFamily:U }}><Sparkles size={16} style={{ color:CAMEL }}/>AI generator</button>
+                  <button onClick={()=>addQuestion(activeSection.id, "mcq")} className="flex items-center gap-3 rounded-xl px-3 py-3 text-left text-sm font-bold text-gray-700 hover:bg-gray-50" style={{ fontFamily:U }}><Plus size={16} style={{ color:CAMEL }}/>Add question</button>
+                  <button onClick={addSection} className="flex items-center gap-3 rounded-xl px-3 py-3 text-left text-sm font-bold text-gray-700 hover:bg-gray-50" style={{ fontFamily:U }}><Layers size={16} style={{ color:CAMEL }}/>Add section</button>
+                  <button onClick={()=>addQuestion(activeSection.id, "file")} className="flex items-center gap-3 rounded-xl px-3 py-3 text-left text-sm font-bold text-gray-700 hover:bg-gray-50" style={{ fontFamily:U }}><Upload size={16} style={{ color:CAMEL }}/>File upload</button>
+                  <button onClick={()=>addQuestion(activeSection.id, "math")} className="flex items-center gap-3 rounded-xl px-3 py-3 text-left text-sm font-bold text-gray-700 hover:bg-gray-50" style={{ fontFamily:U }}><FlaskConical size={16} style={{ color:CAMEL }}/>Formula item</button>
+                </div>
+                <div className="mt-4 rounded-xl bg-gray-50 p-4">
+                  <div className="grid grid-cols-2 gap-3 text-center">
+                    <div><p className="text-lg font-black" style={{ fontFamily:U, color:INK }}>{sections.length}</p><p className="text-[11px] text-gray-400" style={{ fontFamily:I }}>Sections</p></div>
+                    <div><p className="text-lg font-black" style={{ fontFamily:U, color:INK }}>{totalPoints}</p><p className="text-[11px] text-gray-400" style={{ fontFamily:I }}>Points</p></div>
+                  </div>
+                </div>
+              </div>
             </div>
           </div>
 
@@ -1281,465 +1869,6 @@ function ExamDetail() {
                 <button className="text-sm font-bold text-white px-6 py-2.5 rounded-xl" style={{ background:INK, fontFamily:U }}>Next →</button>
               </div>
             </div>
-          </div>
-        </div>
-      )}
-    </DashboardLayout>
-  );
-}
-
-// ═══════════════════════════════════════════════════════════════════════════════
-// QUESTION BANK
-// ═══════════════════════════════════════════════════════════════════════════════
-function QuestionBank() {
-  const navigate = useNavigate();
-  const [search, setSearch] = useState("");
-  const [typeFilter, setTypeFilter] = useState("all");
-  const [diffFilter, setDiffFilter] = useState("all");
-
-  const filtered = MOCK_QUESTIONS.filter(q=>{
-    const matchSearch = q.text.toLowerCase().includes(search.toLowerCase())||q.subject.toLowerCase().includes(search.toLowerCase());
-    const matchType = typeFilter==="all"||q.type===typeFilter;
-    const matchDiff = diffFilter==="all"||q.difficulty.toLowerCase()===diffFilter;
-    return matchSearch&&matchType&&matchDiff;
-  });
-
-  const typeInfo: Record<string,{label:string;color:string}> = {
-    mcq:      {label:"MCQ",           color:"bg-blue-50 text-blue-700"},
-    essay:    {label:"Essay",         color:"bg-purple-50 text-purple-700"},
-    truefalse:{label:"True/False",    color:"bg-green-50 text-green-700"},
-    short:    {label:"Short Answer",  color:"bg-amber-50 text-amber-700"},
-    fill:     {label:"Fill Blank",    color:"bg-orange-50 text-orange-700"},
-    matching: {label:"Matching",      color:"bg-cyan-50 text-cyan-700"},
-  };
-
-  const diffColor: Record<string,string> = { Easy:"bg-green-50 text-green-600", Medium:"bg-amber-50 text-amber-600", Hard:"bg-red-50 text-red-600" };
-
-  return (
-    <DashboardLayout active="questions" title="Question Bank" subtitle={`${MOCK_QUESTIONS.length} questions`}
-      actions={<button onClick={()=>navigate("/dashboard/questions/create")} className="flex items-center gap-2 text-white text-xs font-bold px-4 py-2 rounded-xl hover:opacity-90" style={{ background:INK, fontFamily:U }}><Plus size={14}/>New question</button>}>
-
-      <div className="flex flex-col sm:flex-row gap-3 mb-5">
-        <div className="relative flex-1">
-          <Search size={15} className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400"/>
-          <input value={search} onChange={e=>setSearch(e.target.value)} placeholder="Search questions…"
-            className="w-full pl-9 pr-4 py-2.5 text-sm bg-white border border-gray-200 rounded-xl focus:outline-none focus:border-gray-300" style={{ fontFamily:I }}/>
-        </div>
-        <select value={typeFilter} onChange={e=>setTypeFilter(e.target.value)} className="border border-gray-200 rounded-xl px-3 py-2.5 text-sm text-gray-700 bg-white focus:outline-none" style={{ fontFamily:I }}>
-          <option value="all">All types</option>
-          {Q_TYPES.map(t=><option key={t.id} value={t.id}>{t.label}</option>)}
-        </select>
-        <select value={diffFilter} onChange={e=>setDiffFilter(e.target.value)} className="border border-gray-200 rounded-xl px-3 py-2.5 text-sm text-gray-700 bg-white focus:outline-none" style={{ fontFamily:I }}>
-          <option value="all">All difficulty</option>
-          {["easy","medium","hard"].map(d=><option key={d} value={d} className="capitalize">{d.charAt(0).toUpperCase()+d.slice(1)}</option>)}
-        </select>
-      </div>
-
-      {filtered.length===0?(
-        <div className="bg-white rounded-2xl border border-gray-100 flex flex-col items-center py-24 text-center">
-          <BookMarked size={32} className="text-gray-200 mb-3"/>
-          <p className="text-sm font-semibold text-gray-400" style={{ fontFamily:U }}>No questions found</p>
-        </div>
-      ):(
-        <div className="space-y-2">
-          {filtered.map(q=>{
-            const ti = typeInfo[q.type]||{label:q.type,color:"bg-gray-100 text-gray-600"};
-            return (
-              <div key={q.id} className="bg-white rounded-xl border border-gray-100 px-5 py-4 flex items-start gap-4 hover:shadow-sm hover:border-gray-200 transition-all group">
-                <div className="flex-1 min-w-0">
-                  <div className="flex flex-wrap items-center gap-2 mb-2">
-                    <span className={`text-[11px] font-bold px-2.5 py-0.5 rounded-full ${ti.color}`} style={{ fontFamily:U }}>{ti.label}</span>
-                    <span className={`text-[11px] font-semibold px-2 py-0.5 rounded-full ${diffColor[q.difficulty]}`} style={{ fontFamily:U }}>{q.difficulty}</span>
-                    <span className="text-[11px] text-gray-400" style={{ fontFamily:I }}>{q.subject}</span>
-                  </div>
-                  <p className="text-sm text-gray-700 leading-relaxed" style={{ fontFamily:I }}>{q.text}</p>
-                  <div className="flex gap-1.5 mt-2">{q.tags.map(t=><span key={t} className="text-[10px] text-gray-400 bg-gray-50 px-2 py-0.5 rounded-full" style={{ fontFamily:I }}>#{t}</span>)}</div>
-                </div>
-                <div className="flex gap-1.5 flex-shrink-0 opacity-0 group-hover:opacity-100 transition-opacity">
-                  <button className="w-8 h-8 rounded-lg border border-gray-200 flex items-center justify-center text-gray-400 hover:text-gray-700 hover:bg-gray-50 transition-all"><Eye size={13}/></button>
-                  <button onClick={()=>navigate(`/dashboard/questions/create?id=${q.id}`)} className="w-8 h-8 rounded-lg border border-gray-200 flex items-center justify-center text-gray-400 hover:text-gray-700 hover:bg-gray-50 transition-all"><Pencil size={13}/></button>
-                  <button className="w-8 h-8 rounded-lg border border-gray-200 flex items-center justify-center text-gray-400 hover:text-red-500 hover:bg-red-50 transition-all"><Trash2 size={13}/></button>
-                </div>
-              </div>
-            );
-          })}
-        </div>
-      )}
-
-      {/* Import section */}
-      <div className="mt-5 bg-white rounded-2xl border border-dashed border-gray-200 p-6 flex flex-col sm:flex-row items-center gap-5">
-        <div className="w-12 h-12 rounded-2xl flex items-center justify-center flex-shrink-0" style={{ background:"#F0EDE8" }}><Upload size={22} style={{ color:INK }}/></div>
-        <div className="flex-1 text-center sm:text-left">
-          <p className="text-sm font-bold text-gray-800" style={{ fontFamily:U }}>Import questions from a file</p>
-          <p className="text-xs text-gray-400 mt-0.5" style={{ fontFamily:I }}>Supports PDF, DOCX, and TXT. We'll parse and add them to your bank.</p>
-        </div>
-        <div className="flex gap-2 flex-shrink-0">
-          <button className="text-xs font-semibold px-4 py-2.5 rounded-xl border border-gray-200 text-gray-600 hover:bg-gray-50" style={{ fontFamily:U }}>Browse file</button>
-          <button onClick={()=>navigate("/dashboard/ai")} className="text-xs font-semibold px-4 py-2.5 rounded-xl text-white hover:opacity-90" style={{ background:INK, fontFamily:U }}><Sparkles size={12} className="inline mr-1"/>Use AI instead</button>
-        </div>
-      </div>
-    </DashboardLayout>
-  );
-}
-
-// ═══════════════════════════════════════════════════════════════════════════════
-// CREATE / EDIT QUESTION
-// ═══════════════════════════════════════════════════════════════════════════════
-function QuestionCreate() {
-  const navigate = useNavigate();
-  const [qType, setQType] = useState("");
-  const [question, setQuestion] = useState("");
-  const [options, setOptions] = useState(["","","",""]);
-  const [correctIdx, setCorrectIdx] = useState(0);
-  const [difficulty, setDifficulty] = useState("Medium");
-  const [subject, setSubject] = useState("Mathematics");
-  const [tags, setTags] = useState("");
-  const [wordLimit, setWordLimit] = useState("300");
-  const [saved, setSaved] = useState(false);
-
-  const updateOption = (i: number, val: string) => setOptions(prev => { const n=[...prev]; n[i]=val; return n; });
-
-  const save = () => { setSaved(true); setTimeout(()=>{ setSaved(false); navigate("/dashboard/questions"); }, 800); };
-
-  return (
-    <DashboardLayout active="question-create" title="New Question" subtitle="Build a question for your bank">
-      <div className="w-full">
-        <div className="flex items-center gap-2 text-xs text-gray-400 mb-6" style={{ fontFamily:I }}>
-          <button onClick={()=>navigate("/dashboard/questions")} className="hover:text-gray-700">Question Bank</button>
-          <ChevronRight size={13}/><span className="text-gray-600">New Question</span>
-        </div>
-
-        {/* Step 1: Type Selector */}
-        {!qType&&(
-          <div className="bg-white rounded-2xl border border-gray-100 p-6">
-            <h3 className="text-sm font-black mb-2" style={{ fontFamily:U, color:INK }}>Choose question type</h3>
-            <p className="text-xs text-gray-400 mb-5" style={{ fontFamily:I }}>Select the format that best fits your question.</p>
-            <div className="grid grid-cols-2 sm:grid-cols-3 xl:grid-cols-5 gap-3">
-              {Q_TYPES.map(({ id, label, icon:Icon, color })=>(
-                <button key={id} onClick={()=>setQType(id)}
-                  className="flex flex-col items-center gap-2.5 p-4 rounded-xl border-2 border-gray-100 hover:border-gray-300 hover:shadow-md transition-all text-center group">
-                  <div className="w-10 h-10 rounded-xl flex items-center justify-center group-hover:scale-110 transition-transform" style={{ background:color }}>
-                    <Icon size={19} style={{ color:INK }}/>
-                  </div>
-                  <span className="text-xs font-semibold text-gray-700" style={{ fontFamily:U }}>{label}</span>
-                </button>
-              ))}
-            </div>
-          </div>
-        )}
-
-        {/* Step 2: Question Form */}
-        {qType&&(
-          <div className="space-y-4">
-            <div className="bg-white rounded-2xl border border-gray-100 p-6">
-              <div className="flex items-center justify-between mb-5">
-                <div className="flex items-center gap-3">
-                  {(() => { const t=Q_TYPES.find(x=>x.id===qType)!; return <><div className="w-9 h-9 rounded-xl flex items-center justify-center" style={{ background:t.color }}><t.icon size={18} style={{ color:INK }}/></div><div><p className="text-sm font-black" style={{ fontFamily:U, color:INK }}>{t.label}</p></div></>; })()}
-                </div>
-                <button onClick={()=>setQType("")} className="text-xs text-gray-400 hover:text-gray-600 flex items-center gap-1" style={{ fontFamily:I }}><ChevronLeft size={12}/>Change type</button>
-              </div>
-
-              {/* Question text */}
-              <div className="mb-4">
-                <label className="text-xs font-bold text-gray-500 uppercase tracking-wider mb-1.5 block" style={{ fontFamily:U }}>Question <span className="text-red-400">*</span></label>
-                <textarea value={question} onChange={e=>setQuestion(e.target.value)} rows={3} placeholder="Type your question here…"
-                  className="w-full border border-gray-200 rounded-xl px-4 py-3 text-sm text-gray-900 placeholder:text-gray-400 focus:outline-none focus:border-gray-400 transition-colors resize-none" style={{ fontFamily:I }}/>
-              </div>
-
-              {/* MCQ options */}
-              {(qType==="mcq"||qType==="checkbox")&&(
-                <div className="mb-4">
-                  <label className="text-xs font-bold text-gray-500 uppercase tracking-wider mb-2 block" style={{ fontFamily:U }}>Answer Options</label>
-                  <div className="space-y-2">
-                    {options.map((opt,i)=>(
-                      <div key={i} className="flex items-center gap-3">
-                        {qType==="mcq"?(
-                          <button onClick={()=>setCorrectIdx(i)} className={`w-5 h-5 rounded-full border-2 flex items-center justify-center flex-shrink-0 transition-all ${correctIdx===i?"border-green-500":"border-gray-300"}`}>{correctIdx===i&&<div className="w-2.5 h-2.5 rounded-full bg-green-500"/>}</button>
-                        ):(
-                          <div className="w-5 h-5 rounded border-2 border-gray-300 flex-shrink-0"/>
-                        )}
-                        <input value={opt} onChange={e=>updateOption(i,e.target.value)} placeholder={`Option ${String.fromCharCode(65+i)}`}
-                          className="flex-1 border border-gray-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:border-gray-400" style={{ fontFamily:I }}/>
-                      </div>
-                    ))}
-                  </div>
-                  {qType==="mcq"&&<p className="text-[11px] text-gray-400 mt-2" style={{ fontFamily:I }}>Click the circle to mark the correct answer.</p>}
-                </div>
-              )}
-
-              {/* True/False */}
-              {qType==="truefalse"&&(
-                <div className="mb-4">
-                  <label className="text-xs font-bold text-gray-500 uppercase tracking-wider mb-2 block" style={{ fontFamily:U }}>Correct Answer</label>
-                  <div className="flex gap-3">
-                    {["True","False"].map(v=>(
-                      <button key={v} onClick={()=>setCorrectIdx(v==="True"?0:1)}
-                        className={`flex-1 py-3 rounded-xl border-2 text-sm font-bold transition-all ${(v==="True"?correctIdx===0:correctIdx===1)?"text-white border-transparent":"border-gray-200 text-gray-600"}`}
-                        style={{ background:(v==="True"?correctIdx===0:correctIdx===1)?INK:undefined, fontFamily:U }}>{v}</button>
-                    ))}
-                  </div>
-                </div>
-              )}
-
-              {/* Essay word limit */}
-              {qType==="essay"&&(
-                <div className="mb-4">
-                  <label className="text-xs font-bold text-gray-500 uppercase tracking-wider mb-1.5 block" style={{ fontFamily:U }}>Word Limit</label>
-                  <input type="number" value={wordLimit} onChange={e=>setWordLimit(e.target.value)} placeholder="e.g. 300"
-                    className="w-40 border border-gray-200 rounded-xl px-4 py-2.5 text-sm focus:outline-none focus:border-gray-400" style={{ fontFamily:I }}/>
-                </div>
-              )}
-
-              {/* Fill blank answer */}
-              {qType==="fill"&&(
-                <div className="mb-4">
-                  <label className="text-xs font-bold text-gray-500 uppercase tracking-wider mb-1.5 block" style={{ fontFamily:U }}>Correct Answer(s)</label>
-                  <input placeholder="e.g. photosynthesis (comma-separate for multiple)" className="w-full border border-gray-200 rounded-xl px-4 py-2.5 text-sm focus:outline-none focus:border-gray-400" style={{ fontFamily:I }}/>
-                </div>
-              )}
-
-              {/* Matching */}
-              {qType==="matching"&&(
-                <div className="mb-4">
-                  <label className="text-xs font-bold text-gray-500 uppercase tracking-wider mb-2 block" style={{ fontFamily:U }}>Pairs</label>
-                  {[["",""],["",""],["",""]].map((_,i)=>(
-                    <div key={i} className="flex items-center gap-3 mb-2">
-                      <input placeholder={`Term ${i+1}`} className="flex-1 border border-gray-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:border-gray-400" style={{ fontFamily:I }}/>
-                      <ArrowLeftRight size={14} className="text-gray-300 flex-shrink-0"/>
-                      <input placeholder={`Match ${i+1}`} className="flex-1 border border-gray-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:border-gray-400" style={{ fontFamily:I }}/>
-                    </div>
-                  ))}
-                </div>
-              )}
-
-              {/* File upload */}
-              {qType==="file"&&(
-                <div className="mb-4 border border-dashed border-gray-200 rounded-xl p-5 text-center">
-                  <Upload size={20} className="text-gray-300 mx-auto mb-2"/>
-                  <p className="text-xs text-gray-400" style={{ fontFamily:I }}>Students will upload a file (PDF, DOCX, image, etc.)</p>
-                  <div className="flex gap-2 justify-center mt-3">
-                    {["PDF","DOCX","JPG","PNG"].map(f=><span key={f} className="text-[11px] text-gray-500 bg-gray-100 px-2 py-0.5 rounded" style={{ fontFamily:U }}>{f}</span>)}
-                  </div>
-                </div>
-              )}
-
-              {/* Math */}
-              {qType==="math"&&(
-                <div className="mb-4">
-                  <label className="text-xs font-bold text-gray-500 uppercase tracking-wider mb-1.5 block" style={{ fontFamily:U }}>Expected Answer / Formula</label>
-                  <input placeholder="e.g. f'(x) = cos(x) or numeric value 42" className="w-full border border-gray-200 rounded-xl px-4 py-2.5 text-sm focus:outline-none focus:border-gray-400 font-mono" style={{ fontFamily:"monospace" }}/>
-                  <p className="text-[11px] text-gray-400 mt-1.5" style={{ fontFamily:I }}>LaTeX notation supported. Students can use an equation editor.</p>
-                </div>
-              )}
-            </div>
-
-            {/* Metadata */}
-            <div className="bg-white rounded-2xl border border-gray-100 p-6">
-              <h3 className="text-sm font-black mb-5" style={{ fontFamily:U, color:INK }}>Details</h3>
-              <div className="grid sm:grid-cols-3 gap-4">
-                <div>
-                  <label className="text-xs font-bold text-gray-500 uppercase tracking-wider mb-1.5 block" style={{ fontFamily:U }}>Subject</label>
-                  <select value={subject} onChange={e=>setSubject(e.target.value)} className="w-full border border-gray-200 rounded-xl px-3 py-2.5 text-sm bg-white focus:outline-none focus:border-gray-400" style={{ fontFamily:I }}>
-                    {["Mathematics","Science","English","History","CS","Physics","Chemistry"].map(s=><option key={s} value={s}>{s}</option>)}
-                  </select>
-                </div>
-                <div>
-                  <label className="text-xs font-bold text-gray-500 uppercase tracking-wider mb-1.5 block" style={{ fontFamily:U }}>Difficulty</label>
-                  <div className="flex gap-1.5">
-                    {["Easy","Medium","Hard"].map(d=>(
-                      <button key={d} onClick={()=>setDifficulty(d)} className={`flex-1 text-xs font-semibold py-2.5 rounded-lg border transition-all ${difficulty===d?"text-white border-transparent":"border-gray-200 text-gray-500"}`} style={{ background:difficulty===d?INK:undefined, fontFamily:U }}>{d}</button>
-                    ))}
-                  </div>
-                </div>
-                <div>
-                  <label className="text-xs font-bold text-gray-500 uppercase tracking-wider mb-1.5 block" style={{ fontFamily:U }}>Tags</label>
-                  <input value={tags} onChange={e=>setTags(e.target.value)} placeholder="comma-separated" className="w-full border border-gray-200 rounded-xl px-3 py-2.5 text-sm focus:outline-none focus:border-gray-400" style={{ fontFamily:I }}/>
-                </div>
-              </div>
-            </div>
-
-            <div className="flex gap-3">
-              <button onClick={save} className="flex items-center gap-2 text-white font-bold px-6 py-3 rounded-xl text-sm hover:opacity-90" style={{ background:INK, fontFamily:U }}>
-                {saved?<><CheckCircle2 size={15}/>Saved!</>:"Save question"}
-              </button>
-              <button onClick={()=>navigate("/dashboard/questions")} className="text-sm font-medium text-gray-400 hover:text-gray-600 px-4 py-3" style={{ fontFamily:I }}>Cancel</button>
-            </div>
-          </div>
-        )}
-      </div>
-    </DashboardLayout>
-  );
-}
-
-// ═══════════════════════════════════════════════════════════════════════════════
-// AI QUESTION GENERATOR
-// ═══════════════════════════════════════════════════════════════════════════════
-function AIGenerator() {
-  const navigate = useNavigate();
-  const fileRef = useRef<HTMLInputElement>(null);
-  const [file, setFile] = useState<string|null>(null);
-  const [topic, setTopic] = useState("");
-  const [subject, setSubject] = useState("Mathematics");
-  const [count, setCount] = useState(10);
-  const [difficulty, setDifficulty] = useState("Mixed");
-  const [language, setLanguage] = useState("English");
-  const [blooms, setBlooms] = useState<string[]>(["Knowledge","Comprehension","Application"]);
-  const [generating, setGenerating] = useState(false);
-  const [generated, setGenerated] = useState<any[]|null>(null);
-  const [selected, setSelected] = useState<number[]>([]);
-
-  const allBlooms = ["Knowledge","Comprehension","Application","Analysis","Synthesis","Evaluation"];
-  const toggleBloom = (b: string) => setBlooms(p=>p.includes(b)?p.filter(x=>x!==b):[...p,b]);
-  const toggleSelect = (i: number) => setSelected(p=>p.includes(i)?p.filter(x=>x!==i):[...p,i]);
-
-  const handleGenerate = () => {
-    if(!topic&&!file) return;
-    setGenerating(true);
-    setTimeout(()=>{
-      setGenerating(false);
-      setGenerated([
-        { type:"MCQ",  q:"What is the derivative of f(x) = x³?",          opts:["3x²","x²","3x","2x³"],  correct:0, difficulty:"Easy"   },
-        { type:"MCQ",  q:"Which method is used to find the area under a curve?", opts:["Integration","Differentiation","Factoring","Logarithm"], correct:0, difficulty:"Medium" },
-        { type:"Short",q:"Explain the fundamental theorem of calculus.",    difficulty:"Medium" },
-        { type:"Essay",q:"Discuss the applications of derivatives in real life, including optimization problems.", difficulty:"Hard" },
-        { type:"T/F",  q:"The integral of a constant is always zero.",      correct:false, difficulty:"Easy" },
-        { type:"MCQ",  q:"If f(x) = e^x, then f'(x) = ?",                 opts:["e^x","xe^x","e^(x-1)","0"], correct:0, difficulty:"Easy" },
-        { type:"Short",q:"What is L'Hôpital's rule and when is it applied?", difficulty:"Medium" },
-        { type:"MCQ",  q:"What is the chain rule used for?",               opts:["Composite functions","Sums","Products","Constants"], correct:0, difficulty:"Medium" },
-        { type:"Essay",q:"Compare and contrast definite and indefinite integrals.", difficulty:"Hard" },
-        { type:"T/F",  q:"Every continuous function on a closed interval has a maximum value.", correct:true, difficulty:"Medium" },
-      ].slice(0,count));
-      setSelected(Array.from({length:count},(_,i)=>i));
-    }, 1800);
-  };
-
-  const diffColor: Record<string,string> = { Easy:"bg-green-50 text-green-600", Medium:"bg-amber-50 text-amber-600", Hard:"bg-red-50 text-red-600" };
-
-  return (
-    <DashboardLayout active="ai" title="AI Generator" subtitle="Generate questions from your materials">
-      {!generated?(
-        <div className="grid w-full gap-4 xl:grid-cols-2">
-          {/* Upload */}
-          <div className="bg-white rounded-2xl border border-gray-100 p-6">
-            <h3 className="text-sm font-black mb-2" style={{ fontFamily:U, color:INK }}>Upload material <span className="text-gray-400 font-normal text-xs ml-1">optional</span></h3>
-            <p className="text-xs text-gray-400 mb-4" style={{ fontFamily:I }}>Upload lecture notes, a textbook chapter, or a slide deck. The AI will use them as source material.</p>
-            <input ref={fileRef} type="file" accept=".pdf,.doc,.docx,.txt,.ppt,.pptx" className="hidden" onChange={e=>setFile(e.target.files?.[0]?.name||null)}/>
-            {file?(
-              <div className="flex items-center gap-3 bg-gray-50 border border-gray-200 rounded-xl px-4 py-3">
-                <FileText size={18} style={{ color:CAMEL }}/>
-                <span className="text-sm text-gray-700 flex-1 truncate" style={{ fontFamily:I }}>{file}</span>
-                <button onClick={()=>setFile(null)} className="text-gray-400 hover:text-gray-600"><X size={15}/></button>
-              </div>
-            ):(
-              <button onClick={()=>fileRef.current?.click()} className="w-full border-2 border-dashed border-gray-200 hover:border-gray-300 rounded-xl py-10 flex flex-col items-center gap-3 text-center transition-all hover:bg-gray-50 group">
-                <div className="w-12 h-12 rounded-2xl flex items-center justify-center group-hover:scale-110 transition-transform" style={{ background:"#F0EDE8" }}><Upload size={22} style={{ color:INK }}/></div>
-                <div><p className="text-sm font-semibold text-gray-600" style={{ fontFamily:U }}>Drop a file or click to browse</p><p className="text-xs text-gray-400 mt-0.5" style={{ fontFamily:I }}>PDF, DOCX, PPT, TXT — max 20 MB</p></div>
-              </button>
-            )}
-          </div>
-
-          {/* Topic override */}
-          <div className="bg-white rounded-2xl border border-gray-100 p-6">
-            <h3 className="text-sm font-black mb-4" style={{ fontFamily:U, color:INK }}>Or describe a topic</h3>
-            <textarea value={topic} onChange={e=>setTopic(e.target.value)} rows={3} placeholder="e.g. Differentiation and integration in single-variable calculus — include chain rule, product rule, and definite integrals…"
-              className="w-full border border-gray-200 rounded-xl px-4 py-3 text-sm text-gray-900 placeholder:text-gray-400 focus:outline-none focus:border-gray-400 transition-colors resize-none" style={{ fontFamily:I }}/>
-          </div>
-
-          {/* Configure */}
-          <div className="bg-white rounded-2xl border border-gray-100 p-6 xl:col-span-2">
-            <h3 className="text-sm font-black mb-5" style={{ fontFamily:U, color:INK }}>Configuration</h3>
-            <div className="grid sm:grid-cols-2 gap-5 mb-5">
-              <div>
-                <label className="text-xs font-bold text-gray-500 uppercase tracking-wider mb-1.5 block" style={{ fontFamily:U }}>Subject</label>
-                <select value={subject} onChange={e=>setSubject(e.target.value)} className="w-full border border-gray-200 rounded-xl px-3 py-2.5 text-sm bg-white focus:outline-none focus:border-gray-400" style={{ fontFamily:I }}>
-                  {["Mathematics","Science","English","History","CS","Physics","Chemistry"].map(s=><option key={s}>{s}</option>)}
-                </select>
-              </div>
-              <div>
-                <label className="text-xs font-bold text-gray-500 uppercase tracking-wider mb-1.5 block" style={{ fontFamily:U }}>Language</label>
-                <select value={language} onChange={e=>setLanguage(e.target.value)} className="w-full border border-gray-200 rounded-xl px-3 py-2.5 text-sm bg-white focus:outline-none focus:border-gray-400" style={{ fontFamily:I }}>
-                  {["English","French","Spanish","Arabic","Swahili","German","Mandarin"].map(l=><option key={l}>{l}</option>)}
-                </select>
-              </div>
-            </div>
-            <div className="mb-5">
-              <label className="text-xs font-bold text-gray-500 uppercase tracking-wider mb-2 block" style={{ fontFamily:U }}>Number of questions: <span style={{ color:INK }}>{count}</span></label>
-              <input type="range" min={5} max={50} step={5} value={count} onChange={e=>setCount(+e.target.value)} className="w-full accent-gray-900"/>
-              <div className="flex justify-between text-[10px] text-gray-400 mt-1" style={{ fontFamily:I }}><span>5</span><span>25</span><span>50</span></div>
-            </div>
-            <div className="mb-5">
-              <label className="text-xs font-bold text-gray-500 uppercase tracking-wider mb-2 block" style={{ fontFamily:U }}>Difficulty</label>
-              <div className="flex gap-2">
-                {["Easy","Medium","Hard","Mixed"].map(d=>(
-                  <button key={d} onClick={()=>setDifficulty(d)} className={`flex-1 text-xs font-semibold py-2 rounded-lg border transition-all ${difficulty===d?"text-white border-transparent":"border-gray-200 text-gray-500"}`} style={{ background:difficulty===d?INK:undefined, fontFamily:U }}>{d}</button>
-                ))}
-              </div>
-            </div>
-            <div>
-              <label className="text-xs font-bold text-gray-500 uppercase tracking-wider mb-2 block" style={{ fontFamily:U }}>{"Bloom's Taxonomy"}</label>
-              <div className="flex flex-wrap gap-2">
-                {allBlooms.map(b=>(
-                  <button key={b} onClick={()=>toggleBloom(b)}
-                    className={`text-xs font-semibold px-3 py-1.5 rounded-full border transition-all ${blooms.includes(b)?"text-white border-transparent":"border-gray-200 text-gray-500 hover:border-gray-300"}`}
-                    style={{ background:blooms.includes(b)?INK:undefined, fontFamily:U }}>{b}</button>
-                ))}
-              </div>
-            </div>
-          </div>
-
-          <button onClick={handleGenerate} disabled={!topic&&!file||generating}
-            className="w-full flex items-center justify-center gap-3 text-white font-bold py-4 rounded-xl text-sm transition-all hover:opacity-90 active:scale-[0.98] disabled:opacity-40 xl:col-span-2"
-            style={{ background:`linear-gradient(135deg, ${INK}, #1e3a5f)`, fontFamily:U }}>
-            {generating?<><RefreshCw size={16} className="animate-spin"/>Generating {count} questions…</>:<><Sparkles size={16}/>Generate {count} questions with AI</>}
-          </button>
-        </div>
-      ):(
-        /* Review generated questions */
-        <div className="w-full">
-          <div className="flex items-center justify-between mb-5">
-            <div>
-              <h2 className="text-base font-black" style={{ fontFamily:U, color:INK }}>{generated.length} questions generated</h2>
-              <p className="text-xs text-gray-400 mt-0.5" style={{ fontFamily:I }}>Review, edit, then add selected to your question bank.</p>
-            </div>
-            <div className="flex gap-2">
-              <button onClick={()=>setGenerated(null)} className="text-xs font-semibold px-4 py-2 rounded-xl border border-gray-200 text-gray-600 hover:bg-gray-50" style={{ fontFamily:U }}>← Regenerate</button>
-              <button onClick={()=>navigate("/dashboard/questions")} className="flex items-center gap-1.5 text-xs font-bold text-white px-4 py-2 rounded-xl hover:opacity-90" style={{ background:INK, fontFamily:U }}>
-                <CheckCircle2 size={13}/>Add {selected.length} to bank
-              </button>
-            </div>
-          </div>
-
-          <div className="flex items-center gap-3 mb-4">
-            <button onClick={()=>setSelected(generated.map((_,i)=>i))} className="text-xs text-gray-500 hover:text-gray-800 underline" style={{ fontFamily:I }}>Select all</button>
-            <span className="text-gray-300">·</span>
-            <button onClick={()=>setSelected([])} className="text-xs text-gray-500 hover:text-gray-800 underline" style={{ fontFamily:I }}>Deselect all</button>
-            <span className="text-xs text-gray-400 ml-auto" style={{ fontFamily:I }}>{selected.length}/{generated.length} selected</span>
-          </div>
-
-          <div className="space-y-3">
-            {generated.map((q,i)=>(
-              <div key={i} onClick={()=>toggleSelect(i)} className={`bg-white rounded-xl border-2 px-5 py-4 cursor-pointer transition-all ${selected.includes(i)?"border-gray-800":"border-gray-100 hover:border-gray-200"}`}>
-                <div className="flex items-start gap-3">
-                  <div className={`w-5 h-5 rounded border-2 flex items-center justify-center flex-shrink-0 mt-0.5 transition-all ${selected.includes(i)?"border-transparent":"border-gray-300"}`}
-                    style={{ background:selected.includes(i)?INK:undefined }}>
-                    {selected.includes(i)&&<Check size={11} className="text-white"/>}
-                  </div>
-                  <div className="flex-1 min-w-0">
-                    <div className="flex flex-wrap items-center gap-2 mb-2">
-                      <span className="text-[11px] font-bold text-blue-700 bg-blue-50 px-2 py-0.5 rounded-full" style={{ fontFamily:U }}>{q.type}</span>
-                      <span className={`text-[11px] font-semibold px-2 py-0.5 rounded-full ${diffColor[q.difficulty]}`} style={{ fontFamily:U }}>{q.difficulty}</span>
-                    </div>
-                    <p className="text-sm text-gray-700 leading-relaxed" style={{ fontFamily:I }}>{q.q}</p>
-                    {q.opts&&(
-                      <div className="mt-3 grid grid-cols-2 gap-1.5">
-                        {q.opts.map((o: string,j: number)=><div key={j} className={`text-xs px-3 py-1.5 rounded-lg ${j===q.correct?"bg-green-50 text-green-700 font-semibold":"text-gray-500 bg-gray-50"}`} style={{ fontFamily:I }}>{String.fromCharCode(65+j)}. {o}</div>)}
-                      </div>
-                    )}
-                  </div>
-                  <button onClick={e=>e.stopPropagation()} className="flex-shrink-0 w-8 h-8 rounded-lg border border-gray-200 flex items-center justify-center text-gray-400 hover:text-gray-700 hover:bg-gray-50 transition-all"><Pencil size={12}/></button>
-                </div>
-              </div>
-            ))}
           </div>
         </div>
       )}
@@ -2358,7 +2487,7 @@ function ManualGrading() {
         <button onClick={()=>navigate("/dashboard/grading")} className="text-xs font-semibold px-3 py-2 rounded-xl border border-gray-200 text-gray-600 hover:bg-gray-50" style={{ fontFamily:U }}>← All results</button>
       </>}>
 
-      <div className="grid lg:grid-cols-[200px_1fr_280px] gap-5 h-[calc(100vh-11rem)]">
+      <div className="grid lg:grid-cols-[200px_1fr_320px] gap-5 h-[calc(100vh-10rem)]">
         {/* Left: student list */}
         <div className="bg-white rounded-2xl border border-gray-100 overflow-auto">
           <div className="px-4 py-3 border-b border-gray-100 sticky top-0 bg-white z-10">
@@ -2392,7 +2521,7 @@ function ManualGrading() {
         </div>
 
         {/* Center: student response */}
-        <div className="flex flex-col gap-4 overflow-auto">
+        <div className="flex min-h-0 flex-col gap-4 overflow-auto">
           <div className="bg-white rounded-2xl border border-gray-100 p-6 flex-shrink-0">
             <div className="flex items-center gap-2 mb-4">
               <span className="text-xs font-black px-2.5 py-1 rounded-full" style={{ background:`${CAMEL}20`, color:CAMEL, fontFamily:U }}>Q{question.id} · {question.type}</span>
@@ -2416,21 +2545,21 @@ function ManualGrading() {
         </div>
 
         {/* Right: scoring panel */}
-        <div className="flex flex-col gap-4 overflow-auto">
+        <div className="sticky top-36 flex h-[calc(100vh-10rem)] min-h-0 flex-col gap-3 overflow-hidden">
           {/* Score input */}
-          <div className="bg-white rounded-2xl border border-gray-100 p-5">
-            <p className="text-xs font-black uppercase tracking-wider text-gray-500 mb-4" style={{ fontFamily:U }}>Score</p>
-            <div className="flex items-center gap-3 mb-4">
+          <div className="bg-white rounded-2xl border border-gray-100 p-4">
+            <p className="text-xs font-black uppercase tracking-wider text-gray-500 mb-3" style={{ fontFamily:U }}>Score</p>
+            <div className="flex items-center gap-3 mb-3">
               <div className="flex-1 relative">
                 <input type="number" value={scores[key]??""} onChange={e=>setScore(Number(e.target.value))} min={0} max={question.maxScore}
-                  placeholder="—" className="w-full border-2 border-gray-200 rounded-xl px-4 py-3 text-2xl font-black text-center focus:outline-none focus:border-gray-900 transition-colors" style={{ fontFamily:U, color:INK }}/>
+                  placeholder="—" className="w-full border-2 border-gray-200 rounded-xl px-4 py-2.5 text-2xl font-black text-center focus:outline-none focus:border-gray-900 transition-colors" style={{ fontFamily:U, color:INK }}/>
               </div>
               <div className="text-center">
                 <p className="text-2xl font-black text-gray-300" style={{ fontFamily:U }}>/ {question.maxScore}</p>
               </div>
             </div>
             {/* Quick score buttons */}
-            <div className="grid grid-cols-4 gap-1.5 mb-4">
+            <div className="grid grid-cols-5 gap-1.5 mb-3">
               {[0,25,50,75,100].map(pct=>{
                 const v = Math.round(question.maxScore*pct/100);
                 return <button key={pct} onClick={()=>setScore(v)} className="py-1.5 rounded-lg border border-gray-200 text-xs font-bold text-gray-600 hover:bg-gray-50 hover:border-gray-300 transition-all" style={{ fontFamily:U }}>{pct}%</button>;
@@ -2443,9 +2572,9 @@ function ManualGrading() {
           </div>
 
           {/* Rubric */}
-          <div className="bg-white rounded-2xl border border-gray-100 p-5">
-            <p className="text-xs font-black uppercase tracking-wider text-gray-500 mb-3" style={{ fontFamily:U }}>Rubric</p>
-            <ul className="space-y-1.5">
+          <div className="bg-white rounded-2xl border border-gray-100 p-4">
+            <p className="text-xs font-black uppercase tracking-wider text-gray-500 mb-2" style={{ fontFamily:U }}>Rubric</p>
+            <ul className="space-y-1">
               {question.rubric.map((r,i)=>(
                 <li key={i} className="flex items-start gap-2 text-xs text-gray-600" style={{ fontFamily:I }}>
                   <div className="w-4 h-4 rounded-full border border-gray-300 flex-shrink-0 mt-0.5"/>
@@ -2456,14 +2585,14 @@ function ManualGrading() {
           </div>
 
           {/* Feedback */}
-          <div className="bg-white rounded-2xl border border-gray-100 p-5">
+          <div className="bg-white rounded-2xl border border-gray-100 p-4">
             <p className="text-xs font-black uppercase tracking-wider text-gray-500 mb-2" style={{ fontFamily:U }}>Feedback to student</p>
-            <textarea value={feedback[key]||""} onChange={e=>setFb(e.target.value)} rows={4} placeholder="Optional: add written feedback the student will see…"
+            <textarea value={feedback[key]||""} onChange={e=>setFb(e.target.value)} rows={3} placeholder="Optional: add written feedback the student will see…"
               className="w-full border border-gray-200 rounded-xl px-3 py-2.5 text-xs text-gray-700 placeholder:text-gray-400 focus:outline-none focus:border-gray-400 resize-none" style={{ fontFamily:I }}/>
           </div>
 
           {/* Save & navigate */}
-          <div className="space-y-2">
+          <div className="mt-auto space-y-2 rounded-2xl border border-gray-100 bg-white/95 p-3 shadow-sm">
             <button onClick={saveAndNext} disabled={scores[key]===undefined}
               className="w-full flex items-center justify-center gap-2 text-white font-bold py-3.5 rounded-xl text-sm hover:opacity-90 disabled:opacity-40 transition-all" style={{ background:INK, fontFamily:U }}>
               {saved?<><CheckCircle2 size={15}/>Saved!</>:"Save & Next →"}
@@ -2513,12 +2642,12 @@ function LiveMonitoring() {
   const flagged  = LIVE_STUDENTS.filter(s=>s.status==="flag");
   const done     = LIVE_STUDENTS.filter(s=>s.status==="done");
   const active   = LIVE_STUDENTS.filter(s=>s.status==="ok");
+  const avgProgress = Math.round(LIVE_STUDENTS.reduce((sum,s)=>sum+s.pct,0)/LIVE_STUDENTS.length);
+  const sortedStudents = [...LIVE_STUDENTS].sort((a,b)=>b.flags-a.flags || a.pct-b.pct);
 
   const sevColor: Record<string,string> = { warn:"#d97706", critical:"#ef4444", info:"#3b82f6" };
   const sevBg:    Record<string,string> = { warn:"#fff7ed", critical:"#fff0f0", info:"#eff6ff" };
-
-  const statusStyle = (s:string)=>
-    s==="flag"?"bg-red-50 border-red-300":s==="done"?"bg-blue-50 border-blue-200":"bg-white border-gray-200";
+  const statusText: Record<string,string> = { ok:"In progress", flag:"Needs attention", done:"Submitted" };
 
   return (
     <DashboardLayout active="monitoring" title="Live Monitor" subtitle="Real-time exam session"
@@ -2534,71 +2663,101 @@ function LiveMonitoring() {
         </div>
       </>}>
 
-      {/* Stats */}
-      <div className="grid grid-cols-4 gap-3 mb-5">
-        {[{l:"Active",v:active.length,color:"#16a34a",bg:"#f0fdf4"},{l:"Flagged",v:flagged.length,color:"#ef4444",bg:"#fff0f0"},{l:"Submitted",v:done.length,color:BLUE,bg:"#eff6ff"},{l:"Avg Progress",v:"44%",color:INK,bg:"#F0EDE8"}].map(({l,v,color,bg})=>(
-          <div key={l} className="bg-white rounded-xl border border-gray-100 p-4 flex items-center gap-3">
-            <div className="w-10 h-10 rounded-xl flex items-center justify-center text-xl font-black flex-shrink-0" style={{ background:bg, color, fontFamily:U }}>{v}</div>
-            <p className="text-xs font-semibold text-gray-500" style={{ fontFamily:I }}>{l}</p>
-          </div>
-        ))}
-      </div>
-
-      <div className="grid lg:grid-cols-[1fr_300px] gap-5">
-        {/* Student grid */}
-        <div>
-          {flagged.length>0&&(
-            <div className="bg-red-50 border border-red-200 rounded-2xl p-4 mb-4">
-              <div className="flex items-center gap-2 mb-3"><AlertOctagon size={16} className="text-red-500"/><p className="text-sm font-black text-red-700" style={{ fontFamily:U }}>{flagged.length} Active Alerts</p></div>
-              <div className="flex flex-wrap gap-2">
-                {flagged.map(s=>(
-                  <div key={s.init} className="flex items-center gap-2 bg-white border border-red-200 rounded-lg px-3 py-2">
-                    <div className="w-6 h-6 rounded-full bg-red-500 flex items-center justify-center text-white text-[9px] font-bold" style={{ fontFamily:U }}>{s.init}</div>
-                    <div><p className="text-xs font-bold text-gray-800" style={{ fontFamily:U }}>{s.name}</p><p className="text-[10px] text-red-500" style={{ fontFamily:I }}>{s.flags} flag{s.flags!==1?"s":""}</p></div>
-                    <button className="text-[10px] font-bold text-white bg-red-500 px-2 py-1 rounded-md ml-1 hover:bg-red-600" style={{ fontFamily:U }}>Warn</button>
+      <div className="grid gap-5 xl:grid-cols-[minmax(0,1fr)_340px]">
+        <div className="min-w-0 space-y-5">
+          <div className="bg-white rounded-2xl border border-gray-100 p-5">
+            <div className="flex flex-col gap-4 lg:flex-row lg:items-center lg:justify-between">
+              <div>
+                <p className="text-xs font-black uppercase tracking-wider text-gray-400" style={{ fontFamily:U }}>Session Health</p>
+                <h2 className="mt-1 text-lg font-black" style={{ fontFamily:U, color:INK }}>Biology Mid-term</h2>
+                <p className="text-xs text-gray-400 mt-0.5" style={{ fontFamily:I }}>{LIVE_STUDENTS.length} students joined · {avgProgress}% average progress</p>
+              </div>
+              <div className="grid grid-cols-4 gap-2 lg:w-[420px]">
+                {[{l:"Active",v:active.length,c:"#16a34a"},{l:"Flagged",v:flagged.length,c:"#ef4444"},{l:"Done",v:done.length,c:BLUE},{l:"Avg",v:`${avgProgress}%`,c:INK}].map(({l,v,c})=>(
+                  <div key={l} className="rounded-xl bg-gray-50 px-3 py-3 text-center">
+                    <p className="text-xl font-black leading-none" style={{ fontFamily:U, color:c }}>{v}</p>
+                    <p className="text-[10px] text-gray-400 mt-1" style={{ fontFamily:I }}>{l}</p>
                   </div>
                 ))}
               </div>
             </div>
-          )}
+          </div>
 
-          <div className="grid grid-cols-2 sm:grid-cols-3 xl:grid-cols-4 gap-2.5">
-            {LIVE_STUDENTS.map(s=>(
-              <div key={s.init} onClick={()=>setExpanded(expanded===s.name?null:s.name)}
-                className={`relative rounded-xl border-2 p-3 cursor-pointer transition-all hover:shadow-md ${statusStyle(s.status)} ${expanded===s.name?"ring-2 ring-gray-800":""}`}>
-                {/* Flag badge */}
-                {s.flags>0&&<div className="absolute -top-1.5 -right-1.5 w-5 h-5 bg-red-500 rounded-full flex items-center justify-center text-white text-[9px] font-bold z-10" style={{ fontFamily:U }}>{s.flags}</div>}
-                <div className="flex items-center gap-2 mb-2">
-                  <div className="w-8 h-8 rounded-full flex items-center justify-center text-white text-xs font-bold flex-shrink-0" style={{ background:s.status==="flag"?"#ef4444":s.status==="done"?BLUE:INK, fontFamily:U }}>{s.init}</div>
-                  <div className="min-w-0">
-                    <p className="text-[11px] font-bold text-gray-800 truncate" style={{ fontFamily:U }}>{s.name}</p>
-                    <p className={`text-[9px] font-semibold ${s.status==="flag"?"text-red-500":s.status==="done"?"text-blue-500":"text-gray-400"}`} style={{ fontFamily:I }}>{s.status==="done"?"Submitted":`Q${s.q}`}</p>
-                  </div>
-                </div>
-                {/* Progress bar */}
-                <div className="h-1 bg-gray-200 rounded-full overflow-hidden">
-                  <div className="h-full rounded-full transition-all" style={{ width:`${s.pct}%`, background:s.status==="flag"?"#ef4444":s.status==="done"?BLUE:CAMEL }}/>
-                </div>
-                <p className="text-[9px] text-gray-400 mt-1 text-right" style={{ fontFamily:I }}>{s.pct}%</p>
-
-                {/* Expanded details */}
-                {expanded===s.name&&(
-                  <div className="mt-3 pt-3 border-t border-gray-200 space-y-1">
-                    <p className="text-[10px] text-gray-500" style={{ fontFamily:I }}>Time elapsed: {s.elapsed}</p>
-                    <p className="text-[10px] text-gray-500" style={{ fontFamily:I }}>Flags: {s.flags}</p>
-                    <div className="flex gap-1.5 mt-2">
-                      <button className="flex-1 text-[10px] font-bold py-1 rounded bg-amber-500 text-white hover:bg-amber-600" style={{ fontFamily:U }}>Warn</button>
-                      <button className="flex-1 text-[10px] font-bold py-1 rounded bg-red-500 text-white hover:bg-red-600" style={{ fontFamily:U }}>Remove</button>
+          <div className="bg-white rounded-2xl border border-gray-100 overflow-hidden">
+            <div className="flex items-center justify-between border-b border-gray-100 px-5 py-4">
+              <div>
+                <h3 className="text-sm font-black" style={{ fontFamily:U, color:INK }}>Needs Attention</h3>
+                <p className="text-xs text-gray-400 mt-0.5" style={{ fontFamily:I }}>{flagged.length} students currently flagged</p>
+              </div>
+              <button onClick={()=>navigate("/dashboard/monitoring/logs")} className="text-xs font-bold hover:underline" style={{ fontFamily:U, color:CAMEL }}>Open logs</button>
+            </div>
+            <div className="grid gap-0 md:grid-cols-3">
+              {flagged.map(s=>(
+                <div key={s.init} className="border-b border-gray-50 px-5 py-4 md:border-b-0 md:border-r last:border-r-0">
+                  <div className="flex items-center gap-3">
+                    <div className="w-9 h-9 rounded-xl bg-red-500 flex items-center justify-center text-white text-xs font-black" style={{ fontFamily:U }}>{s.init}</div>
+                    <div className="min-w-0 flex-1">
+                      <p className="text-sm font-bold text-gray-900 truncate" style={{ fontFamily:U }}>{s.name}</p>
+                      <p className="text-xs text-red-500" style={{ fontFamily:I }}>{s.flags} flag{s.flags!==1?"s":""} · Q{s.q}</p>
                     </div>
                   </div>
-                )}
+                  <div className="mt-3 flex gap-2">
+                    <button className="flex-1 rounded-lg bg-amber-50 py-2 text-xs font-bold text-amber-700 hover:bg-amber-100" style={{ fontFamily:U }}>Warn</button>
+                    <button className="flex-1 rounded-lg bg-red-50 py-2 text-xs font-bold text-red-600 hover:bg-red-100" style={{ fontFamily:U }}>Review</button>
+                  </div>
+                </div>
+              ))}
+            </div>
+          </div>
+
+          <div className="bg-white rounded-2xl border border-gray-100 overflow-hidden">
+            <div className="flex items-center justify-between border-b border-gray-100 px-5 py-4">
+              <h3 className="text-sm font-black" style={{ fontFamily:U, color:INK }}>Student Activity</h3>
+              <div className="flex items-center gap-2 text-[11px] text-gray-400" style={{ fontFamily:I }}>
+                <span className="flex items-center gap-1"><span className="w-2 h-2 rounded-full bg-red-500"/>Flagged</span>
+                <span className="flex items-center gap-1"><span className="w-2 h-2 rounded-full" style={{ background:CAMEL }}/>Working</span>
+                <span className="flex items-center gap-1"><span className="w-2 h-2 rounded-full" style={{ background:BLUE }}/>Submitted</span>
               </div>
-            ))}
+            </div>
+            <div className="divide-y divide-gray-50">
+              {sortedStudents.map(s=>(
+                <button key={s.init} onClick={()=>setExpanded(expanded===s.name?null:s.name)}
+                  className={`w-full px-5 py-3.5 text-left transition-colors hover:bg-gray-50 ${expanded===s.name?"bg-gray-50":""}`}>
+                  <div className="grid grid-cols-[minmax(180px,1fr)_90px_120px_90px_90px] items-center gap-4">
+                    <div className="flex min-w-0 items-center gap-3">
+                      <div className="w-9 h-9 rounded-xl flex items-center justify-center text-white text-xs font-black flex-shrink-0" style={{ background:s.status==="flag"?"#ef4444":s.status==="done"?BLUE:INK, fontFamily:U }}>{s.init}</div>
+                      <div className="min-w-0">
+                        <p className="text-sm font-bold text-gray-900 truncate" style={{ fontFamily:U }}>{s.name}</p>
+                        <p className={`text-xs ${s.status==="flag"?"text-red-500":s.status==="done"?"text-blue-500":"text-gray-400"}`} style={{ fontFamily:I }}>{statusText[s.status]}</p>
+                      </div>
+                    </div>
+                    <p className="text-xs font-bold text-gray-500" style={{ fontFamily:U }}>Q{s.q}</p>
+                    <div>
+                      <div className="h-1.5 overflow-hidden rounded-full bg-gray-100">
+                        <div className="h-full rounded-full" style={{ width:`${s.pct}%`, background:s.status==="flag"?"#ef4444":s.status==="done"?BLUE:CAMEL }}/>
+                      </div>
+                      <p className="mt-1 text-[10px] text-gray-400" style={{ fontFamily:I }}>{s.pct}% progress</p>
+                    </div>
+                    <p className="text-xs text-gray-400" style={{ fontFamily:I }}>{s.elapsed}</p>
+                    <div className="flex justify-end">
+                      {s.flags>0?<span className="rounded-full bg-red-50 px-2 py-1 text-xs font-bold text-red-600" style={{ fontFamily:U }}>{s.flags} flags</span>:<span className="rounded-full bg-green-50 px-2 py-1 text-xs font-bold text-green-600" style={{ fontFamily:U }}>Clear</span>}
+                    </div>
+                  </div>
+                  {expanded===s.name&&(
+                    <div className="mt-3 ml-12 flex flex-wrap gap-2 border-t border-gray-100 pt-3">
+                      <button className="rounded-lg bg-amber-50 px-3 py-1.5 text-xs font-bold text-amber-700 hover:bg-amber-100" style={{ fontFamily:U }}>Send warning</button>
+                      <button className="rounded-lg bg-gray-100 px-3 py-1.5 text-xs font-bold text-gray-600 hover:bg-gray-200" style={{ fontFamily:U }}>Open timeline</button>
+                      <button className="rounded-lg bg-red-50 px-3 py-1.5 text-xs font-bold text-red-600 hover:bg-red-100" style={{ fontFamily:U }}>Remove student</button>
+                    </div>
+                  )}
+                </button>
+              ))}
+            </div>
           </div>
         </div>
 
         {/* Alert feed */}
-        <div className="bg-white rounded-2xl border border-gray-100 overflow-hidden flex flex-col" style={{ maxHeight:"70vh" }}>
+        <div className="sticky top-36 bg-white rounded-2xl border border-gray-100 overflow-hidden flex max-h-[calc(100vh-10rem)] flex-col">
           <div className="flex items-center justify-between px-4 py-3.5 border-b border-gray-100 flex-shrink-0">
             <div className="flex items-center gap-2"><div className="w-2 h-2 rounded-full bg-red-500 animate-pulse"/><p className="text-sm font-black" style={{ fontFamily:U, color:INK }}>Alert Feed</p></div>
             <span className="text-xs text-gray-400" style={{ fontFamily:I }}>{LIVE_ALERTS.length} events</span>
@@ -5243,9 +5402,6 @@ export {
   ExamList,
   ExamCreate,
   ExamDetail,
-  QuestionBank,
-  QuestionCreate,
-  AIGenerator,
   GradingResults,
   ManualGrading,
   LiveMonitoring,
