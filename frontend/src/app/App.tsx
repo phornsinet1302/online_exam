@@ -4772,8 +4772,13 @@ function ExamTaking() {
   const [lockdownBlocked, setLockdownBlocked] = useState(false);
   const acCount = useRef(0);
   const lockdownEventActive = useRef(false);
+  const examStateRef = useRef({ qIdx, secs });
   const questions = SESSION_QS;
   const q = questions[Math.min(qIdx, questions.length-1)];
+
+  useEffect(()=>{
+    examStateRef.current = { qIdx, secs };
+  }, [qIdx, secs]);
 
   // Countdown timer
   useEffect(()=>{
@@ -4782,13 +4787,18 @@ function ExamTaking() {
     return ()=>clearInterval(t);
   },[]);
 
-  const recordLockdownIssue = (event: string) => {
-    if (!lockdownEventActive.current) {
-      acCount.current++;
-      setAntiCheat({event,count:acCount.current});
+  const recordExamViolation = (event: string, blockExam = false) => {
+    acCount.current++;
+    setAntiCheat({event,count:acCount.current});
+    if (blockExam) {
+      lockdownEventActive.current = true;
+      setLockdownBlocked(true);
     }
-    lockdownEventActive.current = true;
-    setLockdownBlocked(true);
+  };
+
+  const recordLockdownIssue = (event: string) => {
+    if (!lockdownEventActive.current) recordExamViolation(event, true);
+    else setLockdownBlocked(true);
   };
 
   const resumeFullscreen = async () => {
@@ -4808,20 +4818,80 @@ function ExamTaking() {
     const onVisibility=()=>{ if(document.hidden) recordLockdownIssue("Tab switch detected — stay in the locked exam screen."); };
     const onFullscreen=()=>{ if(!document.fullscreenElement) recordLockdownIssue("Fullscreen exited — return to lockdown mode."); };
     const onBlur=()=>recordLockdownIssue("Window focus lost — do not switch apps during the exam.");
-    const onContextMenu=(e:MouseEvent)=>e.preventDefault();
+    const blockAttempt = (event: Event, message: string) => {
+      event.preventDefault();
+      event.stopPropagation();
+      recordExamViolation(message);
+    };
+    const onContextMenu=(e:MouseEvent)=>blockAttempt(e, "Right-click blocked during the exam.");
+    const onCopy=(e:ClipboardEvent)=>blockAttempt(e, "Copy attempt blocked during the exam.");
+    const onCut=(e:ClipboardEvent)=>blockAttempt(e, "Cut attempt blocked during the exam.");
+    const onPaste=(e:ClipboardEvent)=>blockAttempt(e, "Paste attempt blocked during the exam.");
+    const onSelect=(e:Event)=>blockAttempt(e, "Text selection blocked during the exam.");
+    const onDrag=(e:DragEvent)=>blockAttempt(e, "Drag or drop attempt blocked during the exam.");
+    const onKeyDown=(e:KeyboardEvent)=>{
+      const key = e.key.toLowerCase();
+      const meta = e.ctrlKey || e.metaKey;
+      const blockedCombo = meta && ["a","c","f","l","n","p","r","s","t","u","v","w","x"].includes(key);
+      const blockedDevTools = (meta && e.shiftKey && ["c","i","j"].includes(key)) || key==="f12";
+      const blockedNavigation = e.altKey && ["arrowleft","arrowright","tab"].includes(key);
+      if (blockedCombo || blockedDevTools || blockedNavigation || key==="printscreen") {
+        blockAttempt(e, `Keyboard shortcut blocked: ${e.key}`);
+      }
+    };
 
     if (!document.fullscreenElement) setLockdownBlocked(true);
     document.addEventListener("visibilitychange",onVisibility);
     document.addEventListener("fullscreenchange",onFullscreen);
     document.addEventListener("contextmenu",onContextMenu);
+    document.addEventListener("copy",onCopy);
+    document.addEventListener("cut",onCut);
+    document.addEventListener("paste",onPaste);
+    document.addEventListener("selectstart",onSelect);
+    document.addEventListener("dragstart",onDrag);
+    document.addEventListener("drop",onDrag);
+    document.addEventListener("keydown",onKeyDown,true);
     window.addEventListener("blur",onBlur);
     return ()=>{
       document.removeEventListener("visibilitychange",onVisibility);
       document.removeEventListener("fullscreenchange",onFullscreen);
       document.removeEventListener("contextmenu",onContextMenu);
+      document.removeEventListener("copy",onCopy);
+      document.removeEventListener("cut",onCut);
+      document.removeEventListener("paste",onPaste);
+      document.removeEventListener("selectstart",onSelect);
+      document.removeEventListener("dragstart",onDrag);
+      document.removeEventListener("drop",onDrag);
+      document.removeEventListener("keydown",onKeyDown,true);
       window.removeEventListener("blur",onBlur);
     };
   },[]);
+
+  // Periodic integrity snapshots for teacher audit trail.
+  useEffect(()=>{
+    let active = true;
+    let timer: number;
+    const writeSnapshot = () => {
+      if (!active) return;
+      const snapshots = JSON.parse(localStorage.getItem("examIntegritySnapshots") || "[]");
+      snapshots.push({
+        code,
+        at:new Date().toISOString(),
+        question:examStateRef.current.qIdx + 1,
+        secondsLeft:examStateRef.current.secs,
+        fullscreen:!!document.fullscreenElement,
+        visible:!document.hidden,
+        violations:acCount.current,
+      });
+      localStorage.setItem("examIntegritySnapshots", JSON.stringify(snapshots.slice(-60)));
+      timer = window.setTimeout(writeSnapshot, 25000 + Math.floor(Math.random() * 30000));
+    };
+    timer = window.setTimeout(writeSnapshot, 12000);
+    return ()=>{
+      active = false;
+      window.clearTimeout(timer);
+    };
+  }, [code]);
 
   const setAnswer = (v:any) => setAnswers(prev=>({...prev,[q.id]:v}));
   const answer = answers[q.id];
@@ -5010,7 +5080,15 @@ function ExamTaking() {
   };
 
   return (
-    <div className="min-h-screen flex flex-col" style={{background:BG}}>
+    <div
+      className="min-h-screen flex flex-col select-none"
+      style={{background:BG,userSelect:"none",WebkitUserSelect:"none"}}
+      onCopy={e=>e.preventDefault()}
+      onCut={e=>e.preventDefault()}
+      onPaste={e=>e.preventDefault()}
+      onContextMenu={e=>e.preventDefault()}
+      onDragStart={e=>e.preventDefault()}
+    >
       {/* Modals */}
       {lockdownBlocked&&<LockdownOverlay onResume={resumeFullscreen}/>}
       {antiCheat&&<AntiCheatModal event={antiCheat.event} count={antiCheat.count} onClose={()=>setAntiCheat(null)}/>}
