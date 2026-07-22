@@ -2749,7 +2749,14 @@ function LiveMonitoring() {
             </div>
             <div className="divide-y divide-gray-50">
               {sortedStudents.map(s=>(
-                <button key={s.init} onClick={()=>setExpanded(expanded===s.name?null:s.name)}
+                <div key={s.init} role="button" tabIndex={0}
+                  onClick={()=>setExpanded(expanded===s.name?null:s.name)}
+                  onKeyDown={e=>{
+                    if (e.key==="Enter" || e.key===" ") {
+                      e.preventDefault();
+                      setExpanded(expanded===s.name?null:s.name);
+                    }
+                  }}
                   className={`w-full px-5 py-3.5 text-left transition-colors hover:bg-gray-50 ${expanded===s.name?"bg-gray-50":""}`}>
                   <div className="grid grid-cols-[minmax(180px,1fr)_90px_120px_90px_90px] items-center gap-4">
                     <div className="flex min-w-0 items-center gap-3">
@@ -2772,13 +2779,13 @@ function LiveMonitoring() {
                     </div>
                   </div>
                   {expanded===s.name&&(
-                    <div className="mt-3 ml-12 flex flex-wrap gap-2 border-t border-gray-100 pt-3">
+                    <div onClick={e=>e.stopPropagation()} className="mt-3 ml-12 flex flex-wrap gap-2 border-t border-gray-100 pt-3">
                       <button className="rounded-lg bg-amber-50 px-3 py-1.5 text-xs font-bold text-amber-700 hover:bg-amber-100" style={{ fontFamily:U }}>Send warning</button>
                       <button className="rounded-lg bg-gray-100 px-3 py-1.5 text-xs font-bold text-gray-600 hover:bg-gray-200" style={{ fontFamily:U }}>Open timeline</button>
                       <button className="rounded-lg bg-red-50 px-3 py-1.5 text-xs font-bold text-red-600 hover:bg-red-100" style={{ fontFamily:U }}>Remove student</button>
                     </div>
                   )}
-                </button>
+                </div>
               ))}
             </div>
           </div>
@@ -4225,6 +4232,7 @@ function ExamWaitingLobby({ searchParams }: { searchParams?: StudentSearchParams
   const beginExamCountdown = () => {
     countdownTimers.current.forEach(timer=>window.clearTimeout(timer));
     countdownTimers.current = [];
+    document.documentElement.requestFullscreen?.().catch(()=>{});
     setOpen(true);
     setCountdown(3);
     countdownTimers.current = [
@@ -4566,6 +4574,31 @@ function AntiCheatModal({ event, count, onClose }:{event:string;count:number;onC
   );
 }
 
+// ─── Lockdown overlay ────────────────────────────────────────────────────────
+function LockdownOverlay({ onResume }:{onResume:()=>void}) {
+  return (
+    <div className="fixed inset-0 z-[520] flex items-center justify-center px-4" style={{background:"rgba(13,27,42,0.9)",backdropFilter:"blur(10px)"}}>
+      <div className="w-full max-w-md overflow-hidden rounded-3xl bg-white shadow-2xl">
+        <div className="h-1.5 w-full" style={{background:S}}/>
+        <div className="p-8 text-center">
+          <div className="mx-auto mb-5 flex h-16 w-16 items-center justify-center rounded-3xl" style={{background:SL}}>
+            <Lock size={30} style={{color:S}}/>
+          </div>
+          <h3 className="mb-2 text-2xl font-black" style={{fontFamily:U,color:INK}}>Exam screen locked</h3>
+          <p className="mb-5 text-sm leading-relaxed text-gray-500" style={{fontFamily:I}}>
+            Stay in fullscreen during the exam. Switching tabs, leaving fullscreen, or opening another app will be flagged for your teacher.
+          </p>
+          <button onClick={onResume}
+            className="w-full rounded-2xl py-3.5 text-sm font-black text-white transition-all hover:opacity-90"
+            style={{background:S,fontFamily:U}}>
+            Return to fullscreen exam
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
 // ─── Connection lost overlay ─────────────────────────────────────────────────
 function ConnectionLostOverlay({onRetry}:{onRetry:()=>void}) {
   return (
@@ -4736,7 +4769,9 @@ function ExamTaking() {
   const [fs, setFs]               = useState<"sm"|"md"|"lg">("md");
   const [mathUploadQ, setMathUploadQ] = useState<number|null>(null);
   const [mathUploaded, setMathUploaded] = useState<Record<number,boolean>>({});
+  const [lockdownBlocked, setLockdownBlocked] = useState(false);
   const acCount = useRef(0);
+  const lockdownEventActive = useRef(false);
   const questions = SESSION_QS;
   const q = questions[Math.min(qIdx, questions.length-1)];
 
@@ -4747,11 +4782,45 @@ function ExamTaking() {
     return ()=>clearInterval(t);
   },[]);
 
-  // Anti-cheat tab-switch detection
+  const recordLockdownIssue = (event: string) => {
+    if (!lockdownEventActive.current) {
+      acCount.current++;
+      setAntiCheat({event,count:acCount.current});
+    }
+    lockdownEventActive.current = true;
+    setLockdownBlocked(true);
+  };
+
+  const resumeFullscreen = async () => {
+    try {
+      if (!document.fullscreenElement) {
+        await document.documentElement.requestFullscreen();
+      }
+      lockdownEventActive.current = false;
+      setLockdownBlocked(false);
+    } catch {
+      setLockdownBlocked(true);
+    }
+  };
+
+  // Anti-cheat lockdown detection
   useEffect(()=>{
-    const h=()=>{ if(document.hidden){ acCount.current++; setAntiCheat({event:"Tab switch detected — please stay on the exam page.",count:acCount.current}); } };
-    document.addEventListener("visibilitychange",h);
-    return ()=>document.removeEventListener("visibilitychange",h);
+    const onVisibility=()=>{ if(document.hidden) recordLockdownIssue("Tab switch detected — stay in the locked exam screen."); };
+    const onFullscreen=()=>{ if(!document.fullscreenElement) recordLockdownIssue("Fullscreen exited — return to lockdown mode."); };
+    const onBlur=()=>recordLockdownIssue("Window focus lost — do not switch apps during the exam.");
+    const onContextMenu=(e:MouseEvent)=>e.preventDefault();
+
+    if (!document.fullscreenElement) setLockdownBlocked(true);
+    document.addEventListener("visibilitychange",onVisibility);
+    document.addEventListener("fullscreenchange",onFullscreen);
+    document.addEventListener("contextmenu",onContextMenu);
+    window.addEventListener("blur",onBlur);
+    return ()=>{
+      document.removeEventListener("visibilitychange",onVisibility);
+      document.removeEventListener("fullscreenchange",onFullscreen);
+      document.removeEventListener("contextmenu",onContextMenu);
+      window.removeEventListener("blur",onBlur);
+    };
   },[]);
 
   const setAnswer = (v:any) => setAnswers(prev=>({...prev,[q.id]:v}));
@@ -4943,6 +5012,7 @@ function ExamTaking() {
   return (
     <div className="min-h-screen flex flex-col" style={{background:BG}}>
       {/* Modals */}
+      {lockdownBlocked&&<LockdownOverlay onResume={resumeFullscreen}/>}
       {antiCheat&&<AntiCheatModal event={antiCheat.event} count={antiCheat.count} onClose={()=>setAntiCheat(null)}/>}
       {connLost&&<ConnectionLostOverlay onRetry={()=>setConnLost(false)}/>}
       {mathUploadQ!==null&&<MathUploadFlow questionId={mathUploadQ} onClose={()=>setMathUploadQ(null)} onUploaded={qid=>setMathUploaded(p=>({...p,[qid]:true}))}/>}
