@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useRef, useEffect } from "react";
+import { Fragment, useState, useRef, useEffect } from "react";
 import { usePathname, useRouter } from "next/navigation";
 import {
   ChevronDown, Search, Menu, X, ArrowRight, Check,
@@ -554,48 +554,79 @@ function AuthModal({ mode, onClose, onSwitch }: { mode:"login"|"register"; onClo
 
 const SIDEBAR_W = 240;
 
-const NAV_SECTIONS = [
-  { section:"Dashboard", items:[
-    { id:"overview",       label:"Overview",       icon:LayoutDashboard, path:"/dashboard" },
-    { id:"charts",         label:"Analytics",      icon:TrendingUp,      path:"/dashboard/charts" },
-    { id:"filters",        label:"Reports",        icon:SlidersHorizontal,path:"/dashboard/filters" },
-  ]},
-  { section:"Exams", items:[
-    { id:"exams",          label:"My Exams",       icon:FileText,        path:"/dashboard/exams" },
-    { id:"exams-create",   label:"Create Exam",    icon:Plus,            path:"/dashboard/exams/create" },
-  ]},
-  { section:"Questions", items:[
-    { id:"questions",      label:"Question Bank",  icon:BookMarked,      path:"/dashboard/questions" },
-    { id:"ai",             label:"AI Generator",   icon:Sparkles,        path:"/dashboard/ai" },
-  ]},
-  { section:"Grading", items:[
-    { id:"grading",        label:"Auto-Grade",      icon:ClipboardCheck,  path:"/dashboard/grading" },
-    { id:"grading-manual", label:"Manual Grading",  icon:PenLine,         path:"/dashboard/grading/manual" },
-  ]},
-  { section:"Proctoring", items:[
-    { id:"monitoring",     label:"Live Monitor",    icon:Monitor,         path:"/dashboard/monitoring" },
-    { id:"rules",          label:"Rules Config",    icon:ShieldAlert,     path:"/dashboard/monitoring/rules" },
-    { id:"logs",           label:"Security Logs",   icon:ScrollText,      path:"/dashboard/monitoring/logs" },
-  ]},
-  { section:"Collaboration", items:[
-    { id:"collab-invite",  label:"Invite",          icon:UserPlus,        path:"/dashboard/collaboration" },
-    { id:"collab-manage",  label:"Manage Roles",    icon:UserCheck,       path:"/dashboard/collaboration/manage" },
-  ]},
-  { section:"Reports", items:[
-    { id:"reports",        label:"Overview",        icon:BarChart2,       path:"/dashboard/reports" },
-    { id:"reports-scores", label:"Scores",          icon:Award,           path:"/dashboard/reports/scores" },
-    { id:"reports-attend", label:"Attendance",      icon:UserCheck,       path:"/dashboard/reports/attendance" },
-    { id:"reports-cheat",  label:"Anti-Cheat",      icon:ShieldCheck,     path:"/dashboard/reports/anticheat" },
-    { id:"reports-qana",   label:"Question Analysis",icon:FileBarChart,   path:"/dashboard/reports/questions" },
-  ]},
-  { section:"Account", items:[
-    { id:"notifications",  label:"Notifications",  icon:Bell,            path:"/dashboard/notifications", badge:4 },
-    { id:"settings",       label:"Settings",       icon:Settings,        path:"/dashboard/settings" },
-  ]},
+type TeacherNavItem = {
+  id: string;
+  label: string;
+  icon: any;
+  path: string;
+};
+
+type DashboardTabItem = {
+  id: string;
+  label: string;
+  path: string;
+  badge?: number;
+};
+
+const TEACHER_NAV: TeacherNavItem[] = [
+  { id:"overview", label:"Overview",   icon:LayoutDashboard, path:"/dashboard" },
+  { id:"exams",    label:"Exams",      icon:FileText,        path:"/dashboard/exams" },
+  { id:"questions",label:"Questions",  icon:BookMarked,      path:"/dashboard/questions" },
+  { id:"monitoring",label:"Monitoring",icon:Monitor,         path:"/dashboard/monitoring" },
+  { id:"reports",  label:"Reports",    icon:BarChart2,       path:"/dashboard/reports" },
+  { id:"settings", label:"Settings",   icon:Settings,        path:"/dashboard/settings" },
 ];
+
+const SECTION_TABS: Record<string, DashboardTabItem[]> = {
+  overview: [
+    { id:"overview", label:"Summary", path:"/dashboard" },
+    { id:"charts", label:"Analytics", path:"/dashboard/charts" },
+  ],
+  exams: [
+    { id:"exams", label:"My Exams", path:"/dashboard/exams" },
+    { id:"exams-create", label:"Create", path:"/dashboard/exams/create" },
+    { id:"grading", label:"Auto-Grade", path:"/dashboard/grading" },
+    { id:"grading-manual", label:"Manual Grading", path:"/dashboard/grading/manual" },
+  ],
+  questions: [
+    { id:"questions", label:"Question Bank", path:"/dashboard/questions" },
+    { id:"question-create", label:"Create", path:"/dashboard/questions/create" },
+    { id:"ai", label:"AI Generator", path:"/dashboard/ai" },
+  ],
+  monitoring: [
+    { id:"monitoring", label:"Live Monitor", path:"/dashboard/monitoring" },
+    { id:"rules", label:"Rules", path:"/dashboard/monitoring/rules" },
+    { id:"logs", label:"Security Logs", path:"/dashboard/monitoring/logs" },
+  ],
+  reports: [
+    { id:"reports", label:"Overview", path:"/dashboard/reports" },
+    { id:"reports-scores", label:"Scores", path:"/dashboard/reports/scores" },
+    { id:"reports-attend", label:"Attendance", path:"/dashboard/reports/attendance" },
+    { id:"reports-cheat", label:"Anti-Cheat", path:"/dashboard/reports/anticheat" },
+    { id:"reports-qana", label:"Question Analysis", path:"/dashboard/reports/questions" },
+    { id:"filters", label:"Export", path:"/dashboard/filters" },
+  ],
+  settings: [
+    { id:"settings", label:"Account", path:"/dashboard/settings" },
+    { id:"notifications", label:"Notifications", path:"/dashboard/notifications", badge:4 },
+    { id:"collab-invite", label:"Invite", path:"/dashboard/collaboration" },
+    { id:"collab-manage", label:"Roles", path:"/dashboard/collaboration/manage" },
+  ],
+};
+
+function getTeacherSection(active: string) {
+  if (["charts"].includes(active)) return "overview";
+  if (["exams","exams-create","grading","grading-manual"].includes(active)) return "exams";
+  if (["questions","question-create","ai"].includes(active)) return "questions";
+  if (["monitoring","rules","logs"].includes(active)) return "monitoring";
+  if (["reports","reports-scores","reports-attend","reports-cheat","reports-qana","filters"].includes(active)) return "reports";
+  if (["settings","notifications","collab-invite","collab-manage"].includes(active)) return "settings";
+  return "overview";
+}
 
 function DashboardSidebar({ active }: { active:string }) {
   const navigate = useNavigate();
+  const section = getTeacherSection(active);
   return (
     <aside className="fixed top-0 left-0 h-screen flex flex-col z-40 select-none"
       style={{ width:SIDEBAR_W, background:INK, borderRight:"1px solid rgba(255,255,255,0.06)" }}>
@@ -603,25 +634,21 @@ function DashboardSidebar({ active }: { active:string }) {
         <div className="w-8 h-8 rounded-lg flex items-center justify-center" style={{ background:CAMEL }}><GraduationCap size={16} className="text-white"/></div>
         <span className="text-[17px] font-black text-white" style={{ fontFamily:U }}>exam<span style={{ color:CAMEL }}>·ai</span></span>
       </div>
-      <nav className="flex-1 px-3 py-4 space-y-5 overflow-y-auto">
-        {NAV_SECTIONS.map(({ section, items })=>(
-          <div key={section}>
-            <p className="text-[9px] font-bold uppercase tracking-widest px-3 mb-1.5" style={{ color:"rgba(255,255,255,0.22)", fontFamily:U }}>{section}</p>
-            {items.map(({ id, label, icon:Icon, path, badge })=>{
-              const isActive = active===id;
-              return (
-                <button key={id} onClick={()=>navigate(path)}
-                  className={`w-full flex items-center gap-3 px-3 py-2.5 rounded-xl text-sm font-medium transition-all mb-0.5 ${isActive?"text-white":"text-gray-400 hover:text-white hover:bg-white/5"}`}
-                  style={{ fontFamily:I, background:isActive?`${CAMEL}22`:undefined }}>
-                  <Icon size={16} style={{ color:isActive?CAMEL:undefined }}/>
-                  <span className="flex-1 text-left">{label}</span>
-                  {badge?<span className="text-[10px] font-bold px-1.5 py-0.5 rounded-full" style={{ background:"#ef4444", color:"white", fontFamily:U }}>{badge}</span>:null}
-                  {isActive&&<div className="w-1 h-4 rounded-full flex-shrink-0" style={{ background:CAMEL }}/>}
-                </button>
-              );
-            })}
-          </div>
-        ))}
+      <nav className="flex-1 px-3 py-4 space-y-1.5 overflow-y-auto">
+        <p className="text-[9px] font-bold uppercase tracking-widest px-3 mb-2" style={{ color:"rgba(255,255,255,0.22)", fontFamily:U }}>Teacher Workspace</p>
+        {TEACHER_NAV.map(({ id, label, icon:Icon, path })=>{
+          const isActive = section===id;
+          return (
+            <button key={id} onClick={()=>navigate(path)}
+              className={`w-full flex items-center gap-3 px-3 py-3 rounded-xl text-sm font-medium transition-all ${isActive?"text-white":"text-gray-400 hover:text-white hover:bg-white/5"}`}
+              style={{ fontFamily:I, background:isActive?`${CAMEL}22`:undefined }}>
+              <Icon size={17} style={{ color:isActive?CAMEL:undefined }}/>
+              <span className="flex-1 text-left">{label}</span>
+              {id==="settings"&&<span className="text-[10px] font-bold px-1.5 py-0.5 rounded-full" style={{ background:"#ef4444", color:"white", fontFamily:U }}>4</span>}
+              {isActive&&<div className="w-1 h-4 rounded-full flex-shrink-0" style={{ background:CAMEL }}/>}
+            </button>
+          );
+        })}
         <div className="pt-1 border-t" style={{ borderColor:"rgba(255,255,255,0.07)" }}>
           <button onClick={()=>navigate("/")} className="w-full flex items-center gap-3 px-3 py-2.5 rounded-xl text-sm font-medium text-gray-600 hover:text-white hover:bg-white/5 transition-all" style={{ fontFamily:I }}>
             <Home size={16}/> Back to site
@@ -639,6 +666,32 @@ function DashboardSidebar({ active }: { active:string }) {
         </div>
       </div>
     </aside>
+  );
+}
+
+function DashboardSectionTabs({ active }: { active:string }) {
+  const navigate = useNavigate();
+  const section = getTeacherSection(active);
+  const tabs = SECTION_TABS[section as keyof typeof SECTION_TABS];
+
+  return (
+    <div className="fixed top-16 right-0 z-20 border-b border-gray-100 bg-white/95 backdrop-blur" style={{ left:SIDEBAR_W }}>
+      <div className="px-7 py-3 overflow-x-auto">
+        <div className="flex w-max min-w-full gap-1 rounded-xl border border-gray-100 bg-gray-50 p-1">
+          {tabs.map(({ id, label, path, badge })=>{
+            const isActive = active===id || (active==="exams-create"&&id==="exams-create");
+            return (
+              <button key={id} onClick={()=>navigate(path)}
+                className={`flex items-center gap-2 whitespace-nowrap rounded-lg px-3 py-2 text-xs font-semibold transition-all ${isActive?"bg-white text-gray-950 shadow-sm":"text-gray-500 hover:text-gray-800"}`}
+                style={{ fontFamily:U }}>
+                {label}
+                {badge?<span className="rounded-full px-1.5 py-0.5 text-[9px] font-bold text-white" style={{ background:"#ef4444" }}>{badge}</span>:null}
+              </button>
+            );
+          })}
+        </div>
+      </div>
+    </div>
   );
 }
 
@@ -671,7 +724,8 @@ function DashboardLayout({ children, active, title, subtitle, actions }: { child
     <div className="min-h-screen" style={{ background:CREAM }}>
       <DashboardSidebar active={active}/>
       <DashboardHeader title={title} subtitle={subtitle} actions={actions}/>
-      <main className="pt-16 min-h-screen" style={{ marginLeft:SIDEBAR_W }}>
+      <DashboardSectionTabs active={active}/>
+      <main className="min-h-screen pt-32" style={{ marginLeft:SIDEBAR_W }}>
         <div className="p-7">{children}</div>
       </main>
     </div>
@@ -944,16 +998,16 @@ function ExamCreate() {
 
   return (
     <DashboardLayout active="exams-create" title={isEdit?"Edit Exam":"Create Exam"} subtitle={isEdit?existing?.title:"Set up your exam in minutes"}>
-      <div className="max-w-2xl">
+      <div className="w-full">
         {/* Breadcrumb */}
         <div className="flex items-center gap-2 text-xs text-gray-400 mb-6" style={{ fontFamily:I }}>
           <button onClick={()=>navigate("/dashboard/exams")} className="hover:text-gray-700 transition-colors">My Exams</button>
           <ChevronRight size={13}/><span className="text-gray-600">{isEdit?"Edit Exam":"New Exam"}</span>
         </div>
 
-        <div className="space-y-4">
+        <div className="grid gap-4 xl:grid-cols-2">
           {/* Basic Info */}
-          <div className="bg-white rounded-2xl border border-gray-100 p-6">
+          <div className="bg-white rounded-2xl border border-gray-100 p-6 xl:col-span-2">
             <h3 className="text-sm font-black mb-5" style={{ fontFamily:U, color:INK }}>Basic Information</h3>
             <div className="space-y-4">
               <div>
@@ -978,7 +1032,7 @@ function ExamCreate() {
           </div>
 
           {/* Schedule */}
-          <div className="bg-white rounded-2xl border border-gray-100 p-6">
+          <div className="bg-white rounded-2xl border border-gray-100 p-6 xl:col-span-2">
             <h3 className="text-sm font-black mb-5" style={{ fontFamily:U, color:INK }}>Schedule</h3>
             <div className="grid sm:grid-cols-2 gap-4">
               <div>
@@ -1045,7 +1099,7 @@ function ExamCreate() {
           </div>
 
           {/* Actions */}
-          <div className="flex gap-3 pb-2">
+          <div className="flex gap-3 pb-2 xl:col-span-2">
             <button onClick={()=>handleSave("published")} className="flex items-center gap-2 text-white font-bold px-6 py-3 rounded-xl text-sm hover:opacity-90 transition-opacity" style={{ background:INK, fontFamily:U }}>
               {saved?<><CheckCircle2 size={15}/>Saved!</>:isEdit?"Save changes":"Publish exam"}
             </button>
@@ -1348,8 +1402,8 @@ function QuestionCreate() {
   const save = () => { setSaved(true); setTimeout(()=>{ setSaved(false); navigate("/dashboard/questions"); }, 800); };
 
   return (
-    <DashboardLayout active="questions" title="New Question" subtitle="Build a question for your bank">
-      <div className="max-w-2xl">
+    <DashboardLayout active="question-create" title="New Question" subtitle="Build a question for your bank">
+      <div className="w-full">
         <div className="flex items-center gap-2 text-xs text-gray-400 mb-6" style={{ fontFamily:I }}>
           <button onClick={()=>navigate("/dashboard/questions")} className="hover:text-gray-700">Question Bank</button>
           <ChevronRight size={13}/><span className="text-gray-600">New Question</span>
@@ -1360,7 +1414,7 @@ function QuestionCreate() {
           <div className="bg-white rounded-2xl border border-gray-100 p-6">
             <h3 className="text-sm font-black mb-2" style={{ fontFamily:U, color:INK }}>Choose question type</h3>
             <p className="text-xs text-gray-400 mb-5" style={{ fontFamily:I }}>Select the format that best fits your question.</p>
-            <div className="grid grid-cols-2 sm:grid-cols-3 gap-3">
+            <div className="grid grid-cols-2 sm:grid-cols-3 xl:grid-cols-5 gap-3">
               {Q_TYPES.map(({ id, label, icon:Icon, color })=>(
                 <button key={id} onClick={()=>setQType(id)}
                   className="flex flex-col items-center gap-2.5 p-4 rounded-xl border-2 border-gray-100 hover:border-gray-300 hover:shadow-md transition-all text-center group">
@@ -1564,7 +1618,7 @@ function AIGenerator() {
   return (
     <DashboardLayout active="ai" title="AI Generator" subtitle="Generate questions from your materials">
       {!generated?(
-        <div className="max-w-2xl space-y-4">
+        <div className="grid w-full gap-4 xl:grid-cols-2">
           {/* Upload */}
           <div className="bg-white rounded-2xl border border-gray-100 p-6">
             <h3 className="text-sm font-black mb-2" style={{ fontFamily:U, color:INK }}>Upload material <span className="text-gray-400 font-normal text-xs ml-1">optional</span></h3>
@@ -1592,7 +1646,7 @@ function AIGenerator() {
           </div>
 
           {/* Configure */}
-          <div className="bg-white rounded-2xl border border-gray-100 p-6">
+          <div className="bg-white rounded-2xl border border-gray-100 p-6 xl:col-span-2">
             <h3 className="text-sm font-black mb-5" style={{ fontFamily:U, color:INK }}>Configuration</h3>
             <div className="grid sm:grid-cols-2 gap-5 mb-5">
               <div>
@@ -1634,14 +1688,14 @@ function AIGenerator() {
           </div>
 
           <button onClick={handleGenerate} disabled={!topic&&!file||generating}
-            className="w-full flex items-center justify-center gap-3 text-white font-bold py-4 rounded-xl text-sm transition-all hover:opacity-90 active:scale-[0.98] disabled:opacity-40"
+            className="w-full flex items-center justify-center gap-3 text-white font-bold py-4 rounded-xl text-sm transition-all hover:opacity-90 active:scale-[0.98] disabled:opacity-40 xl:col-span-2"
             style={{ background:`linear-gradient(135deg, ${INK}, #1e3a5f)`, fontFamily:U }}>
             {generating?<><RefreshCw size={16} className="animate-spin"/>Generating {count} questions…</>:<><Sparkles size={16}/>Generate {count} questions with AI</>}
           </button>
         </div>
       ):(
         /* Review generated questions */
-        <div className="max-w-2xl">
+        <div className="w-full">
           <div className="flex items-center justify-between mb-5">
             <div>
               <h2 className="text-base font-black" style={{ fontFamily:U, color:INK }}>{generated.length} questions generated</h2>
@@ -1913,7 +1967,7 @@ function DashboardNotifications() {
   const unread = notifs.filter(n=>!n.read).length;
   return (
     <DashboardLayout active="notifications" title="Notifications" subtitle={unread>0?`${unread} unread`:undefined}>
-      <div className="max-w-2xl">
+      <div className="w-full">
         <div className="flex items-center justify-between mb-5">
           <div className="flex gap-1 bg-white rounded-xl border border-gray-100 p-1">
             {tabs.map(t=>(
@@ -1971,7 +2025,7 @@ function DashboardSettings() {
 
   return (
     <DashboardLayout active="settings" title="Settings">
-      <div className="max-w-2xl">
+      <div className="w-full">
         <div className="flex gap-1 bg-white rounded-xl border border-gray-100 p-1 mb-6 w-fit">
           {tabs.map(({ id,label,icon:Icon })=>(
             <button key={id} onClick={()=>setTab(id)} className={`flex items-center gap-2 text-sm font-semibold px-4 py-2 rounded-lg transition-all ${tab===id?"text-white shadow-sm":"text-gray-500 hover:text-gray-700"}`} style={{ background:tab===id?INK:undefined, fontFamily:U }}><Icon size={14}/>{label}</button>
@@ -2643,7 +2697,7 @@ function RulesConfig() {
     <DashboardLayout active="rules" title="Rules Config" subtitle="Configure anti-cheating behavior"
       actions={<button onClick={save} className="flex items-center gap-2 text-white text-xs font-bold px-4 py-2 rounded-xl hover:opacity-90" style={{ background:INK, fontFamily:U }}>{saved?<><CheckCircle2 size={13}/>Saved!</>:"Save rules"}</button>}>
 
-      <div className="max-w-3xl space-y-5">
+      <div className="w-full space-y-5">
         {/* Global settings */}
         <div className="bg-white rounded-2xl border border-gray-100 p-6">
           <h3 className="text-sm font-black mb-5" style={{ fontFamily:U, color:INK }}>Session Requirements</h3>
@@ -2801,7 +2855,7 @@ function SecurityLogs() {
           </thead>
           <tbody>
             {filtered.map(log=>(
-              <>
+              <Fragment key={log.id}>
                 <tr key={log.id} onClick={()=>setExpanded(expanded===log.id?null:log.id)} className="border-b border-gray-50 last:border-0 hover:bg-gray-50/50 transition-colors cursor-pointer">
                   <td className="px-5 py-3.5 text-xs font-mono text-gray-500 whitespace-nowrap">{log.ts}</td>
                   <td className="px-5 py-3.5">
@@ -2839,7 +2893,7 @@ function SecurityLogs() {
                     </td>
                   </tr>
                 )}
-              </>
+              </Fragment>
             ))}
             {filtered.length===0&&(
               <tr><td colSpan={7} className="px-5 py-20 text-center"><p className="text-sm text-gray-400" style={{ fontFamily:U }}>No logs match your filters</p></td></tr>
