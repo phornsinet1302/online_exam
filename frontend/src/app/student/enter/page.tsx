@@ -1,5 +1,9 @@
-import { ExamEntry } from "../../App";
+import { ExamEntry, type StudentSearchParams } from "../../App";
 
-export default function StudentEntryPage() {
-  return <ExamEntry />;
+export default async function StudentEntryPage({
+  searchParams,
+}: {
+  searchParams: Promise<StudentSearchParams>;
+}) {
+  return <ExamEntry searchParams={await searchParams} />;
 }

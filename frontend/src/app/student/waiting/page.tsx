@@ -1,5 +1,9 @@
-import { ExamWaitingLobby } from "../../App";
+import { ExamWaitingLobby, type StudentSearchParams } from "../../App";
 
-export default function StudentWaitingPage() {
-  return <ExamWaitingLobby />;
+export default async function StudentWaitingPage({
+  searchParams,
+}: {
+  searchParams: Promise<StudentSearchParams>;
+}) {
+  return <ExamWaitingLobby searchParams={await searchParams} />;
 }

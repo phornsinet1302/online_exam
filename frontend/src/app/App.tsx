@@ -5,7 +5,7 @@ import { usePathname, useRouter } from "next/navigation";
 import {
   ChevronDown, Search, Menu, X, ArrowRight, Check,
   Star, Shield, Zap, BarChart3, Eye, Users, BookOpen,
-  Brain, FileCheck, Clock, Hash,
+  Brain, FileCheck, Clock, Hash, Mail,
   Twitter, Linkedin, Youtube, Globe, Lock,
   CheckCircle2, GraduationCap,
   LayoutDashboard, TrendingUp, Bell, Settings,
@@ -52,6 +52,13 @@ const MOCK_EXAMS = [
   { id:"5", title:"History Essay Assessment",   subject:"History",     status:"archived",  students:19, date:"Jun 20, 2026", duration:120, code:"HIS-2026-ES",  questions:5  },
   { id:"6", title:"Computer Science Practical", subject:"CS",          status:"draft",     students:0,  date:"Jul 20, 2026", duration:90,  code:"CS-2026-PR",   questions:0  },
 ];
+
+export type StudentSearchParams = Record<string, string | string[] | undefined>;
+
+function getSearchValue(searchParams: StudentSearchParams | undefined, key: string) {
+  const value = searchParams?.[key];
+  return Array.isArray(value) ? value[0] ?? "" : value ?? "";
+}
 
 const MOCK_QUESTIONS = [
   { id:"1", type:"mcq",       text:"What is the derivative of sin(x)?",                     subject:"Mathematics", difficulty:"Easy",   tags:["calculus","derivatives"] },
@@ -102,7 +109,17 @@ function useParams() {
 // ═══════════════════════════════════════════════════════════════════════════════
 
 function EnterCodeModal({ onClose }: { onClose: () => void }) {
+  const navigate = useNavigate();
   const [code, setCode] = useState("");
+
+  const handleSubmit = (e: React.FormEvent) => {
+    e.preventDefault();
+    const upper = code.trim().toUpperCase();
+    if (!upper) return;
+    onClose();
+    navigate(`/student/info?code=${encodeURIComponent(upper)}`);
+  };
+
   return (
     <div className="fixed inset-0 z-[200] flex items-center justify-center px-4"
       style={{ background: "rgba(13,27,42,0.6)", backdropFilter: "blur(8px)" }}
@@ -114,11 +131,13 @@ function EnterCodeModal({ onClose }: { onClose: () => void }) {
           <h3 className="text-2xl font-bold mb-1.5" style={{ fontFamily:U, color:INK }}>Enter your exam code</h3>
           <p className="text-sm text-gray-500" style={{ fontFamily:I }}>Your teacher will provide this code before the exam.</p>
         </div>
-        <input value={code} onChange={e=>setCode(e.target.value.toUpperCase())} placeholder="e.g. MATH-2024-XZ"
-          maxLength={14} autoFocus
-          className="w-full border border-gray-200 rounded-xl px-4 py-4 text-center text-2xl font-bold tracking-[0.18em] text-gray-900 placeholder:text-gray-300 placeholder:text-base placeholder:font-normal placeholder:tracking-normal focus:outline-none focus:border-gray-400 transition-colors mb-4 bg-gray-50"
-          style={{ fontFamily:U }}/>
-        <button className="w-full text-white font-bold py-4 rounded-xl transition-all hover:opacity-90 active:scale-[0.98] mb-3 text-base" style={{ background:INK, fontFamily:U }}>Start exam</button>
+        <form onSubmit={handleSubmit}>
+          <input value={code} onChange={e=>setCode(e.target.value.toUpperCase())} placeholder="e.g. MATH-2024-XZ"
+            maxLength={20} autoFocus
+            className="w-full border border-gray-200 rounded-xl px-4 py-4 text-center text-2xl font-bold tracking-[0.18em] text-gray-900 placeholder:text-gray-300 placeholder:text-base placeholder:font-normal placeholder:tracking-normal focus:outline-none focus:border-gray-400 transition-colors mb-4 bg-gray-50"
+            style={{ fontFamily:U }}/>
+          <button type="submit" disabled={!code.trim()} className="w-full text-white font-bold py-4 rounded-xl transition-all hover:opacity-90 active:scale-[0.98] disabled:opacity-40 mb-3 text-base" style={{ background:INK, fontFamily:U }}>Start exam</button>
+        </form>
         <button onClick={onClose} className="w-full text-gray-400 text-sm py-2 hover:text-gray-600 transition-colors" style={{ fontFamily:I }}>Cancel</button>
       </div>
     </div>
@@ -499,18 +518,26 @@ function AuthModal({ mode, onClose, onSwitch }: { mode:"login"|"register"; onClo
   const [name, setName] = useState("");
   const [showPw, setShowPw] = useState(false);
   const [loading, setLoading] = useState(false);
+  const [authError, setAuthError] = useState("");
 
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
+    setAuthError("");
     setLoading(true);
-    const isStudent = email.trim().toLowerCase() === "student@gmail.com";
-    setTimeout(()=>{ setLoading(false); onClose(); navigate(isStudent ? "/student/enter" : "/dashboard"); }, 900);
+    const isTeacherDemo = email.trim().toLowerCase() === "teacher@gmail.com" && password === "123";
+    if (mode === "login" && !isTeacherDemo) {
+      setTimeout(()=>{
+        setLoading(false);
+        setAuthError("Use teacher@gmail.com and password 123 to sign in.");
+      }, 500);
+      return;
+    }
+    setTimeout(()=>{ setLoading(false); onClose(); navigate("/dashboard"); }, 900);
   };
 
   return (
     <div className="fixed inset-0 z-[200] flex items-center justify-center px-4" style={{ background:"rgba(13,27,42,0.65)", backdropFilter:"blur(10px)" }} onClick={onClose}>
       <div className="bg-white rounded-3xl w-full max-w-[420px] shadow-2xl overflow-hidden" onClick={e=>e.stopPropagation()}>
-        <div className="h-1 w-full" style={{ background:`linear-gradient(90deg, ${INK}, ${CAMEL})` }}/>
         <div className="p-8">
           <div className="flex items-center justify-between mb-7">
             <div className="flex items-center gap-2.5">
@@ -533,6 +560,7 @@ function AuthModal({ mode, onClose, onSwitch }: { mode:"login"|"register"; onClo
               <input type={showPw?"text":"password"} value={password} onChange={e=>setPassword(e.target.value)} placeholder="Password" required className="w-full border border-gray-200 rounded-xl px-4 py-3 pr-11 text-sm text-gray-900 placeholder:text-gray-400 focus:outline-none focus:border-gray-400 transition-colors" style={{ fontFamily:I }}/>
               <button type="button" onClick={()=>setShowPw(s=>!s)} className="absolute right-3.5 top-1/2 -translate-y-1/2 text-gray-400 hover:text-gray-600">{showPw?<EyeOff size={15}/>:<Eye size={15}/>}</button>
             </div>
+            {authError&&<p className="text-xs font-semibold text-red-500" style={{ fontFamily:I }}>{authError}</p>}
             {mode==="login"&&<div className="flex justify-end -mt-1"><button type="button" className="text-xs font-semibold hover:underline" style={{ color:CAMEL, fontFamily:U }}>Forgot password?</button></div>}
             <button type="submit" disabled={loading} className="w-full flex items-center justify-center gap-2 text-white font-bold py-3.5 rounded-xl transition-all hover:opacity-90 active:scale-[0.98] mt-1 disabled:opacity-60" style={{ background:INK, fontFamily:U }}>
               {loading?<RefreshCw size={15} className="animate-spin"/>:mode==="login"?"Sign in to dashboard":"Create free account"}
@@ -3671,14 +3699,10 @@ function QuestionAnalysisReport() {
 // ═══════════════════════════════════════════════════════════════════════════════
 // STUDENT — EXAM ENTRY SCREEN
 // ═══════════════════════════════════════════════════════════════════════════════
-const VALID_CODES = MOCK_EXAMS.filter(e=>e.status==="published").map(e=>e.code.toUpperCase());
-
-function ExamEntry() {
+function ExamEntry({ searchParams }: { searchParams?: StudentSearchParams } = {}) {
   const navigate = useNavigate();
-  // useSearchParams-equivalent: read ?via= and ?code= from URL for magic link / QR landing
-  const raw = typeof window !== "undefined" ? new URLSearchParams(window.location.search) : null;
-  const viaLink  = raw?.get("via") ?? null;   // "magic" | "qr"
-  const preCode  = (raw?.get("code") ?? "").toUpperCase();
+  const viaLink = getSearchValue(searchParams, "via");   // "magic" | "qr"
+  const preCode = getSearchValue(searchParams, "code").toUpperCase();
 
   const [code, setCode]       = useState(preCode);
   const [checking, setChecking] = useState(false);
@@ -3691,8 +3715,8 @@ function ExamEntry() {
     setChecking(true);
     setTimeout(()=>{
       setChecking(false);
-      if (preCode.length >= 3) {
-        navigate(`/student/instructions?code=${preCode}`);
+      if (preCode) {
+        navigate(`/student/info?code=${encodeURIComponent(preCode)}`);
       } else navigate("/student/invalid?reason=expired");
     }, 1200);
   }
@@ -3704,8 +3728,8 @@ function ExamEntry() {
     setChecking(true);
     setTimeout(()=>{
       setChecking(false);
-      if (upper.length >= 3) {
-        navigate(`/student/instructions?code=${upper}`);
+      if (upper) {
+        navigate(`/student/info?code=${encodeURIComponent(upper)}`);
       } else { setShake(true); setTimeout(()=>setShake(false),600); }
     }, 900);
   };
@@ -3856,17 +3880,111 @@ const WAITING_CODES = ["PHY-2026-QZ"];
 
 // ─── Shared student header ───────────────────────────────────────────────────
 function StudentHeader() {
-  const navigate = useNavigate();
   return (
-    <header className="flex items-center justify-between px-6 py-4 border-b border-gray-100 bg-white sticky top-0 z-10">
+    <header className="flex items-center px-6 py-4 border-b border-gray-100 bg-white sticky top-0 z-10">
       <div className="flex items-center gap-2.5">
         <div className="w-8 h-8 rounded-lg flex items-center justify-center" style={{background:INK}}>
           <GraduationCap size={15} className="text-white"/>
         </div>
         <span className="text-base font-black" style={{fontFamily:U,color:INK}}>exam<span style={{color:CAMEL}}>·ai</span></span>
       </div>
-      <span className="text-xs text-gray-400 font-medium cursor-pointer hover:text-gray-600 transition-colors" style={{fontFamily:I}} onClick={()=>navigate("/student/enter")}>Student portal</span>
     </header>
+  );
+}
+
+// ─── A. Pre-Exam: Student Info ───────────────────────────────────────────────
+function StudentInfo({ searchParams }: { searchParams?: StudentSearchParams } = {}) {
+  const navigate = useNavigate();
+  const code = getSearchValue(searchParams, "code");
+  const exam = MOCK_EXAMS.find(e=>e.code.toUpperCase()===code.toUpperCase()) ?? MOCK_EXAMS[0];
+  const [name, setName] = useState("");
+  const [studentId, setStudentId] = useState("");
+  const [email, setEmail] = useState("");
+
+  const handleSubmit = (e: React.FormEvent) => {
+    e.preventDefault();
+    const params = new URLSearchParams();
+    params.set("code", code || exam.code);
+    params.set("name", name.trim());
+    params.set("studentId", studentId.trim());
+    params.set("email", email.trim());
+    navigate(`/student/instructions?${params.toString()}`);
+  };
+
+  const fields = [
+    { label:"Full name", value:name, onChange:setName, placeholder:"e.g. Dara Sok", icon:User, type:"text", autoComplete:"name" },
+    { label:"Student ID", value:studentId, onChange:setStudentId, placeholder:"e.g. STU-1029", icon:Hash, type:"text", autoComplete:"off" },
+    { label:"Email", value:email, onChange:setEmail, placeholder:"e.g. dara@school.edu", icon:Mail, type:"email", autoComplete:"email" },
+  ];
+
+  return (
+    <div className="min-h-screen" style={{ background:CREAM }}>
+      <StudentHeader/>
+      <div className="mx-auto flex min-h-[calc(100vh-65px)] max-w-5xl items-center px-4 py-10">
+        <div className="grid w-full gap-6 lg:grid-cols-[0.85fr_1.15fr] lg:items-stretch">
+          <div className="rounded-3xl border border-gray-100 bg-white p-7 shadow-sm">
+            <div className="mb-8 flex h-14 w-14 items-center justify-center rounded-2xl" style={{ background:SL }}>
+              <CheckCircle2 size={26} style={{ color:S }}/>
+            </div>
+            <p className="mb-2 text-xs font-black uppercase tracking-wider" style={{ fontFamily:U, color:S }}>Code accepted</p>
+            <h1 className="mb-3 text-2xl font-black" style={{ fontFamily:U, color:INK }}>Tell us who is joining</h1>
+            <p className="text-sm leading-relaxed text-gray-500" style={{ fontFamily:I }}>
+              Enter your student details before reviewing the exam instructions.
+            </p>
+
+            <div className="mt-8 rounded-2xl border border-gray-100 bg-gray-50 p-4">
+              <p className="mb-1 text-xs font-black uppercase tracking-wider text-gray-400" style={{ fontFamily:U }}>Exam code</p>
+              <p className="font-mono text-lg font-black tracking-wider" style={{ color:INK }}>{code || exam.code}</p>
+              <div className="mt-4 border-t border-gray-200 pt-4">
+                <p className="text-sm font-black" style={{ fontFamily:U, color:INK }}>{exam.title}</p>
+                <p className="mt-1 text-xs text-gray-500" style={{ fontFamily:I }}>{exam.subject} · {exam.duration} min · {exam.questions || 12} questions</p>
+              </div>
+            </div>
+          </div>
+
+          <form onSubmit={handleSubmit} className="rounded-3xl border border-gray-100 bg-white p-7 shadow-sm">
+            <div className="mb-6">
+              <h2 className="text-xl font-black" style={{ fontFamily:U, color:INK }}>Student information</h2>
+              <p className="mt-1 text-sm text-gray-500" style={{ fontFamily:I }}>Your teacher will see this with your submission.</p>
+            </div>
+
+            <div className="space-y-4">
+              {fields.map(({ label, value, onChange, placeholder, icon:Icon, type, autoComplete })=>(
+                <label key={label} className="block">
+                  <span className="mb-2 block text-xs font-black uppercase tracking-wider text-gray-400" style={{ fontFamily:U }}>{label}</span>
+                  <div className="relative">
+                    <Icon size={16} className="absolute left-4 top-1/2 -translate-y-1/2 text-gray-400"/>
+                    <input
+                      type={type}
+                      value={value}
+                      onChange={e=>onChange(e.target.value)}
+                      placeholder={placeholder}
+                      required
+                      autoComplete={autoComplete}
+                      className="w-full rounded-2xl border border-gray-200 bg-white px-11 py-4 text-sm text-gray-900 transition-colors placeholder:text-gray-300 focus:border-gray-900 focus:outline-none"
+                      style={{ fontFamily:I }}
+                    />
+                  </div>
+                </label>
+              ))}
+            </div>
+
+            <div className="mt-7 flex flex-col gap-3 sm:flex-row">
+              <button type="button" onClick={()=>navigate("/student/enter")}
+                className="rounded-2xl border border-gray-200 px-5 py-3.5 text-sm font-black text-gray-500 transition-colors hover:bg-gray-50"
+                style={{ fontFamily:U }}>
+                Change code
+              </button>
+              <button type="submit"
+                className="flex flex-1 items-center justify-center gap-2 rounded-2xl py-3.5 text-sm font-black text-white transition-all hover:opacity-90 active:scale-[0.98]"
+                style={{ background:S, fontFamily:U }}>
+                Continue to instructions <ArrowRight size={16}/>
+              </button>
+            </div>
+          </form>
+        </div>
+      </div>
+    </div>
   );
 }
 
@@ -3960,12 +4078,19 @@ function SVGWaiting() {
 }
 
 // ─── B. Pre-Exam: Exam Instructions ─────────────────────────────────────────
-function ExamInstructions() {
+function ExamInstructions({ searchParams }: { searchParams?: StudentSearchParams } = {}) {
   const navigate  = useNavigate();
-  const raw  = typeof window !== "undefined" ? new URLSearchParams(window.location.search) : null;
-  const code = raw?.get("code") ?? "";
+  const code = getSearchValue(searchParams, "code");
+  const studentName = getSearchValue(searchParams, "name");
+  const studentId = getSearchValue(searchParams, "studentId");
+  const studentEmail = getSearchValue(searchParams, "email");
   const exam = MOCK_EXAMS.find(e=>e.code.toUpperCase()===code.toUpperCase()) ?? MOCK_EXAMS[0];
   const [agreed, setAgreed] = useState(false);
+  const waitingParams = new URLSearchParams();
+  waitingParams.set("code", code || exam.code);
+  if (studentName) waitingParams.set("name", studentName);
+  if (studentId) waitingParams.set("studentId", studentId);
+  if (studentEmail) waitingParams.set("email", studentEmail);
 
   const chips = [
     {icon:Clock,    label:`${exam.duration} minutes`},
@@ -4016,6 +4141,15 @@ function ExamInstructions() {
                 </span>
                 <h1 className="text-2xl font-black mt-3 mb-1" style={{fontFamily:U,color:INK}}>{exam.title}</h1>
                 <p className="text-sm text-gray-400" style={{fontFamily:I}}>Exam code: <span className="font-semibold text-gray-600">{code||exam.code}</span></p>
+                {(studentName || studentId || studentEmail) && (
+                  <div className="mt-4 rounded-2xl border border-gray-100 bg-gray-50 px-4 py-3">
+                    <p className="text-xs font-black uppercase tracking-wider text-gray-400" style={{fontFamily:U}}>Student</p>
+                    <p className="mt-1 text-sm font-black" style={{fontFamily:U,color:INK}}>{studentName || "Student"}</p>
+                    <p className="mt-0.5 text-xs text-gray-500" style={{fontFamily:I}}>
+                      {[studentId, studentEmail].filter(Boolean).join(" · ")}
+                    </p>
+                  </div>
+                )}
               </div>
 
               <div className="mb-6">
@@ -4044,7 +4178,7 @@ function ExamInstructions() {
 
               <button
                 disabled={!agreed}
-                onClick={()=>navigate(`/student/waiting?code=${code}`)}
+                onClick={()=>navigate(`/student/waiting?${waitingParams.toString()}`)}
                 className="w-full flex items-center justify-center gap-2 text-white font-black py-4 rounded-2xl text-base transition-all hover:opacity-90 disabled:opacity-40 disabled:cursor-not-allowed"
                 style={{background:S,fontFamily:U}}>
                 Ready — Join Waiting Room <ArrowRight size={18}/>
@@ -4059,139 +4193,169 @@ function ExamInstructions() {
 }
 
 // ─── B. Pre-Exam: Waiting Lobby ──────────────────────────────────────────────
-function ExamWaitingLobby() {
+function ExamWaitingLobby({ searchParams }: { searchParams?: StudentSearchParams } = {}) {
   const navigate = useNavigate();
-  const raw  = typeof window !== "undefined" ? new URLSearchParams(window.location.search) : null;
-  const code = raw?.get("code") ?? "";
+  const code = getSearchValue(searchParams, "code");
+  const studentName = getSearchValue(searchParams, "name") || "You";
+  const studentId = getSearchValue(searchParams, "studentId");
+  const studentEmail = getSearchValue(searchParams, "email");
   const exam = MOCK_EXAMS.find(e=>e.code.toUpperCase()===code.toUpperCase()) ?? MOCK_EXAMS[0];
+  const instructionParams = new URLSearchParams();
+  for (const [key, value] of Object.entries(searchParams ?? {})) {
+    const paramValue = Array.isArray(value) ? value[0] : value;
+    if (paramValue) instructionParams.set(key, paramValue);
+  }
+  if (!instructionParams.get("code")) instructionParams.set("code", code || exam.code);
 
   // "open" = teacher has started the exam
   const [open, setOpen] = useState(false);
-  // Dot-pulse tick for the waiting animation
-  const [tick, setTick] = useState(0);
+  const [countdown, setCountdown] = useState<number | null>(null);
+  const countdownTimers = useRef<number[]>([]);
+  const joinedStudents = [
+    { name:studentName, meta:studentId || studentEmail || "Ready", current:true, color:S },
+    { name:"Sreynich Kao", meta:"Joined 2 min ago", color:CAMEL },
+    { name:"Dara Sok", meta:"Camera ready", color:INK },
+    { name:"Malis Chan", meta:"Joined", color:BLUE },
+    { name:"Rithy Chea", meta:"Ready", color:"#7c3aed" },
+    { name:"Nita Kim", meta:"Joined", color:"#db2777" },
+    { name:"Vireak Long", meta:"Ready", color:"#0891b2" },
+    { name:"Sophea Mey", meta:"Joined", color:"#ea580c" },
+  ];
+
+  const beginExamCountdown = () => {
+    countdownTimers.current.forEach(timer=>window.clearTimeout(timer));
+    countdownTimers.current = [];
+    setOpen(true);
+    setCountdown(3);
+    countdownTimers.current = [
+      window.setTimeout(()=>setCountdown(2), 1000),
+      window.setTimeout(()=>setCountdown(1), 2000),
+      window.setTimeout(()=>navigate(`/student/exam?code=${encodeURIComponent(code || exam.code)}`), 3000),
+    ];
+  };
 
   useEffect(()=>{
-    const t = setInterval(()=>setTick(n=>(n+1)%3),600);
-    return ()=>clearInterval(t);
+    return ()=>countdownTimers.current.forEach(timer=>window.clearTimeout(timer));
   },[]);
-
-  const tips = [
-    "Find a quiet, well-lit space free from distractions.",
-    "Keep water nearby — staying hydrated helps focus.",
-    "Review your notes one last time if allowed.",
-    "Make sure your camera and microphone work (if required).",
-  ];
 
   return (
     <div className="min-h-screen" style={{background:CREAM}}>
       <StudentHeader/>
 
+      {countdown !== null && (
+        <div className="fixed inset-0 z-[220] flex items-center justify-center px-4" style={{background:"rgba(13,27,42,0.82)",backdropFilter:"blur(10px)"}}>
+          <div className="flex flex-col items-center text-center">
+            <p className="mb-5 text-sm font-black uppercase tracking-widest" style={{fontFamily:U,color:SM}}>Exam starting</p>
+            <div className="flex h-36 w-36 items-center justify-center rounded-full border-4 border-white/15 text-7xl font-black text-white shadow-2xl" style={{fontFamily:U,background:S}}>
+              {countdown > 0 ? countdown : <Check size={64}/>}
+            </div>
+            <p className="mt-6 text-lg font-black text-white" style={{fontFamily:U}}>Get ready</p>
+            <p className="mt-1 text-sm" style={{fontFamily:I,color:SM}}>You will enter the exam automatically.</p>
+          </div>
+        </div>
+      )}
+
       {/* "Exam is open" banner */}
       {open&&(
         <div className="fixed top-0 inset-x-0 z-50 flex items-center justify-between px-6 py-3 text-white text-sm font-bold shadow-lg"
           style={{background:S,fontFamily:U}}>
-          <span>🎉 Your teacher has started the exam!</span>
-          <button onClick={()=>navigate(`/student/exam?code=${code}`)}
-            className="flex items-center gap-1.5 bg-white rounded-xl px-4 py-1.5 text-sm font-black hover:opacity-90"
-            style={{color:S,fontFamily:U}}>
-            Enter Exam <ArrowRight size={14}/>
-          </button>
+          <span>Your teacher has started the exam. Starting automatically...</span>
+          <span className="rounded-xl bg-white px-4 py-1.5 text-sm font-black" style={{color:S}}>Countdown</span>
         </div>
       )}
 
-      <div className="max-w-5xl mx-auto px-4 py-10" style={{paddingTop:open?"60px":undefined}}>
-        <div className="grid lg:grid-cols-2 gap-8 items-center">
-
-          {/* Left: illustration + tips */}
-          <div className="flex flex-col items-center gap-6">
-            <div className="w-full max-w-[380px] aspect-video">
-              <SVGWaiting/>
+      <div className="mx-auto max-w-6xl px-4 py-10" style={{paddingTop:open?"64px":undefined}}>
+        <div className="mb-6 rounded-3xl border border-gray-100 bg-white p-6 shadow-sm">
+          <div className="flex flex-col gap-5 lg:flex-row lg:items-center lg:justify-between">
+            <div>
+              <span className="inline-flex items-center gap-2 rounded-full px-3 py-1 text-xs font-black uppercase tracking-wider" style={{background:open?SL:"#f3f4f6",color:open?S:"#6b7280",fontFamily:U}}>
+                <span className="h-2 w-2 rounded-full" style={{background:open?S:CAMEL}}/>
+                {open?"Exam is open":"Waiting for teacher"}
+              </span>
+              <h1 className="mt-3 text-3xl font-black" style={{fontFamily:U,color:INK}}>{exam.title}</h1>
+              <p className="mt-1 text-sm text-gray-500" style={{fontFamily:I}}>
+                {open ? "The teacher opened the session. You can enter now." : "Students are joining the room. The exam starts when your teacher opens it."}
+              </p>
             </div>
-            <div className="w-full max-w-[380px] bg-white rounded-2xl border border-gray-100 p-5 shadow-sm">
-              <p className="text-xs font-black uppercase tracking-wider text-gray-400 mb-3" style={{fontFamily:U}}>While you wait</p>
-              <div className="space-y-2.5">
-                {tips.map((tip,i)=>(
-                  <div key={i} className="flex items-start gap-2.5">
-                    <div className="w-5 h-5 rounded-full flex items-center justify-center flex-shrink-0 mt-0.5" style={{background:SL}}>
-                      <Check size={10} style={{color:S}}/>
-                    </div>
-                    <p className="text-xs text-gray-500 leading-relaxed" style={{fontFamily:I}}>{tip}</p>
-                  </div>
-                ))}
+            <div className="grid grid-cols-3 gap-3 rounded-2xl bg-gray-50 p-3 text-center">
+              <div className="px-4">
+                <p className="text-2xl font-black" style={{fontFamily:U,color:INK}}>{joinedStudents.length}</p>
+                <p className="text-[11px] font-bold text-gray-400" style={{fontFamily:I}}>Joined</p>
+              </div>
+              <div className="px-4">
+                <p className="text-2xl font-black" style={{fontFamily:U,color:INK}}>{exam.duration}</p>
+                <p className="text-[11px] font-bold text-gray-400" style={{fontFamily:I}}>Minutes</p>
+              </div>
+              <div className="px-4">
+                <p className="text-2xl font-black" style={{fontFamily:U,color:INK}}>{exam.questions || 12}</p>
+                <p className="text-[11px] font-bold text-gray-400" style={{fontFamily:I}}>Questions</p>
               </div>
             </div>
           </div>
+        </div>
 
-          {/* Right: status card */}
-          <div className="bg-white rounded-3xl border border-gray-100 shadow-sm overflow-hidden">
-            <div className="h-1.5 w-full transition-all" style={{background:open?`linear-gradient(90deg,${S},${SM})`:`linear-gradient(90deg,${INK},${S})`}}/>
-            <div className="p-8">
-              <div className="mb-6">
-                <span className="text-xs font-black uppercase tracking-wider px-2.5 py-1 rounded-full" style={{background:open?SL:"#f3f4f6",color:open?S:"#6b7280",fontFamily:U}}>
-                  {open?"Exam is open":"Waiting for teacher"}
-                </span>
-                <h1 className="text-2xl font-black mt-3 mb-1" style={{fontFamily:U,color:INK}}>{exam.title}</h1>
-                <p className="text-sm text-gray-400" style={{fontFamily:I}}>
-                  {open
-                    ? "The exam session is now open. Click the button below to begin."
-                    : "Your teacher hasn't opened the exam yet. You will be notified the moment it starts."}
-                </p>
-              </div>
-
-              {/* Status pulse block */}
-              <div className="rounded-2xl p-6 mb-5 text-center" style={{background:open?SL:INK}}>
-                {open?(
-                  <div className="flex flex-col items-center gap-3">
-                    <CheckCircle2 size={40} style={{color:S}}/>
-                    <p className="text-base font-black" style={{fontFamily:U,color:S}}>Exam is now open!</p>
-                    <p className="text-xs" style={{fontFamily:I,color:"#065f46"}}>Your teacher has started the session.</p>
-                  </div>
-                ):(
-                  <div className="flex flex-col items-center gap-4">
-                    <div className="flex items-center gap-2">
-                      {[0,1,2].map(i=>(
-                        <div key={i} className="w-3 h-3 rounded-full transition-all duration-300"
-                          style={{background:tick===i?SM:"#334155",transform:tick===i?"scale(1.4)":"scale(1)"}}/>
-                      ))}
-                    </div>
-                    <p className="text-sm font-black" style={{fontFamily:U,color:"white"}}>Waiting for teacher to open exam…</p>
-                    <p className="text-xs" style={{fontFamily:I,color:SM}}>You are in the queue. Do not close this page.</p>
-                  </div>
-                )}
-              </div>
-
-              {/* Amber notice */}
-              {!open&&(
-                <div className="flex items-start gap-2.5 p-4 rounded-2xl border border-amber-100 bg-amber-50 mb-5">
-                  <AlertTriangle size={14} className="text-amber-500 flex-shrink-0 mt-0.5"/>
-                  <p className="text-xs text-amber-700 leading-relaxed" style={{fontFamily:I}}>
-                    Please keep this page open. Your teacher controls when the exam begins. You will be admitted automatically.
-                  </p>
-                </div>
-              )}
-
-              {/* Main action */}
-              {open?(
-                <button onClick={()=>navigate(`/student/exam?code=${code}`)}
-                  className="w-full flex items-center justify-center gap-2 text-white font-black py-4 rounded-2xl text-base hover:opacity-90"
-                  style={{background:S,fontFamily:U}}>
-                  Enter Exam Now <ArrowRight size={18}/>
-                </button>
-              ):(
-                <div className="space-y-2">
-                  {/* Demo button — simulates teacher starting the exam */}
-                  <button onClick={()=>setOpen(true)}
-                    className="w-full flex items-center justify-center gap-2 py-3.5 rounded-2xl border-2 border-dashed text-sm font-bold transition-all hover:bg-gray-50"
-                    style={{borderColor:"#d1d5db",color:"#6b7280",fontFamily:U}}>
-                    <Zap size={14}/>[Demo] Simulate teacher starting exam
-                  </button>
-                  <button onClick={()=>navigate(`/student/instructions?code=${code}`)}
-                    className="w-full py-2.5 text-xs font-semibold text-gray-400 hover:text-gray-600 transition-colors" style={{fontFamily:U}}>
-                    ← Back to instructions
-                  </button>
-                </div>
-              )}
+        <div className="rounded-3xl border border-gray-100 bg-white p-6 shadow-sm">
+          <div className="mb-6 flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+            <div>
+              <p className="text-xs font-black uppercase tracking-wider text-gray-400" style={{fontFamily:U}}>Joined students</p>
+              <p className="mt-1 text-sm text-gray-500" style={{fontFamily:I}}>People currently waiting in this exam session.</p>
             </div>
+            {!open&&(
+              <div className="inline-flex items-center gap-2 rounded-full bg-amber-50 px-3 py-2 text-xs font-bold text-amber-700" style={{fontFamily:I}}>
+                <AlertTriangle size={13}/>Teacher has not started yet
+              </div>
+            )}
+          </div>
+
+          <div className="grid grid-cols-2 gap-4 sm:grid-cols-3 lg:grid-cols-4">
+            {joinedStudents.map((student, index)=>{
+              const initials = student.name.split(" ").map(part=>part[0]).join("").slice(0,2).toUpperCase();
+              return (
+                <div key={`${student.name}-${index}`} className={`flex flex-col items-center rounded-2xl border p-5 text-center transition-all ${student.current?"border-emerald-200 bg-emerald-50":"border-gray-100 bg-white"}`}>
+                  <div className="relative">
+                    <div className="flex h-16 w-16 items-center justify-center rounded-full text-lg font-black text-white shadow-sm ring-4 ring-white" style={{background:student.color,fontFamily:U}}>
+                      {initials}
+                    </div>
+                    <span className="absolute bottom-0 right-0 h-4 w-4 rounded-full border-2 border-white" style={{background:open?S:CAMEL}}/>
+                  </div>
+                  <p className="mt-3 max-w-full truncate text-sm font-black" style={{fontFamily:U,color:INK}}>{student.current ? `${student.name} (You)` : student.name}</p>
+                  <p className="mt-1 max-w-full truncate text-xs text-gray-400" style={{fontFamily:I}}>{student.meta}</p>
+                </div>
+              );
+            })}
+          </div>
+
+          <div className="mt-6 rounded-2xl p-4" style={{background:open?SL:INK}}>
+            {open ? (
+              <div className="flex flex-col items-center gap-3 sm:flex-row sm:justify-between">
+                <div className="text-center sm:text-left">
+                  <p className="font-black" style={{fontFamily:U,color:S}}>The session is open.</p>
+                  <p className="text-xs" style={{fontFamily:I,color:"#065f46"}}>The exam will open automatically after the countdown.</p>
+                </div>
+                <div className="rounded-2xl px-6 py-3 text-sm font-black" style={{background:S,color:"white",fontFamily:U}}>
+                  Starting...
+                </div>
+              </div>
+            ) : (
+              <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+                <div className="text-center sm:text-left">
+                  <p className="font-black text-white" style={{fontFamily:U}}>You are in the room.</p>
+                  <p className="text-xs" style={{fontFamily:I,color:SM}}>Keep this page open until your teacher starts the exam.</p>
+                </div>
+                <div className="flex flex-col gap-2 sm:flex-row">
+                  <button onClick={beginExamCountdown}
+                    className="flex items-center justify-center gap-2 rounded-2xl border border-white/20 px-5 py-3 text-xs font-black text-white transition-all hover:bg-white/10"
+                    style={{fontFamily:U}}>
+                    <Zap size={14}/>[Demo] Start
+                  </button>
+                  <button onClick={()=>navigate(`/student/instructions?${instructionParams.toString()}`)}
+                    className="rounded-2xl px-5 py-3 text-xs font-black transition-all hover:bg-white/10"
+                    style={{fontFamily:U,color:SM}}>
+                    Back to instructions
+                  </button>
+                </div>
+              </div>
+            )}
           </div>
         </div>
       </div>
@@ -5415,6 +5579,7 @@ export {
   AntiCheatReport,
   QuestionAnalysisReport,
   ExamEntry,
+  StudentInfo,
   ExamInvalid,
   StudentLobby,
   ExamInstructions,
