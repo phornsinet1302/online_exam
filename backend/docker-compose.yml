@@ -11,8 +11,8 @@ services:
     environment:
       - NODE_ENV=development
     env_file:
-      - .env.local        # or .env – whichever you have
+      - .env
     volumes:
       - .:/app            # mount entire backend folder
       - /app/node_modules # keep container’s node_modules intact
-    command: pnpm dev     # ensure your package.json has a "dev" script
+    command: pnpm dev
