@@ -1,9 +1,9 @@
 // backend/src/services/question.service.ts
 import prisma from '../config/database.js';
-import { ExamStatus, QuestionType } from '@prisma/client';
+import { ExamStatus, QuestionType, Difficulty, BloomLevel } from '@prisma/client';
 import { v4 as uuidv4 } from 'uuid';
 import { processFileImport } from '../utils/fileProcessor.js';
-import { generateAIQuestions } from '../utils/aiGenerator.js';
+import { AIGenerationService } from './ai/generation.service.js';
 
 // This interface should match what processFileImport returns
 // We'll make all fields optional except the required ones.
@@ -11,13 +11,15 @@ interface ParsedQuestion {
   type: string; // will be mapped to QuestionType
   text: string;
   points?: number;
-  difficulty?: number;
-  bloomLevel?: string;
+  difficulty?: Difficulty;
+  bloomLevel?: BloomLevel;
   order?: number;
   options?: { text: string; isCorrect: boolean }[];
 }
 
 export class QuestionService {
+  private aiGenerationService = new AIGenerationService();
+
   // -------- Section Management --------
   async createSection(examId: string, title: string, order?: number, randomization = false, shuffleAnswers = false) {
     const exam = await prisma.exam.findUnique({ where: { id: examId } });
@@ -45,7 +47,7 @@ export class QuestionService {
   async reorderSections(examId: string, sectionOrder: { id: string; order: number }[]) {
     const exam = await prisma.exam.findUnique({ where: { id: examId } });
     if (!exam) throw new Error('Exam not found');
-    if (exam.status !== 'DRAFT') throw new Error('Cannot modify a published or archived exam');
+    // if (exam.status !== 'DRAFT') throw new Error('Cannot modify a published or archived exam');
 
     const sectionIds = sectionOrder.map(s => s.id);
     const sections = await prisma.section.findMany({
@@ -70,15 +72,15 @@ export class QuestionService {
     text: string,
     points: number,
     options?: { text: string; isCorrect: boolean; order?: number }[],
-    difficulty?: number,
-    bloomLevel?: string
+    difficulty?: Difficulty,
+    bloomLevel?: BloomLevel
   ) {
     const section = await prisma.section.findUnique({
       where: { id: sectionId },
       include: { exam: true },
     });
     if (!section) throw new Error('Section not found');
-    
+
 
     const lastQuestion = await prisma.question.findFirst({
       where: { sectionId },
@@ -97,8 +99,8 @@ export class QuestionService {
         type: type as QuestionType,
         text,
         points,
-        difficulty,
-        bloomLevel,
+        difficulty: difficulty || Difficulty.MEDIUM,
+        bloomLevel: bloomLevel || BloomLevel.Remember,
         order,
         options: options
           ? {
@@ -187,8 +189,8 @@ export class QuestionService {
           type: q.type as QuestionType,
           text: q.text,
           points: q.points ?? 1,
-          difficulty: q.difficulty,
-          bloomLevel: q.bloomLevel,
+          difficulty: q.difficulty || Difficulty.MEDIUM,
+          bloomLevel: q.bloomLevel || BloomLevel.Remember,
           order: q.order ?? 0,
           options: q.options
             ? {
@@ -209,11 +211,20 @@ export class QuestionService {
 
   // -------- AI Question Generation --------
   async uploadMaterial(examId: string, materialText: string, fileBuffer?: Buffer) {
+    let content = materialText;
+    if (fileBuffer && !content) {
+      try {
+        content = await this.aiGenerationService.extractTextFromPDF(fileBuffer);
+      } catch (error) {
+        console.error('Failed to extract PDF text during material upload:', error);
+      }
+    }
+
     const material = await prisma.material.create({
       data: {
         examId,
-        content: materialText,
-        fileUrl: fileBuffer ? 'uploaded-file-url' : null, // Prisma allows null
+        content,
+        fileUrl: fileBuffer ? 'uploaded-file-url' : null,
       },
     });
     return { materialId: material.id };
@@ -230,19 +241,9 @@ export class QuestionService {
     const material = await prisma.material.findUnique({ where: { id: materialId, examId } });
     if (!material) throw new Error('Material not found for this exam');
 
-    // This returns an array of objects matching ParsedQuestion (but without id)
-    const generated: ParsedQuestion[] = await generateAIQuestions({
-      material: material.content ?? '',
-      count,
-      language,
-      bloomLevel,
-      complexity,
-    });
-
     const exam = await prisma.exam.findUnique({ where: { id: examId } });
     if (!exam) throw new Error('Exam not found');
-    if (exam.status !== 'DRAFT') throw new Error('Cannot modify a published or archived exam');
-
+    // if (exam.status !== 'DRAFT') throw new Error('Cannot modify a published or archived exam');
     let section = await prisma.section.findFirst({
       where: { examId, title: { contains: 'AI Generated' } },
     });
@@ -256,31 +257,71 @@ export class QuestionService {
       });
     }
 
+    let difficulty: Difficulty | null = null;
+    if (complexity) {
+      const upperComplexity = complexity.toUpperCase();
+      if (Object.values(Difficulty).includes(upperComplexity as Difficulty)) {
+        difficulty = upperComplexity as Difficulty;
+      }
+    }
+
+    let bloom: BloomLevel | null = null;
+    if (bloomLevel && Object.values(BloomLevel).includes(bloomLevel as BloomLevel)) {
+      bloom = bloomLevel as BloomLevel;
+    }
+
+    // Call real Gemini API
+    const generated = await this.aiGenerationService.generateQuestions({
+      materialText: material.content ?? '',
+      subject: exam.subject || 'General',
+      difficulty: (complexity as any) || 'Medium',
+      bloomLevel: bloom || undefined,
+      numQuestions: count,
+      questionType: QuestionType.MCQ,
+      language: language || 'English',
+    });
+
+    const lastQuestion = await prisma.question.findFirst({
+      where: { sectionId: section.id },
+      orderBy: { order: 'desc' },
+    });
+    let nextOrder = lastQuestion ? lastQuestion.order + 1 : 0;
+
     const created = [];
     for (const q of generated) {
-      if (!Object.values(QuestionType).includes(q.type as QuestionType)) {
-        throw new Error(`Invalid question type: ${q.type}`);
+      const qType = (q.type as QuestionType) || QuestionType.MCQ;
+      if (!Object.values(QuestionType).includes(qType)) {
+        throw new Error(`Invalid question type: ${qType}`);
       }
+
+      const aiOptions: string[] = q.options || [];
+      const correctAnswers: string[] = q.correctAnswers || [];
 
       const question = await prisma.question.create({
         data: {
           sectionId: section.id,
-          type: q.type as QuestionType,
-          text: q.text,
-          points: q.points ?? 1,
-          difficulty: q.difficulty,
-          bloomLevel: q.bloomLevel,
-          order: q.order ?? 0,
-          options: q.options
+          type: qType,
+          text: q.questionText || 'Generated Question',
+          points: q.marks ?? 1,
+          difficulty: difficulty || Difficulty.MEDIUM,
+          bloomLevel: bloom || BloomLevel.Remember,
+          order: nextOrder++,
+          reviewed: false, // requires review
+          metadata: {
+            isAIGenerated: true,
+            explanation: q.explanation || null,
+          },
+          options: aiOptions.length > 0
             ? {
-                create: q.options.map((opt, idx) => ({
-                  text: opt.text,
-                  isCorrect: opt.isCorrect,
+                create: aiOptions.map((optText: string, idx: number) => ({
+                  text: optText,
+                  isCorrect: correctAnswers.includes(String(idx)) || correctAnswers.includes(optText),
                   order: idx,
                 })),
               }
             : undefined,
         },
+        include: { options: true },
       });
       created.push(question);
     }
@@ -305,42 +346,42 @@ export class QuestionService {
   }
   // backend/src/services/question.service.ts (partial)
 
-async duplicateQuestion(questionId: string) {
-  const question = await prisma.question.findUnique({
-    where: { id: questionId },
-    include: { options: true }
-  });
-  if (!question) throw new Error('Question not found');
+  async duplicateQuestion(questionId: string) {
+    const question = await prisma.question.findUnique({
+      where: { id: questionId },
+      include: { options: true }
+    });
+    if (!question) throw new Error('Question not found');
 
-  // Build new data – omit metadata if null/undefined
-  const newData: any = {
-    sectionId: question.sectionId,
-    type: question.type,
-    text: question.text + ' (copy)',
-    points: question.points,
-    difficulty: question.difficulty,
-    bloomLevel: question.bloomLevel,
-    order: question.order + 1,
-    reviewed: false,
-    options: question.options.length > 0
-      ? {
+    // Build new data – omit metadata if null/undefined
+    const newData: any = {
+      sectionId: question.sectionId,
+      type: question.type,
+      text: question.text + ' (copy)',
+      points: question.points,
+      difficulty: question.difficulty,
+      bloomLevel: question.bloomLevel,
+      order: question.order + 1,
+      reviewed: false,
+      options: question.options.length > 0
+        ? {
           create: question.options.map(opt => ({
             text: opt.text,
             isCorrect: opt.isCorrect,
             order: opt.order,
           })),
         }
-      : undefined,
-  };
+        : undefined,
+    };
 
-  // Only include metadata if it exists (not null)
-  if (question.metadata) {
-    newData.metadata = question.metadata;
+    // Only include metadata if it exists (not null)
+    if (question.metadata) {
+      newData.metadata = question.metadata;
+    }
+
+    return prisma.question.create({
+      data: newData,
+      include: { options: true },
+    });
   }
-
-  return prisma.question.create({
-    data: newData,
-    include: { options: true },
-  });
-}
 }

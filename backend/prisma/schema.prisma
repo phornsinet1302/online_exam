@@ -28,32 +28,46 @@ enum Role {
   INVIGILATOR
 }
 
+enum ExamAccess {
+  PUBLIC
+  PRIVATE
+  PASSWORD_PROTECTED
+}
+
 model Exam {
   id          String    @id @default(cuid())
   title       String
   description String?
   status      ExamStatus @default(DRAFT)
-  ownerId     String    @map("owner_id") // Supabase user ID
+  ownerId     String    @map("owner_id")
   owner       User      @relation(fields: [ownerId], references: [supabaseId])
   createdAt   DateTime  @default(now())
   updatedAt   DateTime  @updatedAt
 
-  // Scheduling fields (from 8.2)
+  // Scheduling fields
   subject     String?
-  startDate   DateTime?
-  endDate     DateTime?
-  duration    Int?      // in minutes
+  startDate   DateTime?   // full date+time (combined from frontend)
+  duration    Int?        // in minutes
+  timezone    String?     // e.g., "America/New_York"
   passingScore Float?
   maxAttempts Int?
-  isPublic    Boolean   @default(false)
 
+  // Settings toggles
+  randomizeQuestions Boolean @default(false)
+  showResults        Boolean @default(false)
+
+  // Access control
+  accessType  ExamAccess @default(PUBLIC)
+  password    String?    // only if accessType == PASSWORD_PROTECTED
+
+  // Relations
   sections    Section[]
-  materials Material[]
-  attempts  ExamAttempt[]
-  // Access methods
+  materials   Material[]
+  attempts    ExamAttempt[]
+
+  // Access tokens (generated on publish)
   uniqueCode      String?   @unique
   magicLinkToken  String?
-
 
   @@map("exams")
 }
@@ -103,13 +117,14 @@ model Question {
   type        QuestionType
   text        String   // question stem
   points      Float    @default(1.0)
-  difficulty  Int?     // 1-5
-  bloomLevel  String?  // Remember, Understand, Apply, Analyze, Evaluate, Create
+  difficulty  Difficulty
+  bloomLevel  BloomLevel
   order       Int
   createdAt   DateTime @default(now())
   updatedAt   DateTime @updatedAt
   reviewed  Boolean  @default(false) // for AI-generated drafts
   metadata   Json? 
+  isAIGenerated  Boolean  @default(false)
 
   options     Option[] // for MCQ/True-False
   // For essay, we might store expected answer separately
@@ -129,6 +144,21 @@ enum QuestionType {
   FILE_UPLOAD
   MATH
   // can add more: MATCHING, FILL_BLANK, etc.
+}
+
+enum BloomLevel{
+  Remember
+  Understand
+  Apply
+  Analyze
+  Evaluate
+  Create
+}
+
+enum Difficulty {
+  EASY
+  MEDIUM
+  HARD
 }
 
 model Option {

@@ -10,6 +10,7 @@ services:
       - "5000:5000"
     environment:
       - NODE_ENV=development
+      - CI=true
     env_file:
       - .env.local        # or .env – whichever you have
     volumes:

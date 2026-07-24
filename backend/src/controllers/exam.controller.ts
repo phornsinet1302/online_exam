@@ -3,7 +3,6 @@ import { Request, Response } from 'express';
 import { ExamService } from '../services/exam.service.js';
 import { ExamStatus } from '@prisma/client';
 import { z } from 'zod';
-import id from 'zod/v4/locales/id.js';
 
 const examService = new ExamService();
 

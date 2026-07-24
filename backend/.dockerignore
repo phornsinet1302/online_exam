@@ -8,3 +8,5 @@ dist
 .DS_Store
 coverage
 .nyc_output
+# Development test scripts – not needed in production
+tests/

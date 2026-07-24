@@ -9,7 +9,9 @@ WORKDIR /app
 COPY package.json pnpm-lock.yaml ./
 
 # Install dependencies without running scripts (prisma generate will run later)
-RUN pnpm install --frozen-lockfile --ignore-scripts
+RUN pnpm config set fetch-timeout 600000 \
+ && pnpm config set fetch-retries 5 \
+ && pnpm install --frozen-lockfile --ignore-scripts
 
 COPY . .
 
