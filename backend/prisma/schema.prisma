@@ -28,12 +28,6 @@ enum Role {
   INVIGILATOR
 }
 
-enum ExamAccess {
-  PUBLIC
-  PRIVATE
-  PASSWORD_PROTECTED
-}
-
 model Exam {
   id          String    @id @default(cuid())
   title       String
@@ -44,32 +38,33 @@ model Exam {
   createdAt   DateTime  @default(now())
   updatedAt   DateTime  @updatedAt
 
-  // Scheduling fields
   subject     String?
-  startDate   DateTime?   // full date+time (combined from frontend)
-  duration    Int?        // in minutes
-  timezone    String?     // e.g., "America/New_York"
+  startDate   DateTime?
+  duration    Int?
+  timezone    String?
   passingScore Float?
   maxAttempts Int?
 
-  // Settings toggles
   randomizeQuestions Boolean @default(false)
   showResults        Boolean @default(false)
 
-  // Access control
   accessType  ExamAccess @default(PUBLIC)
-  password    String?    // only if accessType == PASSWORD_PROTECTED
+  password    String?
 
-  // Relations
   sections    Section[]
   materials   Material[]
   attempts    ExamAttempt[]
 
-  // Access tokens (generated on publish)
   uniqueCode      String?   @unique
   magicLinkToken  String?
 
   @@map("exams")
+}
+
+enum ExamAccess {
+  PUBLIC
+  PRIVATE
+  PASSWORD_PROTECTED
 }
 model ExamAttempt {
   id        String   @id @default(cuid())
@@ -115,13 +110,15 @@ model Question {
   sectionId   String   @map("section_id")
   section     Section  @relation(fields: [sectionId], references: [id], onDelete: Cascade)
   type        QuestionType
+  title       String?  // optional short title for the question
+  description String?  // optional description (can be rich text)
   text        String   // question stem
   points      Float    @default(1.0)
   difficulty  Difficulty
-  bloomLevel  BloomLevel
   order       Int
   createdAt   DateTime @default(now())
   updatedAt   DateTime @updatedAt
+  required    Boolean  @default(true) // whether student must answer
   reviewed  Boolean  @default(false) // for AI-generated drafts
   metadata   Json? 
   isAIGenerated  Boolean  @default(false)
@@ -134,16 +131,15 @@ model Question {
 
 enum QuestionType {
   MCQ
+  MULTIPLE_SELECT
   TRUE_FALSE
-  ESSAY
   SHORT_ANSWER
+  ESSAY
   FILL_IN_BLANK
   MATCHING
   CHECKBOX
-  DROPDOWN
   FILE_UPLOAD
-  MATH
-  // can add more: MATCHING, FILL_BLANK, etc.
+  MATH_FORMULA
 }
 
 enum BloomLevel{
@@ -159,6 +155,7 @@ enum Difficulty {
   EASY
   MEDIUM
   HARD
+  MIXED
 }
 
 model Option {

@@ -1,36 +1,69 @@
 // backend/src/services/exam.service.ts
 import prisma from '../config/database.js';
 import { ExamStatus } from '@prisma/client';
-import { v4 as uuidv4 } from 'uuid';
 import crypto from 'crypto';
 import jwt from 'jsonwebtoken';
+import { parse } from 'date-fns';
+import { fromZonedTime } from 'date-fns-tz';
 
-// Generate a short unique code (e.g., 8 alphanumeric)
+// Helper: combine date (MM/dd/yyyy), time (hh:mm a) and timezone into a UTC Date
+function combineDateAndTime(
+  dateStr?: string,
+  timeStr?: string,
+  timezone: string = 'UTC'
+): Date | undefined {
+  if (!dateStr) return undefined;
+
+  // Parse the date in MM/dd/yyyy and time in hh:mm a (e.g., "09:00 AM")
+  const dateTimeStr = `${dateStr} ${timeStr || '12:00 AM'}`;
+  const parsedDate = parse(dateTimeStr, 'MM/dd/yyyy hh:mm a', new Date());
+
+  if (isNaN(parsedDate.getTime())) {
+    throw new Error('Invalid date or time format');
+  }
+
+  // Convert the local time (as if in the given timezone) to UTC
+  return fromZonedTime(parsedDate, timezone);
+}
+
+// Generate short unique code (8 digits)
 function generateUniqueCode(length: number = 8): string {
-  const min = 10 ** (length - 1); // e.g., 100000
-  const max = 10 ** length - 1;   // e.g., 999999
+  const min = 10 ** (length - 1);
+  const max = 10 ** length - 1;
   return String(Math.floor(Math.random() * (max - min + 1)) + min);
 }
 
-// Generate a secure magic link token (JWT)
+// Generate JWT magic link token (7 days expiry)
 function generateMagicLinkToken(examId: string): string {
-  const payload = { examId, exp: Math.floor(Date.now() / 1000) + 60 * 60 * 24 * 7 }; // 7 days
+  const payload = { examId, exp: Math.floor(Date.now() / 1000) + 60 * 60 * 24 * 7 };
   return jwt.sign(payload, process.env.JWT_SECRET || 'fallback-secret');
 }
 
-// Helper to check if an exam has any attempts
+// Helper: check if exam has attempts
 async function hasAttempts(examId: string): Promise<boolean> {
   const count = await prisma.examAttempt.count({ where: { examId } });
   return count > 0;
 }
 
 export class ExamService {
+  // -------- Create Exam --------
   async createExam(ownerId: string, data: any) {
-    return prisma.exam.create({
-      data: { ownerId, status: 'DRAFT', ...data },
-    });
+    const { startDate, startTime, timezone, ...rest } = data;
+    const combinedStartDate = combineDateAndTime(startDate, startTime, timezone || 'UTC');
+
+    const examData = {
+      ownerId,
+      status: 'DRAFT',
+      timezone: timezone || 'UTC',
+      accessType: rest.accessType || 'PUBLIC',
+      ...rest,
+      startDate: combinedStartDate,
+    };
+    delete examData.startTime;
+    return prisma.exam.create({ data: examData });
   }
 
+  // -------- Get Exams (filterable) --------
   async getExams(ownerId: string, filters?: any) {
     const where: any = { ownerId };
     if (filters?.status) where.status = filters.status;
@@ -46,6 +79,7 @@ export class ExamService {
     });
   }
 
+  // -------- Get Exam by ID --------
   async getExamById(examId: string, ownerId: string) {
     const exam = await prisma.exam.findUnique({
       where: { id: examId },
@@ -58,29 +92,36 @@ export class ExamService {
     return exam;
   }
 
-  // All updates allowed – no status or attempts checks
+  // -------- Update Exam --------
   async updateExam(examId: string, ownerId: string, data: any) {
     const exam = await prisma.exam.findUnique({ where: { id: examId } });
     if (!exam) throw new Error('Exam not found');
     if (exam.ownerId !== ownerId) throw new Error('Access denied');
-    // Allow everything – even if archived or has attempts
+
+    const { startDate, startTime, ...rest } = data;
+    const combinedStartDate = combineDateAndTime(startDate, startTime);
+    const updateData = {
+      ...rest,
+      startDate: combinedStartDate,
+    };
+    delete updateData.startTime;
+
     return prisma.exam.update({
       where: { id: examId },
-      data,
+      data: updateData,
     });
   }
 
-  // Delete allowed anytime (even published/archived) – but careful with data integrity
+  // -------- Delete Exam --------
   async deleteExam(examId: string, ownerId: string) {
     const exam = await prisma.exam.findUnique({ where: { id: examId } });
     if (!exam) throw new Error('Exam not found');
     if (exam.ownerId !== ownerId) throw new Error('Access denied');
-    //Delete regardless of status (cascades to sections, questions, options, attempts?)
-    // You may want to handle attempts deletion or keep them orphaned – we'll delete all
     await prisma.exam.delete({ where: { id: examId } });
     return { message: 'Exam deleted successfully' };
   }
-  // -------- Duplicate Exam (clone everything into a new draft) --------
+
+  // -------- Duplicate Exam --------
   async duplicateExam(examId: string, ownerId: string) {
     const exam = await prisma.exam.findUnique({
       where: { id: examId },
@@ -97,7 +138,6 @@ export class ExamService {
     if (!exam) throw new Error('Exam not found');
     if (exam.ownerId !== ownerId) throw new Error('Access denied');
 
-    // Create a new exam with draft status, same metadata (except title may be "Copy of ...")
     const newTitle = `Copy of ${exam.title}`;
     const newExam = await prisma.exam.create({
       data: {
@@ -106,17 +146,20 @@ export class ExamService {
         description: exam.description,
         subject: exam.subject,
         startDate: exam.startDate,
-        endDate: exam.endDate,
         duration: exam.duration,
+        timezone: exam.timezone,
         passingScore: exam.passingScore,
         maxAttempts: exam.maxAttempts,
-        isPublic: exam.isPublic,
+        randomizeQuestions: exam.randomizeQuestions,
+        showResults: exam.showResults,
+        accessType: exam.accessType,
+        password: exam.password,
         status: 'DRAFT',
-        // do NOT copy uniqueCode/magicLinkToken
+        // DO NOT copy uniqueCode, magicLinkToken
       },
     });
 
-    // Clone sections and their questions/options
+    // Clone sections, questions, options (same as before)
     for (const section of exam.sections) {
       const newSection = await prisma.section.create({
         data: {
@@ -136,13 +179,11 @@ export class ExamService {
             text: question.text,
             points: question.points,
             difficulty: question.difficulty,
-            bloomLevel: question.bloomLevel,
             order: question.order,
             reviewed: question.reviewed,
           },
         });
 
-        // Clone options
         if (question.options.length > 0) {
           await prisma.option.createMany({
             data: question.options.map((opt) => ({
@@ -156,7 +197,6 @@ export class ExamService {
       }
     }
 
-    // Return the newly created exam (with its sections)
     return prisma.exam.findUnique({
       where: { id: newExam.id },
       include: {
@@ -165,19 +205,16 @@ export class ExamService {
     });
   }
 
-  // -------- Publish Exam (generate access tokens) --------
+  // -------- Publish Exam --------
   async publishExam(examId: string, ownerId: string) {
     const exam = await prisma.exam.findUnique({ where: { id: examId } });
     if (!exam) throw new Error('Exam not found');
     if (exam.ownerId !== ownerId) throw new Error('Access denied');
     if (exam.status === 'ARCHIVED') throw new Error('Archived exams cannot be published');
 
-    // Generate new keys (if you want to regenerate each time)
     const uniqueCode = generateUniqueCode();
     const magicLinkToken = generateMagicLinkToken(examId);
 
-    // If already published, we might want to keep existing keys unless you want to regenerate.
-    // For now, we'll always generate new keys.
     const updated = await prisma.exam.update({
       where: { id: examId },
       data: {
@@ -187,7 +224,6 @@ export class ExamService {
       },
     });
 
-    // Build magic link...
     const frontendBase = process.env.FRONTEND_URL || 'http://localhost:3000';
     const magicLink = `${frontendBase}/join?token=${magicLinkToken}`;
 
@@ -209,7 +245,7 @@ export class ExamService {
     });
   }
 
-  // -------- Preview Exam (student view, without exposing answers) --------
+  // -------- Preview Exam --------
   async previewExam(examId: string, ownerId: string) {
     const exam = await prisma.exam.findUnique({
       where: { id: examId },
@@ -228,8 +264,6 @@ export class ExamService {
     if (!exam) throw new Error('Exam not found');
     if (exam.ownerId !== ownerId) throw new Error('Access denied');
 
-    // For preview, we strip out correct answers and show only the question structure.
-    // We'll also remove any isCorrect flags from options.
     const preview = {
       id: exam.id,
       title: exam.title,
@@ -247,76 +281,71 @@ export class ExamService {
           options: q.options.map((opt) => ({
             id: opt.id,
             text: opt.text,
-            // isCorrect is NOT sent
           })),
         })),
       })),
     };
     return preview;
   }
-  async startExamSession(examId: string, studentId?: string) {
-  // Fetch the exam with all its structure
-  const exam = await prisma.exam.findUnique({
-    where: { id: examId },
-    include: {
-      sections: {
-        include: {
-          questions: {
-            include: { options: true },
-            orderBy: { order: 'asc' },
-          },
-        },
-        orderBy: { order: 'asc' },
-      },
-    },
-  });
-  if (!exam) throw new Error('Exam not found');
-  // Optionally check if exam is published/archived, but you may allow draft as well.
 
-  // Build the snapshot (exclude sensitive info like ownerId, etc.)
-  const snapshot = {
-    id: exam.id,
-    title: exam.title,
-    description: exam.description,
-    subject: exam.subject,
-    duration: exam.duration,
-    passingScore: exam.passingScore,
-    sections: exam.sections.map((section) => ({
-      id: section.id,
-      title: section.title,
-      randomization: section.randomization,
-      shuffleAnswers: section.shuffleAnswers,
-      questions: section.questions.map((q) => ({
-        id: q.id,
-        type: q.type,
-        text: q.text,
-        points: q.points,
-        difficulty: q.difficulty,
-        bloomLevel: q.bloomLevel,
-        order: q.order,
-        options: q.options.map((opt) => ({
-          id: opt.id,
-          text: opt.text,
-          // **Do not send isCorrect** to students
-          order: opt.order,
+  // -------- Start Exam Session (student) --------
+  async startExamSession(examId: string, studentId?: string) {
+    const exam = await prisma.exam.findUnique({
+      where: { id: examId },
+      include: {
+        sections: {
+          include: {
+            questions: {
+              include: { options: true },
+              orderBy: { order: 'asc' },
+            },
+          },
+          orderBy: { order: 'asc' },
+        },
+      },
+    });
+    if (!exam) throw new Error('Exam not found');
+
+    const snapshot = {
+      id: exam.id,
+      title: exam.title,
+      description: exam.description,
+      subject: exam.subject,
+      duration: exam.duration,
+      passingScore: exam.passingScore,
+      sections: exam.sections.map((section) => ({
+        id: section.id,
+        title: section.title,
+        randomization: section.randomization,
+        shuffleAnswers: section.shuffleAnswers,
+        questions: section.questions.map((q) => ({
+          id: q.id,
+          type: q.type,
+          text: q.text,
+          points: q.points,
+          difficulty: q.difficulty,
+          order: q.order,
+          options: q.options.map((opt) => ({
+            id: opt.id,
+            text: opt.text,
+            order: opt.order,
+            // isCorrect omitted intentionally
+          })),
         })),
       })),
-    })),
-  };
+    };
 
-  // Create the attempt record with snapshot
-  const attempt = await prisma.examAttempt.create({
-    data: {
-      examId: exam.id,
-      studentId: studentId || `anonymous_${Date.now()}`,
+    const attempt = await prisma.examAttempt.create({
+      data: {
+        examId: exam.id,
+        studentId: studentId || `anonymous_${Date.now()}`,
+        snapshot: snapshot,
+      },
+    });
+
+    return {
+      attemptId: attempt.id,
       snapshot: snapshot,
-    },
-  });
-
-  return {
-    attemptId: attempt.id,
-    snapshot: snapshot,
-    // Also return the duration and any other session info
-  };
-}
+    };
+  }
 }

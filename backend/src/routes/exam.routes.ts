@@ -65,6 +65,8 @@ router.use(authMiddleware); // all routes require auth
  *             $ref: '#/components/schemas/Section'
  *     ExamInput:
  *       type: object
+ *       required:
+ *         - title
  *       properties:
  *         title:
  *           type: string
@@ -75,17 +77,33 @@ router.use(authMiddleware); // all routes require auth
  *         startDate:
  *           type: string
  *           format: date-time
- *         endDate:
- *           type: string
- *           format: date-time
+ *           description: Date part (e.g., "2023-09-01")
  *         duration:
  *           type: integer
+ *           description: Duration in minutes
+ *         timezone:
+ *          type: string
+ *          example: "Asia/Bangkok"
  *         passingScore:
  *           type: number
  *         maxAttempts:
  *           type: integer
- *         isPublic:
+ *         randomizeQuestions:
  *           type: boolean
+ *         showResults:
+ *           type: boolean
+ *           default: false
+ *         accessType:
+ *           type: string
+ *           enum: [PUBLIC, PRIVATE, PASSWORD_PROTECTED]
+ *           default: PRIVATE
+ *         password:
+ *           type: string
+ *           description: Required if accessType is PASSWORD_PROTECTED
+ *         status:
+ *           type: string
+ *           enum: [DRAFT, PUBLISHED, ARCHIVED]
+ *           description: If provided, you can set status directly (but normally use publish/archive endpoints)
  *     Section:
  *       type: object
  *       properties:
@@ -117,8 +135,6 @@ router.use(authMiddleware); // all routes require auth
  *           type: number
  *         difficulty:
  *           type: integer
- *         bloomLevel:
- *           type: string
  *         order:
  *           type: integer
  *         options:

@@ -10,11 +10,37 @@ const examService = new ExamService();
 const getOwnerId = (req: Request): string => (req as any).user.id;
 
 const idSchema = z.object({id: z.string()});
-
+// Define the validation schema for creating/updating exam
+const examSchema = z.object({
+  title: z.string().min(1),
+  description: z.string().optional(),
+  subject: z.string().optional(),
+  startDate: z.string().regex(/^\d{2}\/\d{2}\/\d{4}$/, 'Format must be MM/dd/yyyy').optional(),
+  startTime: z.string().regex(/^\d{2}:\d{2} (AM|PM)$/, 'Format must be hh:mm AM/PM').optional(),
+  duration: z.number().int().positive().optional(),
+  timezone: z.string().optional(),
+  passingScore: z.number().optional(),
+  maxAttempts: z.number().int().positive().optional(),
+  randomizeQuestions: z.boolean().optional(),
+  showResults: z.boolean().optional(),
+  accessType: z.enum(['PUBLIC', 'PRIVATE', 'PASSWORD_PROTECTED']).optional(),
+  password: z.string().optional(),
+  // status is handled separately
+}).refine((data) => {
+  // If accessType is PASSWORD_PROTECTED, password must be provided
+  if (data.accessType === 'PASSWORD_PROTECTED' && !data.password) {
+    return false;
+  }
+  return true;
+}, {
+  message: 'Password is required when accessType is PASSWORD_PROTECTED',
+  path: ['password'],
+});
 export const createExam = async (req: Request, res: Response) => {
   try {
     const ownerId = getOwnerId(req);
-    const exam = await examService.createExam(ownerId, req.body);
+    const validatedData = examSchema.parse(req.body);
+    const exam = await examService.createExam(ownerId, validatedData);
     res.status(201).json(exam);
   } catch (error: any) {
     res.status(400).json({ message: error.message });

@@ -11,6 +11,8 @@ import {
   generateAIQuestions,
   batchReviewQuestions,
   duplicateQuestion,
+  moveQuestion,
+  reorderQuestions,
 } from '../controllers/question.controller.js';
 import { authMiddleware } from '../middleware/auth.middleware.js';
 import multer from 'multer';
@@ -99,16 +101,40 @@ router.put('/exams/:examId/sections/reorder', reorderSections);
  *             type: object
  *             required: [sectionId, type, text]
  *             properties:
- *               sectionId: { type: string }
- *               type: { type: string, enum: [MCQ, TRUE_FALSE, ESSAY] }
- *               text: { type: string }
- *               points: { type: number, default: 1 }
- *               difficulty: { type: integer, minimum: 1, maximum: 5 }
- *               bloomLevel: { type: string }
+ *               sectionId:
+ *                 type: string
+ *                 description: ID of the parent section
+ *               type:
+ *                 type: string
+ *                 enum: [MCQ, MULTIPLE_SELECT, TRUE_FALSE, SHORT_ANSWER, ESSAY, FILL_IN_BLANK, MATCHING, CHECKBOX, FILE_UPLOAD, MATH_FORMULA]
+ *               title:
+ *                 type: string
+ *                 description: Optional short title
+ *               description:
+ *                 type: string
+ *                 description: Optional extended description
+ *               text:
+ *                 type: string
+ *                 description: The question prompt
+ *               points:
+ *                 type: integer
+ *                 default: 1
+ *               difficulty:
+ *                 type: string
+ *                 enum: [EASY, MEDIUM, HARD, MIXED]
+ *                 default: MEDIUM
+ *               required:
+ *                 type: boolean
+ *                 default: true
+ *               metadata:
+ *                 type: object
+ *                 description: Type‑specific configurations (e.g., wordLimit, rubric, matchingPairs)
  *               options:
  *                 type: array
+ *                 description: Required for MCQ, MULTIPLE_SELECT, TRUE_FALSE, CHECKBOX
  *                 items:
  *                   type: object
+ *                   required: [text, isCorrect]
  *                   properties:
  *                     text: { type: string }
  *                     isCorrect: { type: boolean }
@@ -116,6 +142,12 @@ router.put('/exams/:examId/sections/reorder', reorderSections);
  *     responses:
  *       201:
  *         description: Question created
+ *         content:
+ *           application/json:
+ *             schema:
+ *               $ref: '#/components/schemas/Question'
+ *       400:
+ *         description: Validation error (e.g., invalid type, missing options)
  */
 router.post('/questions', createQuestion);
 
@@ -124,7 +156,7 @@ router.post('/questions', createQuestion);
  * /api/questions/{questionId}:
  *   put:
  *     tags: [Questions & Sections]
- *     summary: Update a question
+ *     summary: Update an existing question
  *     security: [{ bearerAuth: [] }]
  *     parameters:
  *       - in: path
@@ -138,14 +170,42 @@ router.post('/questions', createQuestion);
  *           schema:
  *             type: object
  *             properties:
- *               text: { type: string }
- *               points: { type: number }
- *               difficulty: { type: integer }
- *               bloomLevel: { type: string }
- *               # options update would be complex; we can handle separately
+ *               type:
+ *                 type: string
+ *                 enum: [MCQ, MULTIPLE_SELECT, TRUE_FALSE, SHORT_ANSWER, ESSAY, FILL_IN_BLANK, MATCHING, CHECKBOX, FILE_UPLOAD, MATH_FORMULA]
+ *               title:
+ *                 type: string
+ *               description:
+ *                 type: string
+ *               text:
+ *                 type: string
+ *               points:
+ *                 type: integer
+ *               difficulty:
+ *                 type: string
+ *                 enum: [EASY, MEDIUM, HARD, MIXED]
+ *               required:
+ *                 type: boolean
+ *               metadata:
+ *                 type: object
+ *               options:
+ *                 type: array
+ *                 description: If provided, replaces all existing options (for option‑based types)
+ *                 items:
+ *                   type: object
+ *                   properties:
+ *                     text: { type: string }
+ *                     isCorrect: { type: boolean }
+ *                     order: { type: integer }
  *     responses:
  *       200:
  *         description: Question updated
+ *         content:
+ *           application/json:
+ *             schema:
+ *               $ref: '#/components/schemas/Question'
+ *       400:
+ *         description: Validation error
  */
 router.put('/questions/:questionId', updateQuestion);
 
@@ -240,13 +300,12 @@ router.post('/exams/:examId/questions/ai/upload-material', upload.single('file')
  *         application/json:
  *           schema:
  *             type: object
- *             required: [materialId, count, language, bloomLevel, complexity]
+ *             required: [materialId, count, language, complexity]
  *             properties:
  *               materialId: { type: string }
  *               count: { type: integer, minimum: 1 }
  *               language: { type: string, example: "English" }
- *               bloomLevel: { type: string, enum: [Remember, Understand, Apply, Analyze, Evaluate, Create] }
- *               complexity: { type: string, enum: [Easy, Medium, Hard] }
+ *               complexity: { type: string, enum: [Easy, Medium, Hard, Mixed] }
  *     responses:
  *       200:
  *         description: Questions generated
@@ -276,6 +335,114 @@ router.post('/exams/:examId/questions/ai/generate', generateAIQuestions);
  */
 router.post('/questions/ai/batch-review', batchReviewQuestions);
 
+
+/**
+ * @openapi
+ * /api/questions/{questionId}/duplicate:
+ *   post:
+ *     tags: [Questions & Sections]
+ *     summary: Duplicate an existing question (including options)
+ *     security: [{ bearerAuth: [] }]
+ *     parameters:
+ *       - in: path
+ *         name: questionId
+ *         required: true
+ *         schema: { type: string }
+ *     responses:
+ *       201:
+ *         description: Duplicate question created
+ *         content:
+ *           application/json:
+ *             schema:
+ *               $ref: '#/components/schemas/Question'
+ *       400:
+ *         description: Invalid question ID
+ *       404:
+ *         description: Question not found
+ */
 router.post('/questions/:questionId/duplicate', duplicateQuestion);
+
+/**
+ * @openapi
+ * /api/sections/{sectionId}/questions/reorder:
+ *   put:
+ *     tags: [Questions & Sections]
+ *     summary: Reorder questions within a section
+ *     security: [{ bearerAuth: [] }]
+ *     parameters:
+ *       - in: path
+ *         name: sectionId
+ *         required: true
+ *         schema: { type: string }
+ *     requestBody:
+ *       required: true
+ *       content:
+ *         application/json:
+ *           schema:
+ *             type: object
+ *             required: [questions]
+ *             properties:
+ *               questions:
+ *                 type: array
+ *                 items:
+ *                   type: object
+ *                   required: [id, order]
+ *                   properties:
+ *                     id: { type: string }
+ *                     order: { type: integer }
+ *     responses:
+ *       200:
+ *         description: Questions reordered successfully
+ *         content:
+ *           application/json:
+ *             schema:
+ *               type: object
+ *               properties:
+ *                 message: { type: string }
+ *       400:
+ *         description: Invalid request (e.g., question not in section)
+ *       404:
+ *         description: Section not found
+ */
+router.put('/sections/:sectionId/questions/reorder', reorderQuestions);
+
+/**
+ * @openapi
+ * /api/questions/{questionId}/move:
+ *   put:
+ *     tags: [Questions & Sections]
+ *     summary: Move a question to a different section
+ *     security: [{ bearerAuth: [] }]
+ *     parameters:
+ *       - in: path
+ *         name: questionId
+ *         required: true
+ *         schema: { type: string }
+ *     requestBody:
+ *       required: true
+ *       content:
+ *         application/json:
+ *           schema:
+ *             type: object
+ *             required: [targetSectionId]
+ *             properties:
+ *               targetSectionId:
+ *                 type: string
+ *               newOrder:
+ *                 type: integer
+ *                 description: Optional new order in the target section (appends if omitted)
+ *     responses:
+ *       200:
+ *         description: Question moved successfully
+ *         content:
+ *           application/json:
+ *             schema:
+ *               $ref: '#/components/schemas/Question'
+ *       400:
+ *         description: Invalid request
+ *       404:
+ *         description: Question or target section not found
+ */
+router.put('/questions/:questionId/move', moveQuestion);
 
 export default router;

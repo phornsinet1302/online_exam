@@ -1,6 +1,6 @@
 // backend/src/services/question.service.ts
 import prisma from '../config/database.js';
-import { ExamStatus, QuestionType, Difficulty, BloomLevel } from '@prisma/client';
+import { ExamStatus, QuestionType, Difficulty } from '@prisma/client';
 import { v4 as uuidv4 } from 'uuid';
 import { processFileImport } from '../utils/fileProcessor.js';
 import { AIGenerationService } from './ai/generation.service.js';
@@ -12,10 +12,18 @@ interface ParsedQuestion {
   text: string;
   points?: number;
   difficulty?: Difficulty;
-  bloomLevel?: BloomLevel;
   order?: number;
   options?: { text: string; isCorrect: boolean }[];
 }
+
+const normalizeDifficulty = (value: unknown): Difficulty | undefined => {
+  if (typeof value !== 'string') return undefined;
+
+  const normalized = value.toUpperCase();
+  return Object.values(Difficulty).includes(normalized as Difficulty)
+    ? (normalized as Difficulty)
+    : undefined;
+};
 
 export class QuestionService {
   private aiGenerationService = new AIGenerationService();
@@ -73,7 +81,10 @@ export class QuestionService {
     points: number,
     options?: { text: string; isCorrect: boolean; order?: number }[],
     difficulty?: Difficulty,
-    bloomLevel?: BloomLevel
+    metadata?: any,
+    title?: string,
+    description?: string,
+    required?: boolean,
   ) {
     const section = await prisma.section.findUnique({
       where: { id: sectionId },
@@ -81,70 +92,132 @@ export class QuestionService {
     });
     if (!section) throw new Error('Section not found');
 
-
     const lastQuestion = await prisma.question.findFirst({
       where: { sectionId },
       orderBy: { order: 'desc' },
     });
     const order = lastQuestion ? lastQuestion.order + 1 : 0;
 
-    // Ensure type is a valid QuestionType
+    // Validate type
     if (!Object.values(QuestionType).includes(type as QuestionType)) {
       throw new Error(`Invalid question type: ${type}`);
     }
 
+    const typesRequiringOptions = ['MCQ', 'MULTIPLE_SELECT', 'TRUE_FALSE', 'CHECKBOX'];
+    if (typesRequiringOptions.includes(type) && (!options || options.length === 0)) {
+      throw new Error(`Options are required for ${type}`);
+    }
+    if (!typesRequiringOptions.includes(type) && options) {
+      throw new Error(`Options are not allowed for ${type}`);
+    }
+
+    // Specific validation for TRUE_FALSE
+    if (type === 'TRUE_FALSE' && options) {
+      if (options.length !== 2) throw new Error('True/False questions must have exactly 2 options');
+      if (options.filter(opt => opt.isCorrect).length !== 1) {
+        throw new Error('True/False questions must have exactly 1 correct answer');
+      }
+    }
+
+    const questionData: any = {
+      sectionId,
+      type: type as QuestionType,
+      text,
+      points,
+      difficulty: normalizeDifficulty(difficulty) || Difficulty.MEDIUM,
+      order,
+      required: required ?? true,
+      title: title || null,
+      description: description || null,
+    };
+    if (metadata) {
+      questionData.metadata = metadata;
+    }
+    if (options) {
+      questionData.options = {
+        create: options.map((opt, idx) => ({
+          text: opt.text,
+          isCorrect: opt.isCorrect,
+          order: opt.order ?? idx,
+        }))
+      };
+    }
+
     return prisma.question.create({
-      data: {
-        sectionId,
-        type: type as QuestionType,
-        text,
-        points,
-        difficulty: difficulty || Difficulty.MEDIUM,
-        bloomLevel: bloomLevel || BloomLevel.Remember,
-        order,
-        options: options
-          ? {
-              create: options.map((opt, idx) => ({
-                text: opt.text,
-                isCorrect: opt.isCorrect,
-                order: opt.order ?? idx,
-              })),
-            }
-          : undefined,
-      },
-      include: { options: true },
+      data: questionData,
+      include: { options: true }
     });
   }
 
   async updateQuestion(questionId: string, data: any) {
     const question = await prisma.question.findUnique({
       where: { id: questionId },
-      include: { section: { include: { exam: true } } },
+      include: { options: true, section: { include: { exam: true } } },
     });
     if (!question) throw new Error('Question not found');
     // if (question.section.exam.status !== 'DRAFT') throw new Error('Cannot modify a published or archived exam');
 
     const { options, ...questionData } = data;
-    // If updating type, validate
-    if (questionData.type && !Object.values(QuestionType).includes(questionData.type as QuestionType)) {
-      throw new Error(`Invalid question type: ${questionData.type}`);
+
+    // Determine effective type for validation
+    const effectiveType = questionData.type || question.type;
+    if (!Object.values(QuestionType).includes(effectiveType as QuestionType)) {
+      throw new Error(`Invalid question type: ${effectiveType}`);
     }
-    let optionsUpdate = undefined;
-    if (options) {
-      // Delete existing options and create new ones
-      await prisma.option.deleteMany({ where: { questionId } });
-      optionsUpdate = {
-        create: options.map((opt: any, idx: number) => ({
-          text: opt.text,
-          isCorrect: opt.isCorrect,
-          order: opt.order ?? idx,
-        })),
-      };
+
+    const typesRequiringOptions = ['MCQ', 'MULTIPLE_SELECT', 'TRUE_FALSE', 'CHECKBOX'];
+    const requiresOptions = typesRequiringOptions.includes(effectiveType);
+
+    let optionsUpdate: any = undefined;
+
+    if (options !== undefined) {
+      // Options provided; validate
+      if (requiresOptions) {
+        if (options.length === 0) throw new Error(`Options are required for ${effectiveType}`);
+        if (effectiveType === 'TRUE_FALSE') {
+          if (options.length !== 2) throw new Error('True/False must have exactly 2 options');
+          if (options.filter((o: any) => o.isCorrect).length !== 1) {
+            throw new Error('True/False must have exactly one correct answer');
+          }
+        }
+        // Replace options: delete all and create new
+        optionsUpdate = {
+          deleteMany: {},
+          create: options.map((opt: any, idx: number) => ({
+            text: opt.text,
+            isCorrect: opt.isCorrect,
+            order: opt.order ?? idx,
+          })),
+        };
+      } else {
+        // Non-option type
+        if (options.length > 0) throw new Error(`Options are not allowed for ${effectiveType}`);
+        // Empty array provided, so delete all existing options
+        optionsUpdate = { deleteMany: {} };
+      }
+    } else {
+      // options not provided
+      // If type is changing, we need to handle
+      if (questionData.type) {
+        if (requiresOptions) {
+          throw new Error(`Options are required for ${effectiveType}`);
+        } else {
+          // Type changed to non-option; delete any existing options
+          optionsUpdate = { deleteMany: {} };
+        }
+      }
+      // if type not changed, leave options unchanged
+    }
+
+    // Build update data
+    const updateData: any = { ...questionData };
+    if (optionsUpdate) {
+      updateData.options = optionsUpdate;
     }
 
     return prisma.question.update({
       where: { id: questionId },
-      data: { ...questionData, options: optionsUpdate },
+      data: updateData,
       include: { options: true },
     });
   }
@@ -190,7 +263,6 @@ export class QuestionService {
           text: q.text,
           points: q.points ?? 1,
           difficulty: q.difficulty || Difficulty.MEDIUM,
-          bloomLevel: q.bloomLevel || BloomLevel.Remember,
           order: q.order ?? 0,
           options: q.options
             ? {
@@ -235,7 +307,6 @@ export class QuestionService {
     materialId: string,
     count: number,
     language: string,
-    bloomLevel: string,
     complexity: string
   ) {
     const material = await prisma.material.findUnique({ where: { id: materialId, examId } });
@@ -265,17 +336,11 @@ export class QuestionService {
       }
     }
 
-    let bloom: BloomLevel | null = null;
-    if (bloomLevel && Object.values(BloomLevel).includes(bloomLevel as BloomLevel)) {
-      bloom = bloomLevel as BloomLevel;
-    }
-
     // Call real Gemini API
     const generated = await this.aiGenerationService.generateQuestions({
       materialText: material.content ?? '',
       subject: exam.subject || 'General',
-      difficulty: (complexity as any) || 'Medium',
-      bloomLevel: bloom || undefined,
+      difficulty: difficulty || Difficulty.MEDIUM,
       numQuestions: count,
       questionType: QuestionType.MCQ,
       language: language || 'English',
@@ -304,7 +369,6 @@ export class QuestionService {
           text: q.questionText || 'Generated Question',
           points: q.marks ?? 1,
           difficulty: difficulty || Difficulty.MEDIUM,
-          bloomLevel: bloom || BloomLevel.Remember,
           order: nextOrder++,
           reviewed: false, // requires review
           metadata: {
@@ -344,8 +408,8 @@ export class QuestionService {
       return { message: `Accepted ${questionIds.length} questions` };
     }
   }
-  // backend/src/services/question.service.ts (partial)
 
+  // backend/src/services/question.service.ts (partial)
   async duplicateQuestion(questionId: string) {
     const question = await prisma.question.findUnique({
       where: { id: questionId },
@@ -360,7 +424,6 @@ export class QuestionService {
       text: question.text + ' (copy)',
       points: question.points,
       difficulty: question.difficulty,
-      bloomLevel: question.bloomLevel,
       order: question.order + 1,
       reviewed: false,
       options: question.options.length > 0
@@ -383,5 +446,53 @@ export class QuestionService {
       data: newData,
       include: { options: true },
     });
+  }
+
+  async reorderQuestions(sectionId: string, questionOrder: { id: string; order: number }[]) {
+  const section = await prisma.section.findUnique({ where: { id: sectionId } });
+  if (!section) throw new Error('Section not found');
+
+  const ids = questionOrder.map(q => q.id);
+  const questions = await prisma.question.findMany({
+    where: { id: { in: ids }, sectionId },
+  });
+  if (questions.length !== ids.length) {
+    throw new Error('Some questions do not belong to this section');
+  }
+
+  await prisma.$transaction(
+    questionOrder.map(({ id, order }) =>
+      prisma.question.update({
+        where: { id },
+        data: { order },
+      })
+    )
+  );
+  return { message: 'Questions reordered successfully' };
+}
+
+  async moveQuestion(questionId: string, targetSectionId: string, newOrder?: number) {
+  const question = await prisma.question.findUnique({ where: { id: questionId } });
+  if (!question) throw new Error('Question not found');
+
+  const targetSection = await prisma.section.findUnique({ where: { id: targetSectionId } });
+  if (!targetSection) throw new Error('Target section not found');
+
+  // If no order provided, append at the end
+  if (newOrder === undefined) {
+    const last = await prisma.question.findFirst({
+      where: { sectionId: targetSectionId },
+      orderBy: { order: 'desc' },
+    });
+    newOrder = last ? last.order + 1 : 0;
+  }
+
+  return prisma.question.update({
+    where: { id: questionId },
+    data: {
+      sectionId: targetSectionId,
+      order: newOrder,
+    },
+    include: { options: true },});
   }
 }

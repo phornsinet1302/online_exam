@@ -59,10 +59,7 @@ router.get('/test-gemini', async (req, res) => {
  *                 description: Topic of focus (optional)
  *               difficulty:
  *                 type: string
- *                 enum: [Easy, Medium, Hard]
- *               bloomLevel:
- *                 type: string
- *                 enum: [Remember, Understand, Apply, Analyze, Evaluate, Create]
+ *                 enum: [Easy, Medium, Hard, Mixed]
  *               numQuestions:
  *                 type: integer
  *                 minimum: 1

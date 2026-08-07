@@ -1,6 +1,6 @@
 import * as pdfjs from 'pdfjs-dist/legacy/build/pdf.mjs';
 import { GoogleGenerativeAI } from '@google/generative-ai';
-import { QuestionType, BloomLevel, Difficulty } from '@prisma/client';
+import { QuestionType, Difficulty } from '@prisma/client';
 
 
 interface GenerateQuestionsParams {
@@ -8,7 +8,6 @@ interface GenerateQuestionsParams {
   subject: string;
   topic?: string;
   difficulty: Difficulty;
-  bloomLevel?: BloomLevel;
   numQuestions: number;
   questionType: QuestionType;
   language: string;
@@ -59,17 +58,15 @@ export class AIGenerationService {
       subject,
       topic,
       difficulty,
-      bloomLevel,
       numQuestions,
       questionType,
       language,
     } = params;
 
-    const bloomInstruction = bloomLevel ? ` at Bloom's ${bloomLevel} level` : '';
     const topicInstruction = topic ? ` focusing on the topic: "${topic}"` : '';
 
     return `
-      You are an expert exam question generator. Based on the provided learning material, generate ${numQuestions} ${questionType} questions${topicInstruction} for the subject "${subject}"${bloomInstruction}. The difficulty level should be "${difficulty}". Respond in ${language}.
+      You are an expert exam question generator. Based on the provided learning material, generate ${numQuestions} ${questionType} questions${topicInstruction} for the subject "${subject}". The difficulty level should be "${difficulty}". Respond in ${language}.
 
       Each question must include:
       - "questionText": string
@@ -79,7 +76,6 @@ export class AIGenerationService {
       - "marks": number (default 1)
       - "explanation": string (optional)
       - "difficulty": "${difficulty}"
-      - "bloomLevel": "${bloomLevel || 'N/A'}"
 
       Return a valid JSON array of question objects. Do not include any extra text.
 

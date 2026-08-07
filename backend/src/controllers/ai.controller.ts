@@ -2,7 +2,7 @@
 import { Request, Response } from 'express';
 import { AIGenerationService } from '../services/ai/generation.service.js';
 import prisma from '../config/database.js';
-import { QuestionType, Difficulty, BloomLevel } from '@prisma/client';
+import { QuestionType, Difficulty } from '@prisma/client';
 
 const aiService = new AIGenerationService();
 
@@ -18,7 +18,6 @@ export const uploadAndGenerate = async (req: Request, res: Response) => {
       subject,
       topic,
       difficulty,
-      bloomLevel,
       numQuestions,
       questionType,
       language,
@@ -57,7 +56,6 @@ export const uploadAndGenerate = async (req: Request, res: Response) => {
       subject,
       topic,
       difficulty,
-      bloomLevel,
       numQuestions: parseInt(numQuestions, 10),
       questionType: questionType as QuestionType,
       language: language || 'English',
@@ -84,7 +82,6 @@ export const uploadAndGenerate = async (req: Request, res: Response) => {
           text: q.questionText,
           points: q.marks ?? 1,
           difficulty: (q.difficulty?.toUpperCase() as Difficulty) || (difficulty?.toUpperCase() as Difficulty) || undefined,
-          bloomLevel: (q.bloomLevel as BloomLevel) || (bloomLevel as BloomLevel) || undefined,
           order: nextOrder++,
           reviewed: false, // AI-generated draft — needs teacher review
           metadata: {

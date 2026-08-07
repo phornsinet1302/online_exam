@@ -42,8 +42,11 @@ export const reorderSections = async (req: Request, res: Response) => {
 export const createQuestion = async (req: Request, res: Response) => {
   try {
     const sectionId = getParam(req.params.sectionId, "sectionId");
-    const { type, text, points, options, difficulty, bloomLevel } = req.body;
-    const question = await questionService.createQuestion(sectionId, type, text, points, options, difficulty, bloomLevel);
+    const { type, text, points, options, difficulty, metadata, title, description, required } = req.body;
+    const question = await questionService.createQuestion(
+      sectionId, type, text, points, options, difficulty,
+      metadata, title, description, required
+    );
     res.status(201).json(question);
   } catch (error: any) {
     res.status(400).json({ message: error.message });
@@ -97,8 +100,8 @@ export const uploadMaterial = async (req: Request, res: Response) => {
 export const generateAIQuestions = async (req: Request, res: Response) => {
   try {
     const examId = getParam(req.params.examId, "examId");
-    const { materialId, count, language, bloomLevel, complexity } = req.body;
-    const result = await questionService.generateAIQuestions(examId, materialId, count, language, bloomLevel, complexity);
+    const { materialId, count, language, complexity } = req.body;
+    const result = await questionService.generateAIQuestions(examId, materialId, count, language, complexity);
     res.status(200).json(result);
   } catch (error: any) {
     res.status(400).json({ message: error.message });
@@ -122,6 +125,28 @@ export const duplicateQuestion = async (req: Request, res: Response) => {
     const questionId = getParam(req.params.questionId, "questionId");
     const question = await questionService.duplicateQuestion(questionId);
     res.status(201).json(question);
+  } catch (error: any) {
+    res.status(400).json({ message: error.message });
+  }
+};
+
+export const reorderQuestions = async (req: Request, res: Response) => {
+  try {
+    const sectionId = getParam(req.params.sectionId, 'sectionId');
+    const { questions } = req.body; // array of { id, order }
+    const result = await questionService.reorderQuestions(sectionId, questions);
+    res.status(200).json(result);
+  } catch (error: any) {
+    res.status(400).json({ message: error.message });
+  }
+};
+
+export const moveQuestion = async (req: Request, res: Response) => {
+  try {
+    const questionId = getParam(req.params.questionId, 'questionId');
+    const { targetSectionId, newOrder } = req.body;
+    const result = await questionService.moveQuestion(questionId, targetSectionId, newOrder);
+    res.status(200).json(result);
   } catch (error: any) {
     res.status(400).json({ message: error.message });
   }
