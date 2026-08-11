@@ -329,17 +329,36 @@ export class ExamService {
             id: opt.id,
             text: opt.text,
             order: opt.order,
-            // isCorrect omitted intentionally
+            // isCorrect intentionally omitted from student snapshot
           })),
         })),
       })),
     };
+
+    // Build a private grading key (never sent to the student)
+    const gradingKey = exam.sections.flatMap((section) =>
+      section.questions.map((q) => {
+        const meta = (q.metadata ?? {}) as Record<string, any>;
+        return {
+          questionId: q.id,
+          type: q.type,
+          points: q.points,
+          correctOptionIds: q.options.filter((o) => o.isCorrect).map((o) => o.id),
+          // FILL_IN_BLANK: expected text stored in metadata.expectedText
+          expectedText: meta.expectedText as string | undefined,
+          caseSensitive: meta.caseSensitive as boolean | undefined,
+          // MATCHING: correct pairs stored in metadata.correctPairs
+          correctPairs: meta.correctPairs as { leftId: string; rightId: string }[] | undefined,
+        };
+      })
+    );
 
     const attempt = await prisma.examAttempt.create({
       data: {
         examId: exam.id,
         studentId: studentId || `anonymous_${Date.now()}`,
         snapshot: snapshot,
+        gradingKey: gradingKey,
       },
     });
 

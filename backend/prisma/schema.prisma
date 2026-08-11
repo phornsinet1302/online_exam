@@ -66,19 +66,27 @@ enum ExamAccess {
   PRIVATE
   PASSWORD_PROTECTED
 }
+
 model ExamAttempt {
-  id        String   @id @default(cuid())
-  examId    String   @map("exam_id")
-  exam      Exam     @relation(fields: [examId], references: [id], onDelete: Cascade)
-  studentId String?  // if you have student accounts; or a session ID for anonymous
-  startedAt DateTime @default(now())
+  id          String   @id @default(cuid())
+  examId      String   @map("exam_id")
+  exam        Exam     @relation(fields: [examId], references: [id], onDelete: Cascade)
+  studentId   String?  // if you have student accounts; or a session ID for anonymous
+  startedAt   DateTime @default(now())
   submittedAt DateTime?
-  score     Float?
-  snapshot    Json     // Stores the full exam structure at start time
-  answers     Json?    // Stores answers as { questionId: selectedOptionId | text }
+  score       Float?
+
+  snapshot    Json     // Stores the full exam structure at start time (NO correct answers)
+  answers     Json?    // Legacy: raw answers blob (kept for backward compat)
+  gradingKey  Json?    // Private: correct answers keyed by questionId for server-side grading
+
+  // Grading
+  totalScore     Float?
+  gradingStatus  GradingStatus?
+  studentAnswers StudentAnswer[]
+
   createdAt   DateTime @default(now())
   updatedAt   DateTime @updatedAt
-  // ... other fields
 
   @@map("exam_attempts")
 }
@@ -89,16 +97,22 @@ enum ExamStatus {
   ARCHIVED
 }
 
+enum GradingStatus {
+  auto_graded
+  needs_review
+  graded
+}
+
 model Section {
-  id          String   @id @default(cuid())
-  examId      String   @map("exam_id")
-  exam        Exam     @relation(fields: [examId], references: [id], onDelete: Cascade)
-  title       String
-  order       Int      // display order
-  randomization Boolean @default(false)
-  shuffleAnswers Boolean @default(false)
-  createdAt   DateTime @default(now())
-  updatedAt   DateTime @updatedAt
+  id             String   @id @default(cuid())
+  examId         String   @map("exam_id")
+  exam           Exam     @relation(fields: [examId], references: [id], onDelete: Cascade)
+  title          String
+  order          Int      // display order
+  randomization  Boolean  @default(false)
+  shuffleAnswers Boolean  @default(false)
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
 
   questions   Question[]
 
@@ -106,25 +120,24 @@ model Section {
 }
 
 model Question {
-  id          String   @id @default(cuid())
-  sectionId   String   @map("section_id")
-  section     Section  @relation(fields: [sectionId], references: [id], onDelete: Cascade)
-  type        QuestionType
-  title       String?  // optional short title for the question
-  description String?  // optional description (can be rich text)
-  text        String   // question stem
-  points      Float    @default(1.0)
-  difficulty  Difficulty
-  order       Int
-  createdAt   DateTime @default(now())
-  updatedAt   DateTime @updatedAt
-  required    Boolean  @default(true) // whether student must answer
-  reviewed  Boolean  @default(false) // for AI-generated drafts
-  metadata   Json? 
-  isAIGenerated  Boolean  @default(false)
+  id            String       @id @default(cuid())
+  sectionId     String       @map("section_id")
+  section       Section      @relation(fields: [sectionId], references: [id], onDelete: Cascade)
+  type          QuestionType
+  title         String?      // optional short title for the question
+  description   String?      // optional description (can be rich text)
+  text          String       // question stem
+  points        Float        @default(1.0)
+  difficulty    Difficulty
+  order         Int
+  createdAt     DateTime     @default(now())
+  updatedAt     DateTime     @updatedAt
+  required      Boolean      @default(true)  // whether student must answer
+  reviewed      Boolean      @default(false) // for AI-generated drafts
+  metadata      Json?
+  isAIGenerated Boolean      @default(false)
 
   options     Option[] // for MCQ/True-False
-  // For essay, we might store expected answer separately
 
   @@map("questions")
 }
@@ -142,8 +155,6 @@ enum QuestionType {
   MATH_FORMULA
 }
 
-
-
 enum Difficulty {
   EASY
   MEDIUM
@@ -152,14 +163,14 @@ enum Difficulty {
 }
 
 model Option {
-  id          String   @id @default(cuid())
-  questionId  String   @map("question_id")
-  question    Question @relation(fields: [questionId], references: [id], onDelete: Cascade)
-  text        String
-  isCorrect   Boolean  @default(false)
-  order       Int
-  createdAt   DateTime @default(now())
-  updatedAt   DateTime @updatedAt
+  id         String   @id @default(cuid())
+  questionId String   @map("question_id")
+  question   Question @relation(fields: [questionId], references: [id], onDelete: Cascade)
+  text       String
+  isCorrect  Boolean  @default(false)
+  order      Int
+  createdAt  DateTime @default(now())
+  updatedAt  DateTime @updatedAt
 
   @@map("options")
 }
@@ -171,6 +182,32 @@ model Material {
   content   String?  // text content
   fileUrl   String?  // if file uploaded, store URL
   createdAt DateTime @default(now())
-  
+
   @@map("materials")
+}
+
+model StudentAnswer {
+  id         String      @id @default(cuid())
+  attemptId  String      @map("attempt_id")
+  attempt    ExamAttempt @relation(fields: [attemptId], references: [id], onDelete: Cascade)
+  questionId String      @map("question_id")
+
+  // Raw answer from student
+  selectedOptionIds String[]  // for MCQ, TRUE_FALSE, MULTIPLE_SELECT, CHECKBOX
+  textAnswer        String?   // for SHORT_ANSWER, ESSAY, FILL_IN_BLANK, MATH_FORMULA
+  matchingPairs     Json?     // for MATCHING: [{leftId, rightId}]
+  fileUrl           String?   // for FILE_UPLOAD
+
+  // Grading output
+  score    Float?
+  maxScore Float
+  status   GradingStatus @default(needs_review)
+  feedback String?       // teacher feedback for manual grading
+  gradedBy String?       // teacher supabaseId
+  gradedAt DateTime?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@map("student_answers")
 }

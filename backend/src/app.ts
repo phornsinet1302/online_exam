@@ -9,6 +9,7 @@ import authRoutes from './routes/auth.routes.js';
 import aiRoutes from './routes/ai.routes.js';
 import questionRoutes from './routes/question.routes.js';
 import examRoutes from './routes/exam.routes.js';
+import gradingRoutes from './routes/grading.routes.js';
 import multer from 'multer'; 
 
 const app = express();
@@ -31,6 +32,7 @@ app.use('/api/auth', authRoutes);
 app.use('/api', aiRoutes);
 app.use('/api', questionRoutes);
 app.use('/api', examRoutes);
+app.use('/api', gradingRoutes);
 
 
 // Global error handler
