@@ -39,7 +39,7 @@ router.get('/test-gemini', async (req, res) => {
  *         multipart/form-data:
  *           schema:
  *             type: object
- *             required: [examId, sectionId, subject, difficulty, numQuestions, questionType]
+ *             required: [examId, sectionId, subject, difficulty, numQuestions]
  *             properties:
  *               file:
  *                 type: string

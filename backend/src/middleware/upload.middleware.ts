@@ -1,9 +1,15 @@
 import multer from 'multer';
 
-const storage = multer.memoryStorage();
-const upload = multer({
-  storage,
-  limits: { fileSize: parseInt(process.env.MAX_PDF_SIZE || '20') * 1024 * 1024 },
+// 500KB for Development, 1MB for Production
+const MAX_FILE_SIZE = process.env.NODE_ENV === 'production' 
+  ? 1 * 1024 * 1024 
+  : 500 * 1024;
+
+export const uploadPDF = multer({
+  storage: multer.memoryStorage(),
+  limits: {
+    fileSize: MAX_FILE_SIZE,
+  },
   fileFilter: (req, file, cb) => {
     if (file.mimetype === 'application/pdf') {
       cb(null, true);
@@ -11,6 +17,4 @@ const upload = multer({
       cb(new Error('Only PDF files are allowed'));
     }
   },
-});
-
-export const uploadPDF = upload.single('file');
+}).single('file'); // Matches the form-data key "file" in your Swagger docs

@@ -19,71 +19,65 @@ export const uploadAndGenerate = async (req: Request, res: Response) => {
       topic,
       difficulty,
       numQuestions,
-      questionType,
+      questionType = 'MIXED',
       language,
     } = req.body;
 
-    if (!examId || !sectionId || !subject || !difficulty || !numQuestions || !questionType) {
+    if (!examId || !sectionId || !subject || !difficulty || !numQuestions) {
       return res.status(400).json({ error: 'Missing required parameters' });
     }
 
-    // Validate the section exists and belongs to the exam
     const section = await prisma.section.findUnique({
       where: { id: sectionId },
       include: { exam: true },
     });
-    if (!section) {
-      return res.status(404).json({ error: 'Section not found' });
-    }
-    if (section.examId !== examId) {
-      return res.status(400).json({ error: 'Section does not belong to this exam' });
-    }
+    if (!section) return res.status(404).json({ error: 'Section not found' });
+    if (section.examId !== examId) return res.status(400).json({ error: 'Section does not belong to this exam' });
 
-    // Validate enum values
-    if (!Object.values(QuestionType).includes(questionType as QuestionType)) {
+    // ALLOW 'MIXED' to pass validation
+    if (questionType !== 'MIXED' && !Object.values(QuestionType).includes(questionType as QuestionType)) {
       return res.status(400).json({ error: `Invalid question type: ${questionType}` });
     }
 
-    // 1. Extract text from PDF
+    // 1. Extract text
     const text = await aiService.extractTextFromPDF(req.file.buffer);
     if (text.length < 100) {
       return res.status(400).json({ error: 'Extracted text too short. Is the PDF text-based?' });
     }
 
-    // 2. Generate questions via AI
+    // 2. Generate questions
     const generatedQuestions = await aiService.generateQuestions({
       materialText: text,
       subject,
       topic,
       difficulty,
       numQuestions: parseInt(numQuestions, 10),
-      questionType: questionType as QuestionType,
+      questionType: questionType as QuestionType | 'MIXED',
       language: language || 'English',
     });
 
-    // 3. Determine starting order for new questions
+    // 3. Determine starting order
     const lastQuestion = await prisma.question.findFirst({
       where: { sectionId },
       orderBy: { order: 'desc' },
     });
     let nextOrder = lastQuestion ? lastQuestion.order + 1 : 0;
 
-    // 4. Save each as a draft question (reviewed = false) in the database
+    // 4. Save to database seamlessly
     const savedQuestions = [];
     for (const q of generatedQuestions) {
-      // Map AI correctAnswers to option isCorrect flags
       const aiOptions = q.options || [];
-      const correctAnswers: string[] = q.correctAnswers || [];
+      const correctAnswers: string[] = q.correctAnswers || []; // Fallback for older interface compatibility
 
       const created = await prisma.question.create({
         data: {
           sectionId,
-          type: (q.type as QuestionType) || (questionType as QuestionType),
+          type: (q.type as QuestionType), // Trust AI to output MCQ, TRUE_FALSE etc. based on prompt
           text: q.questionText,
           points: q.marks ?? 1,
           difficulty: (q.difficulty?.toUpperCase() as Difficulty) || (difficulty?.toUpperCase() as Difficulty) || undefined,
           order: nextOrder++,
-          reviewed: false, // AI-generated draft — needs teacher review
+          reviewed: false, 
           metadata: {
             isAIGenerated: true,
             explanation: q.explanation || null,
@@ -92,11 +86,22 @@ export const uploadAndGenerate = async (req: Request, res: Response) => {
           },
           options: aiOptions.length > 0
             ? {
-                create: aiOptions.map((optText: string, idx: number) => ({
-                  text: optText,
-                  isCorrect: correctAnswers.includes(String(idx)) || correctAnswers.includes(optText),
-                  order: idx,
-                })),
+                create: aiOptions.map((opt: any, idx: number) => {
+                  // NEW CLEAN FORMAT: AI returned {text: "Paris", isCorrect: true}
+                  if (typeof opt === 'object' && opt !== null && 'text' in opt) {
+                    return {
+                      text: String(opt.text),
+                      isCorrect: opt.isCorrect === true || String(opt.isCorrect).toLowerCase() === 'true',
+                      order: opt.order ?? idx,
+                    };
+                  }
+                  // OLD FORMAT FALLBACK: AI returned string array ["Paris", "London"]
+                  return {
+                    text: String(opt),
+                    isCorrect: correctAnswers.includes(String(idx)) || correctAnswers.includes(String(opt)),
+                    order: idx,
+                  };
+                }),
               }
             : undefined,
         },
@@ -116,7 +121,6 @@ export const uploadAndGenerate = async (req: Request, res: Response) => {
     res.status(500).json({ error: message });
   }
 };
-
 // Batch review endpoint — approve (mark reviewed) or reject (delete)
 export const batchReview = async (req: Request, res: Response) => {
   try {

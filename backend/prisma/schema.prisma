@@ -142,14 +142,7 @@ enum QuestionType {
   MATH_FORMULA
 }
 
-enum BloomLevel{
-  Remember
-  Understand
-  Apply
-  Analyze
-  Evaluate
-  Create
-}
+
 
 enum Difficulty {
   EASY
