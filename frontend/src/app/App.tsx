@@ -2667,11 +2667,82 @@ function LiveMonitoring() {
   const [expanded, setExpanded] = useState<string|null>(null);
   const [examId, setExamId] = useState("2");
 
-  const flagged  = LIVE_STUDENTS.filter(s=>s.status==="flag");
-  const done     = LIVE_STUDENTS.filter(s=>s.status==="done");
-  const active   = LIVE_STUDENTS.filter(s=>s.status==="ok");
-  const avgProgress = Math.round(LIVE_STUDENTS.reduce((sum,s)=>sum+s.pct,0)/LIVE_STUDENTS.length);
-  const sortedStudents = [...LIVE_STUDENTS].sort((a,b)=>b.flags-a.flags || a.pct-b.pct);
+  // Live SSE alert feed
+  type AlertItem = { id:string; event:string; student:string; severity:string; time:string; attemptId:string; resolved:boolean };
+  const [liveAlerts, setLiveAlerts] = useState<AlertItem[]>([]);
+
+  // Real student summary from API
+  type StudentSummary = { attemptId:string; studentName:string; status:string; flagCount:number; warnCount:number; totalViolations:number; lastViolationType:string|null };
+  const [students, setStudents] = useState<StudentSummary[]>([]);
+
+  // Fetch student summary on exam change
+  useEffect(()=>{
+    if (!examId) return;
+    const token = typeof window !== "undefined" ? localStorage.getItem("authToken") : null;
+    fetch(`/api/exams/${examId}/violations/live-summary`, {
+      headers: token ? { Authorization: `Bearer ${token}` } : {},
+    }).then(r=>r.ok?r.json():null).then(d=>{
+      if (Array.isArray(d)) setStudents(d);
+    }).catch(()=>{});
+  }, [examId]);
+
+  // SSE teacher stream — real-time violation alerts
+  useEffect(()=>{
+    if (!examId) return;
+    const es = new EventSource(`/api/session/${examId}/teacher-live`);
+    es.addEventListener("violation", (e: MessageEvent) => {
+      try {
+        const data = JSON.parse(e.data);
+        const now = new Date();
+        const timeStr = `${String(now.getHours()).padStart(2,"0")}:${String(now.getMinutes()).padStart(2,"0")}:${String(now.getSeconds()).padStart(2,"0")}`;
+        setLiveAlerts(prev => [{
+          id:        data.violationId ?? String(Date.now()),
+          event:     `${data.eventType.replace(/_/g," ")} — ${data.detail ?? ""}`.trim(),
+          student:   data.studentName ?? "Unknown",
+          severity:  data.severity ?? "warn",
+          time:      timeStr,
+          attemptId: data.attemptId,
+          resolved:  false,
+        }, ...prev.slice(0,49)]); // keep last 50
+        // Refresh student summary
+        const t = typeof window !== "undefined" ? localStorage.getItem("authToken") : null;
+        fetch(`/api/exams/${examId}/violations/live-summary`, {
+          headers: t ? { Authorization: `Bearer ${t}` } : {},
+        }).then(r=>r.ok?r.json():null).then(d=>{ if (Array.isArray(d)) setStudents(d); }).catch(()=>{});
+      } catch {}
+    });
+    return () => es.close();
+  }, [examId]);
+
+  const resolveAlert = async (alertId: string) => {
+    const token = typeof window !== "undefined" ? localStorage.getItem("authToken") : null;
+    try {
+      await fetch(`/api/violations/${alertId}/resolve`, {
+        method: "PATCH",
+        headers: token ? { Authorization: `Bearer ${token}` } : {},
+      });
+      setLiveAlerts(prev => prev.map(a => a.id === alertId ? { ...a, resolved: true } : a));
+    } catch {}
+  };
+
+  // Merge real students with LIVE_STUDENTS for demo fallback (when API has no data)
+  const displayStudents = students.length > 0 ? students.map(s => ({
+    init:   s.studentName.split(" ").map((w:string)=>w[0]).join("").toUpperCase().slice(0,2),
+    name:   s.studentName,
+    status: s.status as "ok"|"flag"|"done",
+    flags:  s.flagCount + s.warnCount,
+    pct:    0,
+    q:      0,
+    elapsed:"",
+  })) : LIVE_STUDENTS;
+
+  const displayAlerts = liveAlerts.length > 0 ? liveAlerts : LIVE_ALERTS;
+
+  const flagged  = displayStudents.filter(s=>s.status==="flag");
+  const done     = displayStudents.filter(s=>s.status==="done");
+  const active   = displayStudents.filter(s=>s.status==="ok");
+  const avgProgress = LIVE_STUDENTS.reduce((sum,s)=>sum+s.pct,0)/Math.max(1,LIVE_STUDENTS.length);
+  const sortedStudents = [...displayStudents].sort((a,b)=>b.flags-a.flags);
 
   const sevColor: Record<string,string> = { warn:"#d97706", critical:"#ef4444", info:"#3b82f6" };
   const sevBg:    Record<string,string> = { warn:"#fff7ed", critical:"#fff0f0", info:"#eff6ff" };
@@ -2795,11 +2866,11 @@ function LiveMonitoring() {
         <div className="sticky top-36 bg-white rounded-2xl border border-gray-100 overflow-hidden flex max-h-[calc(100vh-10rem)] flex-col">
           <div className="flex items-center justify-between px-4 py-3.5 border-b border-gray-100 flex-shrink-0">
             <div className="flex items-center gap-2"><div className="w-2 h-2 rounded-full bg-red-500 animate-pulse"/><p className="text-sm font-black" style={{ fontFamily:U, color:INK }}>Alert Feed</p></div>
-            <span className="text-xs text-gray-400" style={{ fontFamily:I }}>{LIVE_ALERTS.length} events</span>
+            <span className="text-xs text-gray-400" style={{ fontFamily:I }}>{displayAlerts.length} events</span>
           </div>
           <div className="overflow-y-auto flex-1">
-            {LIVE_ALERTS.map(a=>(
-              <div key={a.id} className="px-4 py-3 border-b border-gray-50 last:border-0">
+            {displayAlerts.map((a:any)=>(
+              <div key={a.id} className={`px-4 py-3 border-b border-gray-50 last:border-0 ${a.resolved?"opacity-40":""}`}>
                 <div className="flex items-start gap-2.5">
                   <div className="w-7 h-7 rounded-lg flex items-center justify-center flex-shrink-0 mt-0.5" style={{ background:sevBg[a.severity] }}>
                     <AlertTriangle size={13} style={{ color:sevColor[a.severity] }}/>
@@ -2809,6 +2880,9 @@ function LiveMonitoring() {
                     <p className="text-[11px] text-gray-500 mt-0.5" style={{ fontFamily:I }}>{a.student}</p>
                     <p className="text-[10px] text-gray-400 mt-0.5 font-mono">{a.time}</p>
                   </div>
+                  {!a.resolved && typeof a.id === "string" && (
+                    <button onClick={()=>resolveAlert(a.id)} className="text-[10px] font-bold text-gray-400 hover:text-green-600 px-1.5 py-0.5 rounded hover:bg-green-50" style={{ fontFamily:U }}>✓</button>
+                  )}
                 </div>
               </div>
             ))}
@@ -2826,30 +2900,39 @@ function LiveMonitoring() {
 // ═══════════════════════════════════════════════════════════════════════════════
 // ANTI-CHEATING RULES CONFIG
 // ═══════════════════════════════════════════════════════════════════════════════
-type RuleAction = "ignore"|"warn"|"flag"|"submit";
+type RuleAction = "ignore"|"warn"|"flag"|"block"|"auto_submit";
 
 interface Rule {
   id:string; label:string; desc:string; enabled:boolean; action:RuleAction; threshold?:number;
 }
 
 const ACTION_LABELS: Record<RuleAction,{label:string;color:string;bg:string}> = {
-  ignore: { label:"Ignore",   color:"#9ca3af", bg:"#f9fafb" },
-  warn:   { label:"Warn",     color:"#d97706", bg:"#fffbeb" },
-  flag:   { label:"Flag",     color:"#ef4444", bg:"#fff0f0" },
-  submit: { label:"Auto-submit",color:"#7c3aed",bg:"#f5f3ff" },
+  ignore:      { label:"Ignore",      color:"#9ca3af", bg:"#f9fafb" },
+  warn:        { label:"Warn",        color:"#d97706", bg:"#fffbeb" },
+  flag:        { label:"Flag",        color:"#ef4444", bg:"#fff0f0" },
+  block:       { label:"Block",       color:"#dc2626", bg:"#fef2f2" },
+  auto_submit: { label:"Auto-submit", color:"#7c3aed", bg:"#f5f3ff" },
 };
 
 function RulesConfig() {
+  const [examId, setExamId] = useState("2"); // exam selector
   const [rules, setRules] = useState<Rule[]>([
-    { id:"tab",   label:"Tab switch / window blur",    desc:"Student navigates away from the exam tab.",              enabled:true,  action:"flag",   threshold:3 },
-    { id:"face",  label:"Face not detected",           desc:"Student's face disappears from the camera view.",        enabled:true,  action:"flag",   threshold:5 },
-    { id:"multi", label:"Multiple faces detected",     desc:"More than one face visible in the camera.",              enabled:true,  action:"flag",   threshold:1 },
-    { id:"copy",  label:"Copy / paste attempt",        desc:"Student tries to copy text or paste from clipboard.",    enabled:true,  action:"warn" },
-    { id:"full",  label:"Fullscreen exited",           desc:"Student exits fullscreen / lockdown browser mode.",      enabled:true,  action:"warn" },
-    { id:"dev",   label:"DevTools opened",             desc:"Browser developer tools are detected open.",             enabled:true,  action:"submit" },
-    { id:"print", label:"Print screen key pressed",    desc:"Student presses the print screen or screenshot key.",   enabled:false, action:"warn" },
-    { id:"phone", label:"Phone detected (AI)",         desc:"AI vision detects a mobile phone near the keyboard.",    enabled:false, action:"flag" },
-    { id:"audio", label:"Unusual audio detected",      desc:"Microphone picks up whispering or external voices.",     enabled:false, action:"warn" },
+    { id:"tab_switch",          label:"Tab switch",                 desc:"Student navigates away from the exam tab.",                         enabled:true,  action:"flag",   threshold:3 },
+    { id:"window_blur",         label:"Window blur / other app",    desc:"Student switches to another application.",                         enabled:true,  action:"flag",   threshold:3 },
+    { id:"fullscreen_exit",     label:"Fullscreen exited",          desc:"Student exits fullscreen / lockdown browser mode.",                enabled:true,  action:"warn" },
+    { id:"copy",                label:"Copy / cut attempt",         desc:"Student tries to copy or cut text during the exam.",              enabled:true,  action:"warn" },
+    { id:"paste",               label:"Paste attempt",              desc:"Student tries to paste content from clipboard.",                  enabled:true,  action:"warn" },
+    { id:"right_click",         label:"Right-click attempt",        desc:"Student uses the right-click context menu.",                      enabled:true,  action:"ignore" },
+    { id:"keyboard_shortcut",   label:"Blocked keyboard shortcut", desc:"Student presses a blocked shortcut (Ctrl+C, F12, etc.).",         enabled:true,  action:"warn" },
+    { id:"print_screen",        label:"Print screen key",           desc:"Student presses the print screen or screenshot key.",             enabled:false, action:"warn" },
+    { id:"devtools",            label:"DevTools opened",            desc:"Browser developer tools are detected open (size heuristic).",     enabled:false, action:"ignore" },
+    { id:"extension_detected",  label:"Browser extension detected",desc:"External script injected into page head (info only).",            enabled:false, action:"ignore" },
+    { id:"idle",                label:"Student idle (5 min)",       desc:"No mouse or keyboard activity for 5 minutes while tab is visible.",enabled:true,  action:"warn" },
+    { id:"resize",              label:"Screen resized",             desc:"Browser window resized significantly during the exam.",           enabled:false, action:"ignore" },
+    { id:"multiple_windows",    label:"Multiple exam windows",      desc:"Student has the exam open in more than one browser tab.",         enabled:true,  action:"flag",   threshold:1 },
+    { id:"disconnect_internet", label:"Internet disconnected",      desc:"Network connection lost during the exam.",                        enabled:true,  action:"warn" },
+    { id:"disconnect_camera",   label:"Camera disconnected",        desc:"Webcam track ended or was revoked during the exam.",              enabled:true,  action:"flag",   threshold:5 },
+    { id:"disconnect_mic",      label:"Microphone disconnected",    desc:"Microphone track ended or was revoked during the exam.",          enabled:false, action:"warn" },
   ]);
 
   const [globalScreenshots, setGlobalScreenshots] = useState(30);
@@ -2857,12 +2940,47 @@ function RulesConfig() {
   const [requireFullscreen, setRequireFullscreen] = useState(true);
   const [lockBrowser, setLockBrowser] = useState(true);
   const [saved, setSaved] = useState(false);
+  const [loading, setLoading] = useState(false);
+  const [saveError, setSaveError] = useState<string|null>(null);
 
-  const toggleRule = (id:string)=>setRules(p=>p.map(r=>r.id===id?{...r,enabled:!r.enabled}:r));
-  const setAction = (id:string, a:RuleAction)=>setRules(p=>p.map(r=>r.id===id?{...r,action:a}:r));
-  const setThreshold = (id:string, v:number)=>setRules(p=>p.map(r=>r.id===id?{...r,threshold:v}:r));
+  // Load rules from API on mount / exam change
+  useEffect(()=>{
+    if (!examId) return;
+    setLoading(true);
+    const token = typeof window !== "undefined" ? localStorage.getItem("authToken") : null;
+    fetch(`/api/exams/${examId}/anti-cheat/rules`, {
+      headers: token ? { Authorization: `Bearer ${token}` } : {},
+    })
+      .then(r => r.ok ? r.json() : null)
+      .then(data => {
+        if (!Array.isArray(data)) return;
+        setRules(prev => prev.map(r => {
+          const remote = data.find((d: any) => d.eventType === r.id);
+          if (!remote) return r;
+          return { ...r, enabled: remote.enabled, action: remote.action as RuleAction, threshold: remote.threshold ?? undefined };
+        }));
+      })
+      .catch(()=>{})
+      .finally(()=>setLoading(false));
+  }, [examId]);
 
-  const save = ()=>{ setSaved(true); setTimeout(()=>setSaved(false),2000); };
+  const toggleRule    = (id:string)=>setRules(p=>p.map(r=>r.id===id?{...r,enabled:!r.enabled}:r));
+  const setAction     = (id:string, a:RuleAction)=>setRules(p=>p.map(r=>r.id===id?{...r,action:a}:r));
+  const setThreshold  = (id:string, v:number)=>setRules(p=>p.map(r=>r.id===id?{...r,threshold:v}:r));
+
+  const save = async () => {
+    setSaveError(null);
+    const token = typeof window !== "undefined" ? localStorage.getItem("authToken") : null;
+    try {
+      const res = await fetch(`/api/exams/${examId}/anti-cheat/rules`, {
+        method: "PUT",
+        headers: { "Content-Type": "application/json", ...(token ? { Authorization: `Bearer ${token}` } : {}) },
+        body: JSON.stringify({ rules: rules.map(r => ({ eventType: r.id, enabled: r.enabled, action: r.action, threshold: r.threshold ?? null })) }),
+      });
+      if (res.ok) { setSaved(true); setTimeout(()=>setSaved(false), 2000); }
+      else { const d = await res.json(); setSaveError(d.error ?? "Save failed."); }
+    } catch { setSaveError("Network error."); }
+  };
 
   const ActionChip = ({ rule }: { rule:Rule })=>{
     const [open, setOpen] = useState(false);
@@ -2889,7 +3007,15 @@ function RulesConfig() {
 
   return (
     <DashboardLayout active="rules" title="Rules Config" subtitle="Configure anti-cheating behavior"
-      actions={<button onClick={save} className="flex items-center gap-2 text-white text-xs font-bold px-4 py-2 rounded-xl hover:opacity-90" style={{ background:INK, fontFamily:U }}>{saved?<><CheckCircle2 size={13}/>Saved!</>:"Save rules"}</button>}>
+      actions={<>
+        <select value={examId} onChange={e=>setExamId(e.target.value)} className="border border-gray-200 rounded-xl px-3 py-2 text-xs text-gray-700 bg-white focus:outline-none" style={{ fontFamily:I }}>
+          {MOCK_EXAMS.filter(e=>e.status==="published").map(e=><option key={e.id} value={e.id}>{e.title}</option>)}
+        </select>
+        {saveError && <span className="text-xs text-red-500" style={{ fontFamily:I }}>{saveError}</span>}
+        <button onClick={save} disabled={loading} className="flex items-center gap-2 text-white text-xs font-bold px-4 py-2 rounded-xl hover:opacity-90 disabled:opacity-50" style={{ background:INK, fontFamily:U }}>
+          {loading ? "Loading…" : saved ? <><CheckCircle2 size={13}/>Saved!</> : "Save rules"}
+        </button>
+      </>}>
 
       <div className="w-full space-y-5">
         {/* Global settings */}
@@ -4787,111 +4913,272 @@ function ExamTaking() {
     return ()=>clearInterval(t);
   },[]);
 
-  const recordExamViolation = (event: string, blockExam = false) => {
+  // ─── Anti-cheat: session identity ────────────────────────────────────────────
+  // attemptId + studentToken stored in sessionStorage on /join/register
+  const attemptId   = typeof window !== "undefined" ? (sessionStorage.getItem("attemptId")    ?? null) : null;
+  const studentToken = typeof window !== "undefined" ? (sessionStorage.getItem("studentToken") ?? null) : null;
+
+  // Offline violation queue — persisted until network returns
+  const OFFLINE_QUEUE_KEY = `exam_offline_violations_${attemptId}`;
+  const enqueueOffline = (eventType: string, detail?: string) => {
+    try {
+      const q: any[] = JSON.parse(localStorage.getItem(OFFLINE_QUEUE_KEY) || "[]");
+      q.push({ eventType, detail, occurredAt: new Date().toISOString() });
+      localStorage.setItem(OFFLINE_QUEUE_KEY, JSON.stringify(q));
+    } catch { /* storage full */ }
+  };
+
+  // Debounce registry — prevents flooding the API with rapid repeats
+  const debounceRef = useRef<Record<string,{count:number;timer:ReturnType<typeof setTimeout>|null}>>({});
+  const DEBOUNCE_WINDOW_MS = 10_000;
+  const BATCH_THRESHOLD = 3;
+
+  /** Flush offline queue when the network comes back. */
+  const flushOfflineQueue = async () => {
+    if (!attemptId || !studentToken) return;
+    try {
+      const queue: any[] = JSON.parse(localStorage.getItem(OFFLINE_QUEUE_KEY) || "[]");
+      if (!queue.length) return;
+      const res = await fetch(`/api/attempts/${attemptId}/violations/offline-flush`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json", "Authorization": `Bearer ${studentToken}` },
+        body: JSON.stringify(queue),
+      });
+      if (res.ok) {
+        localStorage.removeItem(OFFLINE_QUEUE_KEY);
+        const data = await res.json();
+        if (data.results?.some((r: any) => r.actionTaken === "auto_submitted")) {
+          navigate("/student/exam/auto-submit");
+        }
+      }
+    } catch { /* retry on next online event */ }
+  };
+
+  /** Post one violation to the API (or queue if offline). */
+  const postViolation = async (eventType: string, detail?: string, batchCount = 1) => {
+    if (!attemptId || !studentToken) return; // demo mode — no session
+    if (!navigator.onLine) {
+      for (let i = 0; i < batchCount; i++) enqueueOffline(eventType, detail);
+      return;
+    }
+    try {
+      const res = await fetch(`/api/attempts/${attemptId}/violations`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json", "Authorization": `Bearer ${studentToken}` },
+        body: JSON.stringify({ eventType, detail, batchCount }),
+      });
+      if (res.ok) {
+        const data = await res.json();
+        if (data.actionTaken === "auto_submitted") navigate("/student/exam/auto-submit");
+        else if (data.actionTaken === "blocked") { lockdownEventActive.current = true; setLockdownBlocked(true); }
+      }
+    } catch { for (let i = 0; i < batchCount; i++) enqueueOffline(eventType, detail); }
+  };
+
+  /** Debounced violation: aggregates rapid repeats into one batched API call. */
+  const reportViolation = (eventType: string, detail?: string) => {
     acCount.current++;
-    setAntiCheat({event,count:acCount.current});
-    if (blockExam) {
-      lockdownEventActive.current = true;
-      setLockdownBlocked(true);
+    setAntiCheat({ event: detail ?? eventType, count: acCount.current });
+    const db = debounceRef.current;
+    if (!db[eventType]) db[eventType] = { count: 0, timer: null };
+    db[eventType].count++;
+    if (db[eventType].timer) clearTimeout(db[eventType].timer!);
+    if (db[eventType].count >= BATCH_THRESHOLD) {
+      const c = db[eventType].count;
+      db[eventType] = { count: 0, timer: null };
+      postViolation(eventType, detail, c);
+    } else {
+      db[eventType].timer = setTimeout(() => {
+        const c = db[eventType]?.count ?? 0;
+        if (c > 0) { db[eventType] = { count: 0, timer: null }; postViolation(eventType, detail, c); }
+      }, DEBOUNCE_WINDOW_MS);
     }
   };
 
-  const recordLockdownIssue = (event: string) => {
-    if (!lockdownEventActive.current) recordExamViolation(event, true);
-    else setLockdownBlocked(true);
+  /** Lockdown violations also block the exam UI. */
+  const reportLockdownViolation = (eventType: string, message: string) => {
+    if (!lockdownEventActive.current) { lockdownEventActive.current = true; setLockdownBlocked(true); }
+    reportViolation(eventType, message);
   };
 
   const resumeFullscreen = async () => {
     try {
-      if (!document.fullscreenElement) {
-        await document.documentElement.requestFullscreen();
-      }
+      if (!document.fullscreenElement) await document.documentElement.requestFullscreen();
       lockdownEventActive.current = false;
       setLockdownBlocked(false);
-    } catch {
-      setLockdownBlocked(true);
-    }
+    } catch { setLockdownBlocked(true); }
   };
 
-  // Anti-cheat lockdown detection
+  // ─── Browser event monitors ────────────────────────────────────────────────
   useEffect(()=>{
-    const onVisibility=()=>{ if(document.hidden) recordLockdownIssue("Tab switch detected — stay in the locked exam screen."); };
-    const onFullscreen=()=>{ if(!document.fullscreenElement) recordLockdownIssue("Fullscreen exited — return to lockdown mode."); };
-    const onBlur=()=>recordLockdownIssue("Window focus lost — do not switch apps during the exam.");
-    const blockAttempt = (event: Event, message: string) => {
-      event.preventDefault();
-      event.stopPropagation();
-      recordExamViolation(message);
-    };
-    const onContextMenu=(e:MouseEvent)=>blockAttempt(e, "Right-click blocked during the exam.");
-    const onCopy=(e:ClipboardEvent)=>blockAttempt(e, "Copy attempt blocked during the exam.");
-    const onCut=(e:ClipboardEvent)=>blockAttempt(e, "Cut attempt blocked during the exam.");
-    const onPaste=(e:ClipboardEvent)=>blockAttempt(e, "Paste attempt blocked during the exam.");
-    const onSelect=(e:Event)=>blockAttempt(e, "Text selection blocked during the exam.");
-    const onDrag=(e:DragEvent)=>blockAttempt(e, "Drag or drop attempt blocked during the exam.");
-    const onKeyDown=(e:KeyboardEvent)=>{
-      const key = e.key.toLowerCase();
+    const onVisibility = () => { if (document.hidden) reportLockdownViolation("tab_switch", "Tab switch detected."); };
+    const onFullscreen = () => { if (!document.fullscreenElement) reportLockdownViolation("fullscreen_exit", "Fullscreen exited."); };
+    const onBlur       = () => reportLockdownViolation("window_blur", "Window focus lost.");
+
+    const blockAttempt = (e: Event, et: string, msg: string) => { e.preventDefault(); e.stopPropagation(); reportViolation(et, msg); };
+    const onContextMenu = (e: MouseEvent)    => blockAttempt(e, "right_click",       "Right-click blocked.");
+    const onCopy        = (e: ClipboardEvent) => blockAttempt(e, "copy",              "Copy attempt blocked.");
+    const onCut         = (e: ClipboardEvent) => blockAttempt(e, "copy",              "Cut attempt blocked.");
+    const onPaste       = (e: ClipboardEvent) => blockAttempt(e, "paste",             "Paste attempt blocked.");
+    const onSelect      = (e: Event)          => blockAttempt(e, "copy",              "Text selection blocked.");
+    const onDrag        = (e: DragEvent)      => blockAttempt(e, "copy",              "Drag attempt blocked.");
+    const onKeyDown     = (e: KeyboardEvent)  => {
+      const key  = e.key.toLowerCase();
       const meta = e.ctrlKey || e.metaKey;
-      const blockedCombo = meta && ["a","c","f","l","n","p","r","s","t","u","v","w","x"].includes(key);
-      const blockedDevTools = (meta && e.shiftKey && ["c","i","j"].includes(key)) || key==="f12";
-      const blockedNavigation = e.altKey && ["arrowleft","arrowright","tab"].includes(key);
-      if (blockedCombo || blockedDevTools || blockedNavigation || key==="printscreen") {
-        blockAttempt(e, `Keyboard shortcut blocked: ${e.key}`);
-      }
+      const blockedCombo    = meta && ["a","c","f","l","n","p","r","s","t","u","v","w","x"].includes(key);
+      const blockedDevTools = (meta && e.shiftKey && ["c","i","j"].includes(key)) || key === "f12";
+      const blockedNav      = e.altKey && ["arrowleft","arrowright","tab"].includes(key);
+      if (blockedCombo || blockedDevTools || blockedNav) blockAttempt(e, "keyboard_shortcut", `Blocked shortcut: ${e.key}`);
+      if (key === "printscreen") { e.preventDefault(); reportViolation("print_screen", "Print screen pressed."); }
     };
+
+    // Screen resize (ignore small changes < 50 px, debounced 500 ms)
+    const INIT_W = window.innerWidth, INIT_H = window.innerHeight;
+    let resizeTimer: ReturnType<typeof setTimeout>|null = null;
+    const onResize = () => {
+      if (resizeTimer) clearTimeout(resizeTimer);
+      resizeTimer = setTimeout(() => {
+        if (Math.abs(window.innerWidth-INIT_W) > 50 || Math.abs(window.innerHeight-INIT_H) > 50)
+          reportViolation("resize", `Resized to ${window.innerWidth}×${window.innerHeight}`);
+      }, 500);
+    };
+
+    const onOffline = () => { setConnLost(true);  reportViolation("disconnect_internet", "Internet lost."); };
+    const onOnline  = () => { setConnLost(false); flushOfflineQueue(); };
+
+    // DevTools heuristic (window size delta)
+    let devOpen = false;
+    const dtInterval = setInterval(() => {
+      const wOpen = window.outerWidth  - window.innerWidth  > 160;
+      const hOpen = window.outerHeight - window.innerHeight > 160;
+      if ((wOpen || hOpen) && !devOpen) { devOpen = true;  reportViolation("devtools", "DevTools may be open."); }
+      else if (!wOpen && !hOpen)         devOpen = false;
+    }, 3000);
+
+    // Extension detection: flag external scripts injected into <head>
+    const headObs = new MutationObserver(muts => {
+      for (const m of muts) for (const node of Array.from(m.addedNodes)) {
+        const el = node as HTMLScriptElement & HTMLLinkElement;
+        if (["SCRIPT","LINK","STYLE"].includes(el.tagName ?? "")) {
+          const src = el.src || el.href || "";
+          if (src && !src.includes(location.hostname))
+            reportViolation("extension_detected", `External resource: ${src.slice(0,80)}`);
+        }
+      }
+    });
+    headObs.observe(document.head, { childList: true });
 
     if (!document.fullscreenElement) setLockdownBlocked(true);
-    document.addEventListener("visibilitychange",onVisibility);
-    document.addEventListener("fullscreenchange",onFullscreen);
-    document.addEventListener("contextmenu",onContextMenu);
-    document.addEventListener("copy",onCopy);
-    document.addEventListener("cut",onCut);
-    document.addEventListener("paste",onPaste);
-    document.addEventListener("selectstart",onSelect);
-    document.addEventListener("dragstart",onDrag);
-    document.addEventListener("drop",onDrag);
-    document.addEventListener("keydown",onKeyDown,true);
-    window.addEventListener("blur",onBlur);
-    return ()=>{
-      document.removeEventListener("visibilitychange",onVisibility);
-      document.removeEventListener("fullscreenchange",onFullscreen);
-      document.removeEventListener("contextmenu",onContextMenu);
-      document.removeEventListener("copy",onCopy);
-      document.removeEventListener("cut",onCut);
-      document.removeEventListener("paste",onPaste);
-      document.removeEventListener("selectstart",onSelect);
-      document.removeEventListener("dragstart",onDrag);
-      document.removeEventListener("drop",onDrag);
-      document.removeEventListener("keydown",onKeyDown,true);
-      window.removeEventListener("blur",onBlur);
+
+    document.addEventListener("visibilitychange", onVisibility);
+    document.addEventListener("fullscreenchange",  onFullscreen);
+    document.addEventListener("contextmenu",       onContextMenu);
+    document.addEventListener("copy",              onCopy);
+    document.addEventListener("cut",               onCut);
+    document.addEventListener("paste",             onPaste);
+    document.addEventListener("selectstart",       onSelect);
+    document.addEventListener("dragstart",         onDrag);
+    document.addEventListener("drop",              onDrag);
+    document.addEventListener("keydown",           onKeyDown, true);
+    window.addEventListener("blur",    onBlur);
+    window.addEventListener("resize",  onResize);
+    window.addEventListener("offline", onOffline);
+    window.addEventListener("online",  onOnline);
+    return () => {
+      document.removeEventListener("visibilitychange", onVisibility);
+      document.removeEventListener("fullscreenchange",  onFullscreen);
+      document.removeEventListener("contextmenu",       onContextMenu);
+      document.removeEventListener("copy",              onCopy);
+      document.removeEventListener("cut",               onCut);
+      document.removeEventListener("paste",             onPaste);
+      document.removeEventListener("selectstart",       onSelect);
+      document.removeEventListener("dragstart",         onDrag);
+      document.removeEventListener("drop",              onDrag);
+      document.removeEventListener("keydown",           onKeyDown, true);
+      window.removeEventListener("blur",    onBlur);
+      window.removeEventListener("resize",  onResize);
+      window.removeEventListener("offline", onOffline);
+      window.removeEventListener("online",  onOnline);
+      clearInterval(dtInterval);
+      headObs.disconnect();
+      if (resizeTimer) clearTimeout(resizeTimer);
     };
+  // eslint-disable-next-line react-hooks/exhaustive-deps
   },[]);
 
-  // Periodic integrity snapshots for teacher audit trail.
+  // ─── Idle detection (5 min; reading exemption: skip if tab hidden) ─────────
+  useEffect(()=>{
+    const IDLE_MS = 5 * 60 * 1000;
+    let idleTimer: ReturnType<typeof setTimeout>|null = null;
+    const resetIdle = () => {
+      if (idleTimer) clearTimeout(idleTimer);
+      if (document.hidden) return;
+      idleTimer = setTimeout(() => { if (!document.hidden) reportViolation("idle", "Idle 5 min."); }, IDLE_MS);
+    };
+    const acts = ["mousemove","keydown","mousedown","touchstart","scroll"];
+    acts.forEach(ev => document.addEventListener(ev, resetIdle, { passive: true }));
+    resetIdle();
+    return () => { if (idleTimer) clearTimeout(idleTimer); acts.forEach(ev => document.removeEventListener(ev, resetIdle)); };
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  },[]);
+
+  // ─── Multi-tab detection (localStorage heartbeat) ──────────────────────────
+  useEffect(()=>{
+    if (!attemptId) return;
+    const TAB_KEY = `exam_active_tab_${attemptId}`;
+    const MY_TAB  = `tab_${Date.now()}_${Math.random().toString(36).slice(2)}`;
+    localStorage.setItem(TAB_KEY, MY_TAB);
+    const onStorage = (e: StorageEvent) => {
+      if (e.key !== TAB_KEY) return;
+      if (e.newValue && e.newValue !== MY_TAB) reportViolation("multiple_windows", "Multiple exam tabs.");
+    };
+    const hb = setInterval(() => {
+      const cur = localStorage.getItem(TAB_KEY);
+      if (cur && cur !== MY_TAB) reportViolation("multiple_windows", "Multiple exam tabs.");
+      localStorage.setItem(TAB_KEY, MY_TAB);
+    }, 8000);
+    window.addEventListener("storage", onStorage);
+    return () => {
+      window.removeEventListener("storage", onStorage);
+      clearInterval(hb);
+      if (localStorage.getItem(TAB_KEY) === MY_TAB) localStorage.removeItem(TAB_KEY);
+    };
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  },[attemptId]);
+
+  // ─── Camera / Microphone disconnect detection ──────────────────────────────
+  useEffect(()=>{
+    let stream: MediaStream|null = null;
+    (async () => {
+      try {
+        stream = await navigator.mediaDevices.getUserMedia({ video: true, audio: true });
+        stream.getTracks().forEach(track => {
+          track.addEventListener("ended", () => {
+            if (track.kind === "video") reportViolation("disconnect_camera", "Camera disconnected.");
+            else reportViolation("disconnect_mic", "Mic disconnected.");
+          });
+        });
+      } catch { /* permissions denied — rules determine consequence */ }
+    })();
+    return () => { stream?.getTracks().forEach(t => t.stop()); };
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  },[]);
+
+  // ─── Periodic integrity snapshots ──────────────────────────────────────────
   useEffect(()=>{
     let active = true;
     let timer: number;
     const writeSnapshot = () => {
       if (!active) return;
       const snapshots = JSON.parse(localStorage.getItem("examIntegritySnapshots") || "[]");
-      snapshots.push({
-        code,
-        at:new Date().toISOString(),
-        question:examStateRef.current.qIdx + 1,
-        secondsLeft:examStateRef.current.secs,
-        fullscreen:!!document.fullscreenElement,
-        visible:!document.hidden,
-        violations:acCount.current,
-      });
+      snapshots.push({ code, at:new Date().toISOString(), question:examStateRef.current.qIdx+1, secondsLeft:examStateRef.current.secs, fullscreen:!!document.fullscreenElement, visible:!document.hidden, violations:acCount.current });
       localStorage.setItem("examIntegritySnapshots", JSON.stringify(snapshots.slice(-60)));
-      timer = window.setTimeout(writeSnapshot, 25000 + Math.floor(Math.random() * 30000));
+      timer = window.setTimeout(writeSnapshot, 25000 + Math.floor(Math.random()*30000));
     };
     timer = window.setTimeout(writeSnapshot, 12000);
-    return ()=>{
-      active = false;
-      window.clearTimeout(timer);
-    };
+    return ()=>{ active = false; window.clearTimeout(timer); };
   }, [code]);
+
 
   const setAnswer = (v:any) => setAnswers(prev=>({...prev,[q.id]:v}));
   const answer = answers[q.id];

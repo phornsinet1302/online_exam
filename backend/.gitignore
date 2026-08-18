@@ -43,5 +43,5 @@ temp/
 # Generated files
 *.tgz
 # Ignore dev token scripts
-backend/tests/scripts/
-backend/tests/*.local.*
+tests/scripts/
+tests/*.local.*

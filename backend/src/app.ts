@@ -10,7 +10,9 @@ import aiRoutes from './routes/ai.routes.js';
 import questionRoutes from './routes/question.routes.js';
 import examRoutes from './routes/exam.routes.js';
 import gradingRoutes from './routes/grading.routes.js';
+import sessionRoutes from './routes/session.routes.js';
 import multer from 'multer'; 
+import antiCheatRoutes from './routes/anti-cheat.routes.js';
 
 const app = express();
 
@@ -29,10 +31,12 @@ app.use(
   })
 );
 app.use('/api/auth', authRoutes);
+app.use('/api', sessionRoutes);
+app.use('/api', gradingRoutes);
 app.use('/api', aiRoutes);
 app.use('/api', questionRoutes);
 app.use('/api', examRoutes);
-app.use('/api', gradingRoutes);
+app.use('/api', antiCheatRoutes);
 
 
 // Global error handler

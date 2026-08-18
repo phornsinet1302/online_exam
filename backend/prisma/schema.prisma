@@ -51,14 +51,23 @@ model Exam {
   accessType  ExamAccess @default(PUBLIC)
   password    String?
 
-  sections    Section[]
-  materials   Material[]
-  attempts    ExamAttempt[]
+  sections        Section[]
+  materials       Material[]
+  attempts        ExamAttempt[]
+  antiCheatRules  ExamAntiCheatRule[]
 
-  uniqueCode      String?   @unique
-  magicLinkToken  String?
+  uniqueCode           String?   @unique
+  magicLinkToken       String?
+  lateAllowanceMinutes Int @default(0)
+  sessionState         ExamSessionState @default(WAITING)
 
   @@map("exams")
+}
+
+enum ExamSessionState {
+  WAITING
+  ACTIVE
+  ENDED
 }
 
 enum ExamAccess {
@@ -84,6 +93,7 @@ model ExamAttempt {
   totalScore     Float?
   gradingStatus  GradingStatus?
   studentAnswers StudentAnswer[]
+  violations     ViolationLog[]
 
   createdAt   DateTime @default(now())
   updatedAt   DateTime @updatedAt
@@ -210,4 +220,57 @@ model StudentAnswer {
   updatedAt DateTime @updatedAt
 
   @@map("student_answers")
+}
+
+// ─── Anti-Cheat ───────────────────────────────────────────────────────────────
+
+model ExamAntiCheatRule {
+  id        String   @id @default(cuid())
+  examId    String   @map("exam_id")
+  exam      Exam     @relation(fields: [examId], references: [id], onDelete: Cascade)
+
+  // eventType values:
+  // tab_switch | copy | paste | right_click | keyboard_shortcut
+  // fullscreen_exit | window_blur | devtools | print_screen
+  // idle | disconnect_internet | disconnect_camera | disconnect_mic
+  // resize | multiple_windows | extension_detected
+  eventType String
+
+  enabled   Boolean @default(true)
+  // action: "ignore" | "warn" | "flag" | "block" | "auto_submit"
+  action    String  @default("warn")
+  // trigger action after N cumulative occurrences (null = every occurrence)
+  threshold Int?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@unique([examId, eventType])
+  @@map("exam_anti_cheat_rules")
+}
+
+model ViolationLog {
+  id        String      @id @default(cuid())
+  attemptId String      @map("attempt_id")
+  attempt   ExamAttempt @relation(fields: [attemptId], references: [id], onDelete: Cascade)
+  examId    String      @map("exam_id")
+
+  eventType String  // same values as ExamAntiCheatRule.eventType
+  detail    String? // extra context, e.g. "Ctrl+C", "3 windows"
+
+  // severity: "info" | "warn" | "critical"
+  severity  String @default("warn")
+  // action actually taken: "ignored" | "warned" | "flagged" | "blocked" | "auto_submitted"
+  actionTaken String?
+
+  // cumulative count of this eventType for this attempt at time of log
+  occurrenceCount Int @default(1)
+
+  resolved   Boolean  @default(false)
+  resolvedBy String?  // teacher supabaseId
+  resolvedAt DateTime?
+
+  createdAt DateTime @default(now())
+
+  @@map("violation_logs")
 }
