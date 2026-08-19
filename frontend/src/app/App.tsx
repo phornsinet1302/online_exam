@@ -1110,6 +1110,13 @@ function ExamCreate() {
   const [privacy, setPrivacy]   = useState("public");
   const [randomize, setRandomize] = useState(true);
   const [showResults, setShowResults] = useState(true);
+  // Timer configuration (SRS 3.9)
+  const [autoStart, setAutoStart] = useState(false);
+  const [autoClose, setAutoClose] = useState(false);
+  const [autoSubmit, setAutoSubmit] = useState(true);
+  const [showCountdown, setShowCountdown] = useState(true);
+  const [lateAllowance, setLateAllowance] = useState("5");
+  const [extraTimeStudents, setExtraTimeStudents] = useState<{name:string;minutes:string}[]>([]);
   const [saved, setSaved]       = useState(false);
   const idRef = useRef(3);
   const aiFileRef = useRef<HTMLInputElement|null>(null);
@@ -1524,6 +1531,83 @@ function ExamCreate() {
                   <div><p className="text-sm font-bold text-gray-800" style={{ fontFamily:U }}>{opt.label}</p><p className="text-xs text-gray-400 mt-0.5" style={{ fontFamily:I }}>{opt.desc}</p></div>
                 </label>
               ))}
+            </div>
+          </div>
+
+          {/* Timer & Submission (SRS 3.9) */}
+          <div className="bg-white rounded-2xl border border-gray-100 p-6 xl:col-span-2">
+            <div className="flex items-center gap-3 mb-5">
+              <div className="h-11 w-11 rounded-xl flex items-center justify-center" style={{ background:"#eff6ff" }}><Clock size={20} style={{ color:"#2563eb" }}/></div>
+              <div>
+                <h3 className="text-sm font-black" style={{ fontFamily:U, color:INK }}>Timer & Submission</h3>
+                <p className="text-xs text-gray-400 mt-0.5" style={{ fontFamily:I }}>Configure countdown, auto-submit, and time extensions</p>
+              </div>
+            </div>
+
+            <div className="grid gap-4 sm:grid-cols-2 mb-4">
+              <div>
+                <label className="text-xs font-bold text-gray-500 uppercase tracking-wider mb-1.5 block" style={{ fontFamily:U }}>Exam Duration (minutes)</label>
+                <input type="number" value={duration} onChange={e=>setDuration(e.target.value)} min="1" max="600" placeholder="60"
+                  className="w-full border border-gray-200 rounded-xl px-4 py-3 text-sm text-gray-900 focus:outline-none focus:border-gray-400" style={{ fontFamily:I }}/>
+              </div>
+              <div>
+                <label className="text-xs font-bold text-gray-500 uppercase tracking-wider mb-1.5 block" style={{ fontFamily:U }}>Late Entry Allowance (minutes)</label>
+                <input type="number" value={lateAllowance} onChange={e=>setLateAllowance(e.target.value)} min="0" max="60" placeholder="5"
+                  className="w-full border border-gray-200 rounded-xl px-4 py-3 text-sm text-gray-900 focus:outline-none focus:border-gray-400" style={{ fontFamily:I }}/>
+                <p className="text-[11px] text-gray-400 mt-1" style={{ fontFamily:I }}>How many minutes after start students can still enter</p>
+              </div>
+            </div>
+
+            <div className="space-y-1">
+              {[
+                {label:"Show countdown timer",desc:"Display remaining time to students during the exam",on:showCountdown,set:setShowCountdown},
+                {label:"Auto-start exam",desc:"Timer begins automatically at the scheduled start time",on:autoStart,set:setAutoStart},
+                {label:"Auto-close exam",desc:"Exam closes when time expires — no new entries allowed",on:autoClose,set:setAutoClose},
+                {label:"Auto-submit on expiry",desc:"Automatically submit student answers when time runs out",on:autoSubmit,set:setAutoSubmit},
+              ].map(({label,desc,on,set})=>(
+                <div key={label} className="flex items-center justify-between py-3 border-t border-gray-50">
+                  <div><p className="text-sm font-semibold text-gray-700" style={{ fontFamily:U }}>{label}</p><p className="text-xs text-gray-400 mt-0.5" style={{ fontFamily:I }}>{desc}</p></div>
+                  <Toggle on={on} onChange={()=>set((s: boolean)=>!s)}/>
+                </div>
+              ))}
+            </div>
+
+            {/* Extra Time for Selected Students */}
+            <div className="mt-5 pt-5 border-t border-gray-100">
+              <div className="flex items-center justify-between mb-3">
+                <div>
+                  <p className="text-xs font-black uppercase tracking-wider text-gray-400" style={{ fontFamily:U }}>Extra Time for Students</p>
+                  <p className="text-[11px] text-gray-400 mt-0.5" style={{ fontFamily:I }}>Grant additional time to specific students who need accommodations</p>
+                </div>
+                <button onClick={()=>setExtraTimeStudents(prev=>[...prev,{name:"",minutes:"15"}])}
+                  className="flex items-center gap-1.5 text-xs font-bold px-3 py-2 rounded-xl border border-dashed border-gray-200 text-gray-500 hover:text-gray-800 hover:border-gray-300 transition-all" style={{ fontFamily:U }}>
+                  <Plus size={13}/>Add student
+                </button>
+              </div>
+              {extraTimeStudents.length===0?(
+                <div className="text-center py-6 rounded-xl bg-gray-50/60 border border-dashed border-gray-200">
+                  <Clock size={20} className="mx-auto mb-2 text-gray-300"/>
+                  <p className="text-xs text-gray-400" style={{ fontFamily:I }}>No extra time configured yet</p>
+                </div>
+              ):(
+                <div className="space-y-2">
+                  {extraTimeStudents.map((ets,i)=>(
+                    <div key={i} className="flex items-center gap-2 bg-gray-50/60 rounded-xl border border-gray-100 p-3">
+                      <input value={ets.name} onChange={e=>{const n=[...extraTimeStudents];n[i]={...n[i],name:e.target.value};setExtraTimeStudents(n);}}
+                        placeholder="Student name or ID" className="flex-1 min-w-0 bg-transparent text-sm text-gray-800 placeholder:text-gray-400 focus:outline-none" style={{ fontFamily:I }}/>
+                      <div className="flex items-center gap-1.5 flex-shrink-0">
+                        <input value={ets.minutes} onChange={e=>{const n=[...extraTimeStudents];n[i]={...n[i],minutes:e.target.value};setExtraTimeStudents(n);}}
+                          type="number" min="1" max="120" className="w-16 text-center border border-gray-200 rounded-lg px-2 py-1.5 text-sm text-gray-800 focus:outline-none focus:border-gray-400" style={{ fontFamily:I }}/>
+                        <span className="text-xs text-gray-400" style={{ fontFamily:I }}>min</span>
+                      </div>
+                      <button onClick={()=>setExtraTimeStudents(prev=>prev.filter((_,j)=>j!==i))}
+                        className="w-7 h-7 rounded-lg flex items-center justify-center text-gray-300 hover:bg-white hover:text-red-400 transition-all flex-shrink-0">
+                        <X size={14}/>
+                      </button>
+                    </div>
+                  ))}
+                </div>
+              )}
             </div>
           </div>
 
