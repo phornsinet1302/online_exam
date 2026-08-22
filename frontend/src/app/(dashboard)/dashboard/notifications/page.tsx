@@ -1,5 +1,2 @@
-import { DashboardNotifications } from "../../../App";
-
-export default function DashboardNotificationsPage() {
-  return <DashboardNotifications />;
-}
+﻿import { DashboardNotifications } from "@/components/dashboard/DashboardNotifications";
+export default function NotificationsPage() { return <DashboardNotifications />; }

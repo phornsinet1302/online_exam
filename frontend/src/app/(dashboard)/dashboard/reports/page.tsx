@@ -1,5 +1,2 @@
-import { ReportsDashboard } from "../../../App";
-
-export default function ReportsPage() {
-  return <ReportsDashboard />;
-}
+﻿import { ReportsDashboard } from "@/components/reports/ReportsDashboard";
+export default function ReportsPage() { return <ReportsDashboard />; }

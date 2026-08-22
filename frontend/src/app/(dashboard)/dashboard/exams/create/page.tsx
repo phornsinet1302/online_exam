@@ -1,5 +1,2 @@
-import { ExamCreate } from "../../../../App";
-
-export default function ExamCreatePage() {
-  return <ExamCreate />;
-}
+﻿import { ExamCreate } from "@/components/exams/ExamCreate";
+export default function CreateExamPage() { return <ExamCreate />; }

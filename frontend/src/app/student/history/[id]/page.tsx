@@ -1,5 +1,2 @@
-import { ResultDetail } from "../../../App";
-
-export default function StudentHistoryDetailPage() {
-  return <ResultDetail />;
-}
+import { ResultDetail } from "@/components/student-flow/ResultDetail";
+export default function ResultDetailPage() { return <ResultDetail />; }

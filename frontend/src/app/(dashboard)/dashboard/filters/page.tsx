@@ -1,5 +1,2 @@
-import { DashboardFilters } from "../../../App";
-
-export default function DashboardFiltersPage() {
-  return <DashboardFilters />;
-}
+﻿import { DashboardFilters } from "@/components/dashboard/DashboardFilters";
+export default function FiltersPage() { return <DashboardFilters />; }
