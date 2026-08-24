@@ -1,5 +1,2 @@
-import { InstantResults } from "../../App";
-
-export default function StudentResultsPage() {
-  return <InstantResults />;
-}
+import { InstantResults } from "@/components/student-flow/InstantResults";
+export default function ResultsPage() { return <InstantResults />; }

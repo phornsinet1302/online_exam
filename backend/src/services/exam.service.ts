@@ -288,6 +288,117 @@ export class ExamService {
     return preview;
   }
 
+  // ════════════════════════════════════════════════════════════════════════
+  // TIMER CONFIGURATION (SRS 3.9)
+  // ════════════════════════════════════════════════════════════════════════
+
+  // -------- Update Timer Config --------
+  async updateTimerConfig(examId: string, ownerId: string, config: {
+    duration?: number;
+    autoStart?: boolean;
+    autoClose?: boolean;
+    autoSubmit?: boolean;
+    showCountdown?: boolean;
+    lateAllowanceMinutes?: number;
+    endDate?: string;
+  }) {
+    const exam = await prisma.exam.findUnique({ where: { id: examId } });
+    if (!exam) throw new Error('Exam not found');
+    if (exam.ownerId !== ownerId) throw new Error('Access denied');
+
+    const updateData: any = {};
+    if (config.duration !== undefined) updateData.duration = config.duration;
+    if (config.autoStart !== undefined) updateData.autoStart = config.autoStart;
+    if (config.autoClose !== undefined) updateData.autoClose = config.autoClose;
+    if (config.autoSubmit !== undefined) updateData.autoSubmit = config.autoSubmit;
+    if (config.showCountdown !== undefined) updateData.showCountdown = config.showCountdown;
+    if (config.lateAllowanceMinutes !== undefined) updateData.lateAllowanceMinutes = config.lateAllowanceMinutes;
+    if (config.endDate !== undefined) updateData.endDate = new Date(config.endDate);
+
+    return prisma.exam.update({
+      where: { id: examId },
+      data: updateData,
+    });
+  }
+
+  // -------- Set Extra Time for a Student --------
+  async setExtraTime(examId: string, ownerId: string, studentId: string, extraMinutes: number) {
+    const exam = await prisma.exam.findUnique({ where: { id: examId } });
+    if (!exam) throw new Error('Exam not found');
+    if (exam.ownerId !== ownerId) throw new Error('Access denied');
+
+    // Find the student's active attempt
+    const attempt = await prisma.examAttempt.findFirst({
+      where: { examId, studentId, submittedAt: null },
+    });
+    if (!attempt) throw new Error('No active attempt found for this student');
+
+    // Recalculate deadline
+    const baseDuration = exam.duration || 0;
+    const totalMinutes = baseDuration + extraMinutes;
+    const deadline = new Date(attempt.startedAt.getTime() + totalMinutes * 60 * 1000);
+
+    return prisma.examAttempt.update({
+      where: { id: attempt.id },
+      data: {
+        extraTimeMinutes: extraMinutes,
+        deadline,
+      },
+    });
+  }
+
+  // -------- Auto-Submit an Attempt --------
+  async autoSubmitAttempt(attemptId: string) {
+    const attempt = await prisma.examAttempt.findUnique({
+      where: { id: attemptId },
+      include: { exam: true },
+    });
+    if (!attempt) throw new Error('Attempt not found');
+    if (attempt.submittedAt) throw new Error('Attempt already submitted');
+
+    return prisma.examAttempt.update({
+      where: { id: attemptId },
+      data: {
+        submittedAt: new Date(),
+        autoSubmitted: true,
+      },
+    });
+  }
+
+  // -------- Get Timer Status for an Attempt --------
+  async getTimerStatus(attemptId: string) {
+    const attempt = await prisma.examAttempt.findUnique({
+      where: { id: attemptId },
+      include: { exam: true },
+    });
+    if (!attempt) throw new Error('Attempt not found');
+
+    const exam = attempt.exam;
+    const baseDuration = exam.duration || 0;
+    const extraTime = attempt.extraTimeMinutes || 0;
+    const totalMinutes = baseDuration + extraTime;
+    const deadline = attempt.deadline || new Date(attempt.startedAt.getTime() + totalMinutes * 60 * 1000);
+    const now = new Date();
+    const remainingMs = Math.max(0, deadline.getTime() - now.getTime());
+    const remainingSeconds = Math.floor(remainingMs / 1000);
+    const isExpired = remainingMs <= 0;
+
+    return {
+      attemptId: attempt.id,
+      startedAt: attempt.startedAt,
+      deadline,
+      baseDuration,
+      extraTime,
+      totalMinutes,
+      remainingSeconds,
+      isExpired,
+      autoSubmit: exam.autoSubmit,
+      showCountdown: exam.showCountdown,
+      isSubmitted: !!attempt.submittedAt,
+      autoSubmitted: attempt.autoSubmitted,
+    };
+  }
+
   // -------- Start Exam Session (student) --------
   async startExamSession(examId: string, studentId?: string) {
     const exam = await prisma.exam.findUnique({
@@ -306,6 +417,23 @@ export class ExamService {
     });
     if (!exam) throw new Error('Exam not found');
 
+    // Check late entry allowance
+    if (exam.startDate && exam.lateAllowanceMinutes !== undefined) {
+      const now = new Date();
+      const allowanceMs = exam.lateAllowanceMinutes * 60 * 1000;
+      const lateCutoff = new Date(exam.startDate.getTime() + (exam.duration || 0) * 60 * 1000);
+      if (now > lateCutoff) {
+        throw new Error('This exam has ended. Late entry is no longer allowed.');
+      }
+    }
+
+    // Calculate deadline based on exam duration
+    const startedAt = new Date();
+    const baseDuration = exam.duration || 0;
+    const deadline = baseDuration > 0
+      ? new Date(startedAt.getTime() + baseDuration * 60 * 1000)
+      : null;
+
     const snapshot = {
       id: exam.id,
       title: exam.title,
@@ -313,6 +441,9 @@ export class ExamService {
       subject: exam.subject,
       duration: exam.duration,
       passingScore: exam.passingScore,
+      autoSubmit: exam.autoSubmit,
+      showCountdown: exam.showCountdown,
+      autoClose: exam.autoClose,
       sections: exam.sections.map((section) => ({
         id: section.id,
         title: section.title,
@@ -357,14 +488,22 @@ export class ExamService {
       data: {
         examId: exam.id,
         studentId: studentId || `anonymous_${Date.now()}`,
+        startedAt,
         snapshot: snapshot,
         gradingKey: gradingKey,
+        deadline,
       },
     });
 
     return {
       attemptId: attempt.id,
       snapshot: snapshot,
+      timer: {
+        deadline,
+        durationMinutes: baseDuration,
+        showCountdown: exam.showCountdown,
+        autoSubmit: exam.autoSubmit,
+      },
     };
   }
 }

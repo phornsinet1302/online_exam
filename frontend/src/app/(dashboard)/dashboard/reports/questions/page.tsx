@@ -1,5 +1,2 @@
-import { QuestionAnalysisReport } from "../../../../App";
-
-export default function QuestionsReportPage() {
-  return <QuestionAnalysisReport />;
-}
+﻿import { QuestionAnalysisReport } from "@/components/reports/QuestionAnalysisReport";
+export default function QuestionsPage() { return <QuestionAnalysisReport />; }

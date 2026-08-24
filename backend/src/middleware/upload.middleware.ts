@@ -1,6 +1,6 @@
 import multer from 'multer';
 
-// 500KB for Development, 1MB for Production
+// 500KB for Development, 1MB for Production (AI material uploads)
 const MAX_FILE_SIZE = process.env.NODE_ENV === 'production' 
   ? 1 * 1024 * 1024 
   : 500 * 1024;
@@ -18,3 +18,27 @@ export const uploadPDF = multer({
     }
   },
 }).single('file'); // Matches the form-data key "file" in your Swagger docs
+
+// ─── Math Upload Config (SRS 3.13) ───────────────────────────────────────────
+// Accepts JPG, PNG, PDF up to 5 MB from student phone uploads
+const MATH_UPLOAD_MAX_SIZE = 5 * 1024 * 1024; // 5 MB
+
+const ALLOWED_MATH_MIME_TYPES = new Set([
+  'image/jpeg',
+  'image/png',
+  'application/pdf',
+]);
+
+export const uploadMathFile = multer({
+  storage: multer.memoryStorage(),
+  limits: {
+    fileSize: MATH_UPLOAD_MAX_SIZE,
+  },
+  fileFilter: (req, file, cb) => {
+    if (ALLOWED_MATH_MIME_TYPES.has(file.mimetype)) {
+      cb(null, true);
+    } else {
+      cb(new Error('Only JPG, PNG, and PDF files are allowed for math uploads'));
+    }
+  },
+}).single('file');
