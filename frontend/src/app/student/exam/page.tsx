@@ -1,5 +1,2 @@
-import { ExamTaking } from "../../App";
-
-export default function StudentExamPage() {
-  return <ExamTaking />;
-}
+import { ExamTaking } from "@/components/student-flow/ExamTaking";
+export default function ExamTakingPage() { return <ExamTaking />; }

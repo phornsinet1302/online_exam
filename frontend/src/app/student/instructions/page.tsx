@@ -1,9 +1,2 @@
-import { ExamInstructions, type StudentSearchParams } from "../../App";
-
-export default async function StudentInstructionsPage({
-  searchParams,
-}: {
-  searchParams: Promise<StudentSearchParams>;
-}) {
-  return <ExamInstructions searchParams={await searchParams} />;
-}
+import { ExamInstructions } from "@/components/student-flow/ExamInstructions";
+export default function InstructionsPage({ searchParams }: any) { return <ExamInstructions searchParams={searchParams} />; }

@@ -1,5 +1,2 @@
-import { ScoresReport } from "../../../../App";
-
-export default function ScoresReportPage() {
-  return <ScoresReport />;
-}
+﻿import { ScoresReport } from "@/components/reports/ScoresReport";
+export default function ScoresPage() { return <ScoresReport />; }

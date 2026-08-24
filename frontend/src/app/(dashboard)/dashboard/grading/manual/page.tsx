@@ -1,5 +1,2 @@
-import { ManualGrading } from "../../../../App";
-
-export default function ManualGradingPage() {
-  return <ManualGrading />;
-}
+﻿import { ManualGrading } from "@/components/grading/ManualGrading";
+export default function ManualGradingPage() { return <ManualGrading />; }

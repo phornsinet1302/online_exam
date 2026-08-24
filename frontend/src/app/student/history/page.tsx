@@ -1,5 +1,2 @@
-import { ExamHistory } from "../../App";
-
-export default function StudentHistoryPage() {
-  return <ExamHistory />;
-}
+import { ExamHistory } from "@/components/student-flow/ExamHistory";
+export default function HistoryPage() { return <ExamHistory />; }
