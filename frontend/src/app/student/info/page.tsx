@@ -1,9 +1,2 @@
-import { StudentInfo, type StudentSearchParams } from "../../App";
-
-export default async function StudentInfoPage({
-  searchParams,
-}: {
-  searchParams: Promise<StudentSearchParams>;
-}) {
-  return <StudentInfo searchParams={await searchParams} />;
-}
+import { StudentInfo } from "@/components/student-flow/StudentInfo";
+export default function InfoPage({ searchParams }: any) { return <StudentInfo searchParams={searchParams} />; }

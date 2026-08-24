@@ -1,5 +1,2 @@
-import { InviteCollaborators } from "../../../App";
-
-export default function CollaborationPage() {
-  return <InviteCollaborators />;
-}
+import { InviteCollaborators } from "@/components/dashboard/Collaboration";
+export default function CollabPage() { return <InviteCollaborators />; }

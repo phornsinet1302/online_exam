@@ -11,6 +11,10 @@ import {
   archiveExam,
   previewExam,
   startExamSession,
+  updateTimerConfig,
+  setExtraTime,
+  autoSubmitAttempt,
+  getTimerStatus,
 } from '../controllers/exam.controller.js';
 import { authMiddleware } from '../middleware/auth.middleware.js';
 
@@ -323,5 +327,115 @@ router.get('/exams/:id/preview', previewExam);
 
 router.post('/exams/:examId/start', startExamSession);
 
+// ═══════════════════════════════════════════════════════════════════════════════
+// TIMER ENDPOINTS (SRS 3.9)
+// ═══════════════════════════════════════════════════════════════════════════════
+
+/**
+ * @openapi
+ * /api/exams/{id}/timer:
+ *   put:
+ *     tags: [Timer]
+ *     summary: Update exam timer configuration
+ *     security: [{ bearerAuth: [] }]
+ *     parameters:
+ *       - in: path
+ *         name: id
+ *         required: true
+ *         schema: { type: string }
+ *     requestBody:
+ *       required: true
+ *       content:
+ *         application/json:
+ *           schema:
+ *             type: object
+ *             properties:
+ *               duration:
+ *                 type: integer
+ *                 description: Exam duration in minutes
+ *               autoStart:
+ *                 type: boolean
+ *               autoClose:
+ *                 type: boolean
+ *               autoSubmit:
+ *                 type: boolean
+ *               showCountdown:
+ *                 type: boolean
+ *               lateAllowanceMinutes:
+ *                 type: integer
+ *               endDate:
+ *                 type: string
+ *                 format: date-time
+ *     responses:
+ *       200:
+ *         description: Updated exam with timer config
+ */
+router.put('/exams/:id/timer', updateTimerConfig);
+
+/**
+ * @openapi
+ * /api/exams/{id}/extra-time:
+ *   post:
+ *     tags: [Timer]
+ *     summary: Set extra time for a specific student
+ *     security: [{ bearerAuth: [] }]
+ *     parameters:
+ *       - in: path
+ *         name: id
+ *         required: true
+ *         schema: { type: string }
+ *     requestBody:
+ *       required: true
+ *       content:
+ *         application/json:
+ *           schema:
+ *             type: object
+ *             required: [studentId, extraMinutes]
+ *             properties:
+ *               studentId:
+ *                 type: string
+ *               extraMinutes:
+ *                 type: integer
+ *     responses:
+ *       200:
+ *         description: Updated attempt with extra time
+ */
+router.post('/exams/:id/extra-time', setExtraTime);
+
+/**
+ * @openapi
+ * /api/exams/attempts/{attemptId}/auto-submit:
+ *   post:
+ *     tags: [Timer]
+ *     summary: Auto-submit an attempt when time expires
+ *     security: [{ bearerAuth: [] }]
+ *     parameters:
+ *       - in: path
+ *         name: attemptId
+ *         required: true
+ *         schema: { type: string }
+ *     responses:
+ *       200:
+ *         description: Attempt auto-submitted
+ */
+router.post('/exams/attempts/:attemptId/auto-submit', autoSubmitAttempt);
+
+/**
+ * @openapi
+ * /api/exams/attempts/{attemptId}/timer:
+ *   get:
+ *     tags: [Timer]
+ *     summary: Get timer status for an attempt
+ *     security: [{ bearerAuth: [] }]
+ *     parameters:
+ *       - in: path
+ *         name: attemptId
+ *         required: true
+ *         schema: { type: string }
+ *     responses:
+ *       200:
+ *         description: Timer status
+ */
+router.get('/exams/attempts/:attemptId/timer', getTimerStatus);
 
 export default router;

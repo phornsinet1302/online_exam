@@ -1,5 +1,2 @@
-import { SubmissionSuccess } from "../../../App";
-
-export default function StudentExamSuccessPage() {
-  return <SubmissionSuccess />;
-}
+import { SubmissionSuccess } from "@/components/student-flow/SubmissionSuccess";
+export default function SuccessPage() { return <SubmissionSuccess />; }

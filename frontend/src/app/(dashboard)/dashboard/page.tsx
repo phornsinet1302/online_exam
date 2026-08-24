@@ -1,5 +1,2 @@
-import { DashboardOverview } from "../../App";
-
-export default function DashboardPage() {
-  return <DashboardOverview />;
-}
+﻿import { DashboardOverview } from "@/components/dashboard/DashboardOverview";
+export default function DashboardPage() { return <DashboardOverview />; }

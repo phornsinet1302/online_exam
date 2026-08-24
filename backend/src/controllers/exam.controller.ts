@@ -151,3 +151,66 @@ export const startExamSession = async (req: Request, res: Response) => {
     res.status(400).json({ message: error.message });
   }
 };
+
+// ════════════════════════════════════════════════════════════════════════════
+// TIMER ENDPOINTS (SRS 3.9)
+// ════════════════════════════════════════════════════════════════════════════
+
+const timerConfigSchema = z.object({
+  duration: z.number().int().positive().optional(),
+  autoStart: z.boolean().optional(),
+  autoClose: z.boolean().optional(),
+  autoSubmit: z.boolean().optional(),
+  showCountdown: z.boolean().optional(),
+  lateAllowanceMinutes: z.number().int().min(0).optional(),
+  endDate: z.string().optional(),
+});
+
+export const updateTimerConfig = async (req: Request, res: Response) => {
+  try {
+    const ownerId = getOwnerId(req);
+    const { id } = idSchema.parse(req.params);
+    const config = timerConfigSchema.parse(req.body);
+    const exam = await examService.updateTimerConfig(id, ownerId, config);
+    res.status(200).json(exam);
+  } catch (error: any) {
+    res.status(400).json({ message: error.message });
+  }
+};
+
+const extraTimeSchema = z.object({
+  studentId: z.string(),
+  extraMinutes: z.number().int().min(0),
+});
+
+export const setExtraTime = async (req: Request, res: Response) => {
+  try {
+    const ownerId = getOwnerId(req);
+    const { id } = idSchema.parse(req.params);
+    const { studentId, extraMinutes } = extraTimeSchema.parse(req.body);
+    const result = await examService.setExtraTime(id, ownerId, studentId, extraMinutes);
+    res.status(200).json(result);
+  } catch (error: any) {
+    res.status(400).json({ message: error.message });
+  }
+};
+
+export const autoSubmitAttempt = async (req: Request, res: Response) => {
+  try {
+    const { attemptId } = z.object({ attemptId: z.string() }).parse(req.params);
+    const result = await examService.autoSubmitAttempt(attemptId);
+    res.status(200).json(result);
+  } catch (error: any) {
+    res.status(400).json({ message: error.message });
+  }
+};
+
+export const getTimerStatus = async (req: Request, res: Response) => {
+  try {
+    const { attemptId } = z.object({ attemptId: z.string() }).parse(req.params);
+    const status = await examService.getTimerStatus(attemptId);
+    res.status(200).json(status);
+  } catch (error: any) {
+    res.status(400).json({ message: error.message });
+  }
+};

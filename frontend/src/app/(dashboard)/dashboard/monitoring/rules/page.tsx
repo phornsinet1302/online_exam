@@ -1,5 +1,2 @@
-import { RulesConfig } from "../../../../App";
-
-export default function MonitoringRulesPage() {
-  return <RulesConfig />;
-}
+﻿import { RulesConfig } from "@/components/monitoring/RulesConfig";
+export default function RulesPage() { return <RulesConfig />; }
