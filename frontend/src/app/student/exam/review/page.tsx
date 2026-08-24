@@ -1,5 +1,2 @@
-import { ReviewSubmit } from "../../../App";
-
-export default function StudentExamReviewPage() {
-  return <ReviewSubmit />;
-}
+import { ReviewSubmit } from "@/components/student-flow/ReviewSubmit";
+export default function ReviewPage() { return <ReviewSubmit />; }

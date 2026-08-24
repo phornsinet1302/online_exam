@@ -1,5 +1,2 @@
-import { StudentLobby } from "../../App";
-
-export default function StudentLobbyPage() {
-  return <StudentLobby />;
-}
+import { StudentLobby } from "@/components/student-flow/StudentLobby";
+export default function LobbyPage() { return <StudentLobby />; }

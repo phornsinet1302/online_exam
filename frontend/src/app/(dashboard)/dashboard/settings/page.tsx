@@ -1,5 +1,2 @@
-import { DashboardSettings } from "../../../App";
-
-export default function DashboardSettingsPage() {
-  return <DashboardSettings />;
-}
+﻿import { DashboardSettings } from "@/components/dashboard/DashboardSettings";
+export default function SettingsPage() { return <DashboardSettings />; }

@@ -1,5 +1,2 @@
-import { AutoSubmitNotice } from "../../../App";
-
-export default function StudentAutoSubmitPage() {
-  return <AutoSubmitNotice />;
-}
+import { AutoSubmitNotice } from "@/components/student-flow/AutoSubmitNotice";
+export default function AutoSubmitPage() { return <AutoSubmitNotice />; }

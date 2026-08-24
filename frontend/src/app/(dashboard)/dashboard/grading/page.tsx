@@ -1,5 +1,2 @@
-import { GradingResults } from "../../../App";
-
-export default function GradingPage() {
-  return <GradingResults />;
-}
+﻿import { GradingResults } from "@/components/grading/GradingResults";
+export default function GradingPage() { return <GradingResults />; }
