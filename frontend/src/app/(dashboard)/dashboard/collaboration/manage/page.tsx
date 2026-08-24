@@ -1,5 +1,2 @@
-import { ManageCollaborators } from "../../../../App";
-
-export default function ManageCollaboratorsPage() {
-  return <ManageCollaborators />;
-}
+import { ManageCollaborators } from "@/app/App";
+export default function ManageCollabPage() { return <ManageCollaborators />; }
