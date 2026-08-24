@@ -1,5 +1,2 @@
-import { DashboardCharts } from "../../../App";
-
-export default function DashboardChartsPage() {
-  return <DashboardCharts />;
-}
+﻿import { DashboardCharts } from "@/components/dashboard/DashboardCharts";
+export default function ChartsPage() { return <DashboardCharts />; }

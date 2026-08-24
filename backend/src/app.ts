@@ -9,11 +9,27 @@ import authRoutes from './routes/auth.routes.js';
 import aiRoutes from './routes/ai.routes.js';
 import questionRoutes from './routes/question.routes.js';
 import examRoutes from './routes/exam.routes.js';
+import collaborationRoutes from './routes/collaboration.routes.js';
+import reportRoutes from './routes/report.routes.js';
+import studentRoutes from './routes/student.routes.js';
 import multer from 'multer'; 
 
 const app = express();
 
-app.use(helmet());
+app.use(
+  helmet({
+    contentSecurityPolicy: {
+      directives: {
+        defaultSrc: ["'self'"],
+        scriptSrc: ["'self'", "'unsafe-inline'", "https://unpkg.com"],
+        styleSrc: ["'self'", "'unsafe-inline'", "https://unpkg.com"],
+        imgSrc: ["'self'", "data:", "https:"],
+        connectSrc: ["'self'"],
+        fontSrc: ["'self'", "https://unpkg.com"],
+      },
+    },
+  })
+);
 app.use(cors());
 app.use(express.json());
 app.use(morgan('dev'));
@@ -31,6 +47,9 @@ app.use('/api/auth', authRoutes);
 app.use('/api', aiRoutes);
 app.use('/api', questionRoutes);
 app.use('/api', examRoutes);
+app.use('/api', collaborationRoutes);
+app.use('/api', reportRoutes);
+app.use('/api', studentRoutes);
 
 
 // Global error handler

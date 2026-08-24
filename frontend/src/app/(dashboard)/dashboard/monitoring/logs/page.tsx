@@ -1,5 +1,2 @@
-import { SecurityLogs } from "../../../../App";
-
-export default function MonitoringLogsPage() {
-  return <SecurityLogs />;
-}
+﻿import { SecurityLogs } from "@/components/monitoring/SecurityLogs";
+export default function LogsPage() { return <SecurityLogs />; }

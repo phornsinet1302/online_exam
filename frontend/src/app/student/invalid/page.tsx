@@ -1,5 +1,2 @@
-import { ExamInvalid } from "../../App";
-
-export default function StudentInvalidPage() {
-  return <ExamInvalid />;
-}
+import { ExamInvalid } from "@/components/student-flow/ExamInvalid";
+export default function InvalidPage() { return <ExamInvalid />; }

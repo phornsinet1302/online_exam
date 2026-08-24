@@ -1,5 +1,2 @@
-import { LiveMonitoring } from "../../../App";
-
-export default function MonitoringPage() {
-  return <LiveMonitoring />;
-}
+﻿import { LiveMonitoring } from "@/components/monitoring/LiveMonitoring";
+export default function MonitoringPage() { return <LiveMonitoring />; }

@@ -1,5 +1,2 @@
-import { ExamList } from "../../../App";
-
-export default function ExamsPage() {
-  return <ExamList />;
-}
+﻿import { ExamList } from "@/components/exams/ExamList";
+export default function ExamsPage() { return <ExamList />; }

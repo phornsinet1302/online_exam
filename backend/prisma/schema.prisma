@@ -8,19 +8,240 @@ datasource db {
 }
 
 model User {
-  id          String   @id @default(cuid())
-  supabaseId  String   @unique
-  email       String   @unique
-  name        String
-  avatarUrl   String?
-  role        String   @default("teacher")
-  createdAt   DateTime @default(now())
-  updatedAt   DateTime @updatedAt
-  exams       Exam[]
-
-  // ... other relations
+  id              String         @id @default(cuid())
+  supabaseId      String         @unique
+  name            String
+  email           String         @unique
+  avatarUrl       String?
+  createdAt       DateTime       @default(now())
+  updatedAt       DateTime       @updatedAt
+  role            String         @default("teacher")
+  exams           Exam[]
+  collaborations  Collaborator[] @relation("collaborations")
+  invitationsSent Collaborator[] @relation("invitations_sent")
+  reports         Report[]
 }
 
+model Exam {
+  id                   String           @id @default(cuid())
+  title                String
+  description          String?
+  status               ExamStatus       @default(DRAFT)
+  ownerId              String           @map("owner_id")
+  createdAt            DateTime         @default(now())
+  updatedAt            DateTime         @updatedAt
+  subject              String?
+  startDate            DateTime?
+  endDate              DateTime?
+  duration             Int?
+  passingScore         Float?
+  maxAttempts          Int?
+  magicLinkToken       String?
+  uniqueCode           String?          @unique
+  accessType           ExamAccess       @default(PUBLIC)
+  password             String?
+  randomizeQuestions   Boolean          @default(false)
+  showResults          Boolean          @default(false)
+  timezone             String?
+  lateAllowanceMinutes Int              @default(0)
+  sessionState         ExamSessionState @default(WAITING)
+  // Timer configuration fields (SRS 3.9)
+  autoStart            Boolean          @default(false)
+  autoClose            Boolean          @default(false)
+  autoSubmit           Boolean          @default(true)
+  showCountdown        Boolean          @default(true)
+  attempts             ExamAttempt[]
+  owner                User             @relation(fields: [ownerId], references: [supabaseId])
+  materials            Material[]
+  sections             Section[]
+  collaborators        Collaborator[]
+  reports              Report[]
+
+  @@map("exams")
+}
+
+model ExamAttempt {
+  id               String              @id @default(cuid())
+  examId           String              @map("exam_id")
+  studentId        String?
+  startedAt        DateTime            @default(now())
+  submittedAt      DateTime?
+  score            Float?
+  answers          Json?
+  createdAt        DateTime            @default(now())
+  snapshot         Json
+  updatedAt        DateTime            @updatedAt
+  gradingKey       Json?
+  gradingStatus    GradingStatus?
+  totalScore       Float?
+  // Timer fields (SRS 3.9)
+  extraTimeMinutes Int                 @default(0)
+  autoSubmitted    Boolean             @default(false)
+  deadline         DateTime?
+  // Phase 5: Student Exam (SRS 3.12 & 3.13)
+  autosaveData     Json?               // { [questionId]: { answer, savedAt } }
+  reviewFlags      String[]            @default([]) // questionIds marked for review
+  exam             Exam                @relation(fields: [examId], references: [id], onDelete: Cascade)
+  student_answers  student_answers[]
+  mathUploadSessions MathUploadSession[]
+  mathUploads      MathUpload[]
+
+  @@map("exam_attempts")
+}
+
+model Section {
+  id             String     @id @default(cuid())
+  examId         String     @map("exam_id")
+  title          String
+  order          Int
+  randomization  Boolean    @default(false)
+  shuffleAnswers Boolean    @default(false)
+  createdAt      DateTime   @default(now())
+  updatedAt      DateTime   @updatedAt
+  questions      Question[]
+  exam           Exam       @relation(fields: [examId], references: [id], onDelete: Cascade)
+
+  @@map("sections")
+}
+
+model Question {
+  id            String       @id @default(cuid())
+  sectionId     String       @map("section_id")
+  type          QuestionType
+  text          String
+  points        Float        @default(1.0)
+  order         Int
+  createdAt     DateTime     @default(now())
+  updatedAt     DateTime     @updatedAt
+  reviewed      Boolean      @default(false)
+  metadata      Json?
+  isAIGenerated Boolean      @default(false)
+  difficulty    Difficulty
+  description   String?
+  required      Boolean      @default(true)
+  title         String?
+  options       Option[]
+  section       Section      @relation(fields: [sectionId], references: [id], onDelete: Cascade)
+
+  @@map("questions")
+}
+
+model Option {
+  id         String   @id @default(cuid())
+  questionId String   @map("question_id")
+  text       String
+  isCorrect  Boolean  @default(false)
+  order      Int
+  createdAt  DateTime @default(now())
+  updatedAt  DateTime @updatedAt
+  question   Question @relation(fields: [questionId], references: [id], onDelete: Cascade)
+
+  @@map("options")
+}
+
+model Material {
+  id        String   @id @default(cuid())
+  examId    String   @map("exam_id")
+  content   String?
+  fileUrl   String?
+  createdAt DateTime @default(now())
+  exam      Exam     @relation(fields: [examId], references: [id], onDelete: Cascade)
+
+  @@map("materials")
+}
+
+// ═══════════════════════════════════════════════════════════════════════════════
+// Math Upload System (SRS 3.13)
+// ═══════════════════════════════════════════════════════════════════════════════
+
+/// Short-lived encrypted token linking a phone upload session to an exam attempt
+model MathUploadSession {
+  id        String      @id @default(cuid())
+  attemptId String      @map("attempt_id")
+  token     String      @unique // signed JWT, expires in 15 min
+  expiresAt DateTime    @map("expires_at")
+  used      Boolean     @default(false)
+  createdAt DateTime    @default(now())
+  attempt   ExamAttempt @relation(fields: [attemptId], references: [id], onDelete: Cascade)
+
+  @@map("math_upload_sessions")
+}
+
+/// Uploaded handwritten math image/PDF linked to an exam attempt
+model MathUpload {
+  id         String      @id @default(cuid())
+  attemptId  String      @map("attempt_id")
+  questionId String?     @map("question_id") // optional — link to a specific question
+  fileUrl    String      @map("file_url")    // Supabase Storage public URL
+  fileName   String      @map("file_name")
+  mimeType   String      @map("mime_type")
+  uploadedAt DateTime    @default(now()) @map("uploaded_at")
+  attempt    ExamAttempt @relation(fields: [attemptId], references: [id], onDelete: Cascade)
+
+  @@map("math_uploads")
+}
+
+model student_answers {
+  id                String        @id
+  attempt_id        String
+  question_id       String
+  selectedOptionIds String[]
+  textAnswer        String?
+  matchingPairs     Json?
+  fileUrl           String?
+  score             Float?
+  maxScore          Float
+  status            GradingStatus @default(needs_review)
+  feedback          String?
+  gradedBy          String?
+  gradedAt          DateTime?
+  createdAt         DateTime      @default(now())
+  updatedAt         DateTime
+  exam_attempts     ExamAttempt   @relation(fields: [attempt_id], references: [id], onDelete: Cascade)
+}
+
+// ═══════════════════════════════════════════════════════════════════════════════
+// Teacher Collaboration (SRS 3.10)
+// ═══════════════════════════════════════════════════════════════════════════════
+model Collaborator {
+  id        String           @id @default(cuid())
+  examId    String           @map("exam_id")
+  userId    String           @map("user_id")
+  role      CollaboratorRole
+  status    InviteStatus     @default(PENDING)
+  invitedBy String           @map("invited_by")
+  createdAt DateTime         @default(now())
+  updatedAt DateTime         @updatedAt
+  exam      Exam             @relation(fields: [examId], references: [id], onDelete: Cascade)
+  user      User             @relation("collaborations", fields: [userId], references: [supabaseId])
+  inviter   User             @relation("invitations_sent", fields: [invitedBy], references: [supabaseId])
+
+  @@unique([examId, userId])
+  @@map("collaborators")
+}
+
+// ═══════════════════════════════════════════════════════════════════════════════
+// Reports Module (SRS 3.11)
+// ═══════════════════════════════════════════════════════════════════════════════
+model Report {
+  id        String       @id @default(cuid())
+  examId    String?      @map("exam_id")
+  type      ReportType
+  format    ExportFormat
+  fileUrl   String?
+  status    ReportStatus @default(GENERATING)
+  createdBy String       @map("created_by")
+  createdAt DateTime     @default(now())
+  metadata  Json?
+  exam      Exam?        @relation(fields: [examId], references: [id], onDelete: Cascade)
+  creator   User         @relation(fields: [createdBy], references: [supabaseId])
+
+  @@map("reports")
+}
+
+// ═══════════════════════════════════════════════════════════════════════════════
+// Enums
+// ═══════════════════════════════════════════════════════════════════════════════
 enum Role {
   TEACHER
   STUDENT
@@ -28,105 +249,16 @@ enum Role {
   INVIGILATOR
 }
 
-model Exam {
-  id          String    @id @default(cuid())
-  title       String
-  description String?
-  status      ExamStatus @default(DRAFT)
-  ownerId     String    @map("owner_id")
-  owner       User      @relation(fields: [ownerId], references: [supabaseId])
-  createdAt   DateTime  @default(now())
-  updatedAt   DateTime  @updatedAt
-
-  subject     String?
-  startDate   DateTime?
-  duration    Int?
-  timezone    String?
-  passingScore Float?
-  maxAttempts Int?
-
-  randomizeQuestions Boolean @default(false)
-  showResults        Boolean @default(false)
-
-  accessType  ExamAccess @default(PUBLIC)
-  password    String?
-
-  sections    Section[]
-  materials   Material[]
-  attempts    ExamAttempt[]
-
-  uniqueCode      String?   @unique
-  magicLinkToken  String?
-
-  @@map("exams")
-}
-
 enum ExamAccess {
   PUBLIC
   PRIVATE
   PASSWORD_PROTECTED
-}
-model ExamAttempt {
-  id        String   @id @default(cuid())
-  examId    String   @map("exam_id")
-  exam      Exam     @relation(fields: [examId], references: [id], onDelete: Cascade)
-  studentId String?  // if you have student accounts; or a session ID for anonymous
-  startedAt DateTime @default(now())
-  submittedAt DateTime?
-  score     Float?
-  snapshot    Json     // Stores the full exam structure at start time
-  answers     Json?    // Stores answers as { questionId: selectedOptionId | text }
-  createdAt   DateTime @default(now())
-  updatedAt   DateTime @updatedAt
-  // ... other fields
-
-  @@map("exam_attempts")
 }
 
 enum ExamStatus {
   DRAFT
   PUBLISHED
   ARCHIVED
-}
-
-model Section {
-  id          String   @id @default(cuid())
-  examId      String   @map("exam_id")
-  exam        Exam     @relation(fields: [examId], references: [id], onDelete: Cascade)
-  title       String
-  order       Int      // display order
-  randomization Boolean @default(false)
-  shuffleAnswers Boolean @default(false)
-  createdAt   DateTime @default(now())
-  updatedAt   DateTime @updatedAt
-
-  questions   Question[]
-
-  @@map("sections")
-}
-
-model Question {
-  id          String   @id @default(cuid())
-  sectionId   String   @map("section_id")
-  section     Section  @relation(fields: [sectionId], references: [id], onDelete: Cascade)
-  type        QuestionType
-  title       String?  // optional short title for the question
-  description String?  // optional description (can be rich text)
-  text        String   // question stem
-  points      Float    @default(1.0)
-  difficulty  Difficulty
-  order       Int
-  createdAt   DateTime @default(now())
-  updatedAt   DateTime @updatedAt
-  required    Boolean  @default(true) // whether student must answer
-  reviewed  Boolean  @default(false) // for AI-generated drafts
-  metadata   Json? 
-  isAIGenerated  Boolean  @default(false)
-
-  options     Option[] // for MCQ/True-False
-  // For essay, we might store expected answer separately
-
-  @@map("questions")
 }
 
 enum QuestionType {
@@ -142,8 +274,6 @@ enum QuestionType {
   MATH_FORMULA
 }
 
-
-
 enum Difficulty {
   EASY
   MEDIUM
@@ -151,26 +281,45 @@ enum Difficulty {
   MIXED
 }
 
-model Option {
-  id          String   @id @default(cuid())
-  questionId  String   @map("question_id")
-  question    Question @relation(fields: [questionId], references: [id], onDelete: Cascade)
-  text        String
-  isCorrect   Boolean  @default(false)
-  order       Int
-  createdAt   DateTime @default(now())
-  updatedAt   DateTime @updatedAt
-
-  @@map("options")
+enum ExamSessionState {
+  WAITING
+  ACTIVE
+  ENDED
 }
 
-model Material {
-  id        String   @id @default(cuid())
-  examId    String   @map("exam_id")
-  exam      Exam     @relation(fields: [examId], references: [id], onDelete: Cascade)
-  content   String?  // text content
-  fileUrl   String?  // if file uploaded, store URL
-  createdAt DateTime @default(now())
-  
-  @@map("materials")
+enum GradingStatus {
+  auto_graded
+  needs_review
+  graded
+}
+
+enum CollaboratorRole {
+  COLLABORATOR
+  INVIGILATOR
+}
+
+enum InviteStatus {
+  PENDING
+  ACCEPTED
+  DECLINED
+}
+
+enum ReportType {
+  SCORES
+  ATTENDANCE
+  EXAM
+  ANTI_CHEATING
+  QUESTION_ANALYSIS
+}
+
+enum ExportFormat {
+  PDF
+  EXCEL
+  CSV
+}
+
+enum ReportStatus {
+  GENERATING
+  COMPLETED
+  FAILED
 }
