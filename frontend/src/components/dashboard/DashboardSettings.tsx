@@ -3,22 +3,27 @@
 import { useState } from "react";
 import { DashboardLayout, Toggle } from "@/components/dashboard/DashboardShared";
 import { User, Lock, Bell, Shield, CheckCircle2, Camera, Eye, EyeOff, Check } from "lucide-react";
+import { useAuth } from "@/components/providers/AuthProvider";
 import { U, I, INK, CAMEL } from "@/lib/tokens";
 
 export function DashboardSettings() {
+  const { user } = useAuth();
+  
   const [tab, setTab]               = useState("profile");
-  const [name, setName]             = useState("Jane Robertson");
-  const [email, setEmail]           = useState("jane.r@university.edu");
-  const [phone, setPhone]           = useState("+1 (555) 012-3456");
-  const [institution, setInstitution] = useState("University of Melbourne");
-  const [department, setDepartment] = useState("Mathematics");
-  const [bio, setBio]               = useState("Year 9–12 Mathematics teacher with 8 years of experience.");
+  const [name, setName]             = useState(user?.name || "");
+  const [email, setEmail]           = useState(user?.email || "");
+  const [phone, setPhone]           = useState("");
+  const [institution, setInstitution] = useState("");
+  const [department, setDepartment] = useState("");
+  const [bio, setBio]               = useState("");
   const [curPw, setCurPw]           = useState("");
   const [newPw, setNewPw]           = useState("");
   const [confirmPw, setConfirmPw]   = useState("");
   const [showPw, setShowPw]         = useState(false);
   const [saved, setSaved]           = useState(false);
   const [notifPrefs, setNotifPrefs] = useState({ examAlerts:true, flagAlerts:true, gradeReady:true, weeklyReport:false, systemUpdates:true, studentJoins:false });
+
+  const initials = name ? name.split(" ").map(n => n[0]).join("").toUpperCase().substring(0, 2) : "U";
 
   const save = () => { setSaved(true); setTimeout(()=>setSaved(false),2500); };
   const tabs = [{ id:"profile",label:"Profile",icon:User },{ id:"password",label:"Password",icon:Lock },{ id:"notifications",label:"Notifications",icon:Bell },{ id:"privacy",label:"Privacy",icon:Shield }];
@@ -36,21 +41,21 @@ export function DashboardSettings() {
           <div className="bg-white rounded-2xl border border-gray-100 p-7">
             <div className="flex items-center gap-5 mb-8 pb-8 border-b border-gray-100">
               <div className="relative">
-                <div className="w-20 h-20 rounded-2xl flex items-center justify-center text-white text-2xl font-black" style={{ background:CAMEL, fontFamily:U }}>JR</div>
+                <div className="w-20 h-20 rounded-2xl flex items-center justify-center text-white text-2xl font-black" style={{ background:CAMEL, fontFamily:U }}>{initials}</div>
                 <button className="absolute -bottom-1 -right-1 w-7 h-7 rounded-full bg-white border-2 border-gray-100 flex items-center justify-center text-gray-500 shadow-sm"><Camera size={13}/></button>
               </div>
               <div><p className="text-sm font-bold text-gray-900 mb-1" style={{ fontFamily:U }}>Profile photo</p><p className="text-xs text-gray-400 mb-2" style={{ fontFamily:I }}>JPG, PNG or GIF · Max 5MB</p><button className="text-xs font-semibold hover:underline" style={{ color:CAMEL, fontFamily:U }}>Upload new photo</button></div>
             </div>
             <div className="grid sm:grid-cols-2 gap-5">
-              {[{label:"Full Name",val:name,set:setName,col:2},{label:"Email Address",val:email,set:setEmail},{label:"Phone Number",val:phone,set:setPhone},{label:"Institution",val:institution,set:setInstitution},{label:"Department",val:department,set:setDepartment}].map(({label,val,set,col})=>(
+              {[{label:"Full Name",val:name,set:setName,col:2,placeholder:"e.g. Jane Doe"},{label:"Email Address",val:email,set:setEmail,placeholder:"jane@university.edu"},{label:"Phone Number",val:phone,set:setPhone,placeholder:"+1 (555) 000-0000"},{label:"Institution",val:institution,set:setInstitution,placeholder:"e.g. University of Melbourne"},{label:"Department",val:department,set:setDepartment,placeholder:"e.g. Mathematics"}].map(({label,val,set,col,placeholder})=>(
                 <div key={label} className={col===2?"sm:col-span-2":""}>
                   <label className="text-xs font-bold text-gray-500 uppercase tracking-wider mb-1.5 block" style={{ fontFamily:U }}>{label}</label>
-                  <input value={val} onChange={e=>set(e.target.value)} className="w-full border border-gray-200 rounded-xl px-4 py-3 text-sm text-gray-900 focus:outline-none focus:border-gray-400 transition-colors" style={{ fontFamily:I }}/>
+                  <input value={val} onChange={e=>set(e.target.value)} placeholder={placeholder} className="w-full border border-gray-200 rounded-xl px-4 py-3 text-sm text-gray-900 focus:outline-none focus:border-gray-400 transition-colors placeholder:text-gray-300" style={{ fontFamily:I }}/>
                 </div>
               ))}
               <div className="sm:col-span-2">
                 <label className="text-xs font-bold text-gray-500 uppercase tracking-wider mb-1.5 block" style={{ fontFamily:U }}>Bio</label>
-                <textarea value={bio} onChange={e=>setBio(e.target.value)} rows={3} className="w-full border border-gray-200 rounded-xl px-4 py-3 text-sm text-gray-900 focus:outline-none focus:border-gray-400 transition-colors resize-none" style={{ fontFamily:I }}/>
+                <textarea value={bio} onChange={e=>setBio(e.target.value)} placeholder="Tell us a little about your teaching experience..." rows={3} className="w-full border border-gray-200 rounded-xl px-4 py-3 text-sm text-gray-900 focus:outline-none focus:border-gray-400 transition-colors resize-none placeholder:text-gray-300" style={{ fontFamily:I }}/>
               </div>
             </div>
             <div className="flex items-center gap-3 mt-6 pt-6 border-t border-gray-100">

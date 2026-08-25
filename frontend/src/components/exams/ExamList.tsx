@@ -1,10 +1,10 @@
 "use client";
 
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { useNavigate } from "@/lib/hooks";
 import { DashboardLayout, StatusBadge } from "@/components/dashboard/DashboardShared";
 import { Plus, Archive, Search, FileText, Hash, Copy, MoreVertical, Eye, Pencil, Trash2 } from "lucide-react";
-import { MOCK_EXAMS } from "@/lib/mock-data";
+import { examsApi, Exam } from "@/lib/api/exams";
 import { U, I, INK, CAMEL } from "@/lib/tokens";
 
 export function ExamList() {
@@ -15,10 +15,17 @@ export function ExamList() {
   const [archiveConfirm, setArchiveConfirm] = useState<string|null>(null);
   const [copiedCode, setCopiedCode] = useState<string|null>(null);
 
-  const exams = MOCK_EXAMS.filter(e=>{
-    const matchStatus = statusFilter==="all"||e.status===statusFilter;
-    const matchSearch = e.title.toLowerCase().includes(search.toLowerCase())||e.subject.toLowerCase().includes(search.toLowerCase());
-    return matchStatus&&matchSearch;
+  const [allExams, setAllExams] = useState<Exam[]>([]);
+  const [loading, setLoading] = useState(true);
+  
+  useEffect(() => {
+    examsApi.getAll().then(setAllExams).finally(() => setLoading(false));
+  }, []);
+
+  const exams = allExams.filter(e => {
+    const matchStatus = statusFilter === "all" || (e.status.toLowerCase() === statusFilter);
+    const matchSearch = e.title.toLowerCase().includes(search.toLowerCase()) || (e.subject || "").toLowerCase().includes(search.toLowerCase());
+    return matchStatus && matchSearch;
   });
 
   const copyExamCode = (code: string) => {
@@ -28,7 +35,7 @@ export function ExamList() {
   };
 
   return (
-    <DashboardLayout active="exams" title="My Exams" subtitle={`${MOCK_EXAMS.length} exams total`}
+    <DashboardLayout active="exams" title="My Exams" subtitle={loading ? "Loading..." : `${allExams.length} exams total`}
       actions={<button onClick={()=>navigate("/dashboard/exams/create")} className="flex items-center gap-2 text-white text-xs font-bold px-4 py-2 rounded-xl hover:opacity-90 transition-opacity" style={{ background:INK, fontFamily:U }}><Plus size={14}/>New exam</button>}>
 
       {/* Archive confirm modal */}
@@ -74,23 +81,23 @@ export function ExamList() {
               <div className="p-5">
                 <div className="flex items-start justify-between mb-3">
                   <div>
-                    <StatusBadge status={exam.status}/>
+                    <StatusBadge status={exam.status.toLowerCase()}/>
                     <h3 className="text-sm font-black mt-2 mb-1 leading-snug" style={{ fontFamily:U, color:INK }}>{exam.title}</h3>
-                    <p className="text-xs text-gray-400" style={{ fontFamily:I }}>{exam.subject} · {exam.date}</p>
-                    <button onClick={()=>copyExamCode(exam.code)}
+                    <p className="text-xs text-gray-400" style={{ fontFamily:I }}>{exam.subject || "No Subject"} · {exam.createdAt ? new Date(exam.createdAt).toLocaleDateString() : "No Date"}</p>
+                    <button onClick={()=>copyExamCode(exam.uniqueCode || "")}
                       className="mt-3 inline-flex items-center gap-2 rounded-lg border border-gray-200 bg-gray-50 px-3 py-1.5 text-[11px] font-bold text-gray-600 hover:border-gray-300 hover:bg-white hover:text-gray-900 transition-all"
                       style={{ fontFamily:U }}>
                       <Hash size={12} style={{ color:CAMEL }}/>
-                      <span className="font-mono">{exam.code}</span>
+                      <span className="font-mono">{exam.uniqueCode || "NO-CODE"}</span>
                       <Copy size={12}/>
-                      {copiedCode===exam.code&&<span className="text-green-600">Copied</span>}
+                      {copiedCode===(exam.uniqueCode || "")&&<span className="text-green-600">Copied</span>}
                     </button>
                   </div>
                   <div className="relative flex-shrink-0 ml-2">
                     <button onClick={e=>{e.stopPropagation();setMenuOpen(menuOpen===exam.id?null:exam.id);}} className="w-8 h-8 rounded-lg flex items-center justify-center text-gray-400 hover:bg-gray-100 hover:text-gray-600 transition-all"><MoreVertical size={15}/></button>
                     {menuOpen===exam.id&&(
                       <div className="absolute right-0 top-9 bg-white border border-gray-200 rounded-xl shadow-xl z-50 w-44 py-1" onClick={e=>e.stopPropagation()}>
-                        {[{icon:Eye,label:"Preview",action:()=>navigate(`/dashboard/exams/${exam.id}?tab=preview`)},{icon:Pencil,label:"Edit",action:()=>navigate(`/dashboard/exams/${exam.id}/edit`)},{icon:Hash,label:"Copy code",action:()=>copyExamCode(exam.code)},{icon:Copy,label:"Duplicate",action:()=>{}},{icon:Archive,label:"Archive",action:()=>{setArchiveConfirm(exam.id);setMenuOpen(null);}},{icon:Trash2,label:"Delete",action:()=>{}}].map(({icon:Icon,label,action})=>(
+                        {[{icon:Eye,label:"Preview",action:()=>navigate(`/dashboard/exams/${exam.id}?tab=preview`)},{icon:Pencil,label:"Edit",action:()=>navigate(`/dashboard/exams/${exam.id}/edit`)},{icon:Hash,label:"Copy code",action:()=>copyExamCode(exam.uniqueCode || "")},{icon:Copy,label:"Duplicate",action:()=>{}},{icon:Archive,label:"Archive",action:()=>{setArchiveConfirm(exam.id);setMenuOpen(null);}},{icon:Trash2,label:"Delete",action:()=>{}}].map(({icon:Icon,label,action})=>(
                           <button key={label} onClick={()=>{action();setMenuOpen(null);}} className={`w-full flex items-center gap-2.5 px-4 py-2 text-sm hover:bg-gray-50 transition-colors text-left ${label==="Delete"?"text-red-500":"text-gray-700"}`} style={{ fontFamily:I }}>
                             <Icon size={13}/>{label}
                           </button>
@@ -100,7 +107,7 @@ export function ExamList() {
                   </div>
                 </div>
                 <div className="grid grid-cols-3 gap-2 mt-4 pt-4 border-t border-gray-50">
-                  {[{l:"Questions",v:exam.questions||"0"},{l:"Duration",v:`${exam.duration}m`},{l:"Students",v:exam.students||"—"}].map(({l,v})=>(
+                  {[{l:"Questions",v:(exam as any).questions || "0"},{l:"Duration",v:`${exam.duration || 0}m`},{l:"Students",v:(exam as any).students || "—"}].map(({l,v})=>(
                     <div key={l} className="text-center">
                       <p className="text-sm font-black" style={{ fontFamily:U, color:INK }}>{v}</p>
                       <p className="text-[10px] text-gray-400" style={{ fontFamily:I }}>{l}</p>

@@ -5,6 +5,8 @@ import { useNavigate, useParams } from "@/lib/hooks";
 import { DashboardLayout, Toggle } from "@/components/dashboard/DashboardShared";
 import { ChevronRight, Sparkles, ChevronUp, FileText, X, Upload, ChevronDown, Check, Plus, ArrowLeftRight, Copy, Trash2, Layers, FlaskConical, RefreshCw, CheckCircle2 } from "lucide-react";
 import { MOCK_EXAMS, Q_TYPES } from "@/lib/mock-data";
+import { examsApi } from "@/lib/api/exams";
+import { questionsApi } from "@/lib/api/questions";
 import { U, I, INK, CAMEL } from "@/lib/tokens";
 
 type ExamBuilderOption = {
@@ -280,9 +282,86 @@ export function ExamCreate() {
     }:section));
   };
 
-  const handleSave = (status = "draft") => {
-    setSaved(true);
-    setTimeout(()=>{ setSaved(false); navigate("/dashboard/exams"); }, 800);
+  const handleSave = async (status = "draft") => {
+    try {
+      setSaved(false);
+      const [year, month, day] = startDate.split("-");
+      const formattedStartDate = `${month}/${day}/${year}`;
+      
+      let formattedStartTime = startTime;
+      if (startTime && startTime.includes(":")) {
+        const [hr, min] = startTime.split(":");
+        let h = parseInt(hr, 10);
+        const ampm = h >= 12 ? "PM" : "AM";
+        h = h % 12;
+        if (h === 0) h = 12;
+        formattedStartTime = `${h.toString().padStart(2, "0")}:${min} ${ampm}`;
+      }
+
+      const accessType = privacy === "public" ? "PUBLIC" : (privacy === "private" ? "PRIVATE" : "PASSWORD_PROTECTED");
+      
+      const examData = {
+        title: title || "Untitled Exam",
+        description: desc,
+        subject,
+        startDate: formattedStartDate,
+        startTime: formattedStartTime,
+        duration: parseInt(duration, 10) || 60,
+        timezone,
+        passingScore: parseInt(passingScore, 10) || 50,
+        maxAttempts: maxAttempts === "Unlimited" ? undefined : parseInt(maxAttempts, 10),
+        randomizeQuestions: randomize,
+        showResults,
+        accessType,
+      };
+
+      const exam = isEdit 
+        ? await examsApi.update(id as string, examData)
+        : await examsApi.create(examData);
+
+      if (!isEdit) {
+        for (let i = 0; i < sections.length; i++) {
+          const sec = sections[i];
+          const createdSection = await questionsApi.createSection(exam.id, {
+            title: sec.title || `Section ${i+1}`,
+            order: i,
+            randomization: randomize,
+            shuffleAnswers: randomize
+          });
+
+          for (let j = 0; j < sec.questions.length; j++) {
+            const q = sec.questions[j];
+            let qType = q.type.toUpperCase();
+            if (qType === "MCQ") qType = "MULTIPLE_CHOICE";
+            if (qType === "TRUEFALSE") qType = "TRUE_FALSE";
+            if (qType === "SHORT") qType = "SHORT_ANSWER";
+            if (qType === "FILL") qType = "FILL_IN_BLANK";
+            if (qType === "CHECKBOX") qType = "MULTIPLE_SELECT";
+
+            await questionsApi.createQuestion(createdSection.id, {
+              type: qType,
+              text: q.title || "Untitled Question",
+              points: parseInt(q.points, 10) || 1,
+              options: q.options.map((o: any) => ({ text: o.text || "Option", isCorrect: !!o.correct })),
+              difficulty: "MEDIUM",
+              title: q.title || "Untitled Question",
+              description: q.description || "",
+              required: !!q.required
+            });
+          }
+        }
+      }
+
+      if (status === "published") {
+        await examsApi.publish(exam.id);
+      }
+
+      setSaved(true);
+      setTimeout(()=>{ setSaved(false); navigate("/dashboard/exams"); }, 800);
+    } catch (err: any) {
+      console.error(err);
+      alert("Failed to save exam: " + err.message);
+    }
   };
 
   const renderQuestionBody = (sectionId: string, question: ExamBuilderQuestion) => {

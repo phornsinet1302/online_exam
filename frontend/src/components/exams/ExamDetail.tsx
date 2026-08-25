@@ -1,27 +1,40 @@
 "use client";
 
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { useParams, useNavigate } from "@/lib/hooks";
 import { DashboardLayout, StatusBadge, CopyField, QRPattern, Toggle } from "@/components/dashboard/DashboardShared";
 import { Pencil, ChevronRight, Download, Clock } from "lucide-react";
-import { MOCK_EXAMS } from "@/lib/mock-data";
+import { examsApi } from "@/lib/api/exams";
 import { U, I, INK, CAMEL } from "@/lib/tokens";
 
 export function ExamDetail() {
   const { id } = useParams();
   const navigate = useNavigate();
-  const exam = MOCK_EXAMS.find(e=>e.id===id)||MOCK_EXAMS[0];
+  
+  const [exam, setExam] = useState<any>(null);
+  const [loading, setLoading] = useState(true);
+  
+  useEffect(() => {
+    if (id) {
+      examsApi.getById(id as string).then(setExam).catch(() => setExam(null)).finally(() => setLoading(false));
+    } else {
+      setLoading(false);
+    }
+  }, [id]);
   const [tab, setTab] = useState("overview");
   const [privacy, setPrivacy] = useState("public");
   const [proctoring, setProctoring] = useState(true);
   const [shuffleQ, setShuffleQ] = useState(true);
 
-  const magicLink = `https://exam.ai/join/${exam.code.toLowerCase()}`;
+  const magicLink = exam ? `https://exam.ai/join/${(exam.uniqueCode || "").toLowerCase()}` : "";
 
   const tabs = ["overview","sharing","settings","preview"];
 
+  if (loading) return <div className="p-10 text-center">Loading...</div>;
+  if (!exam) return <div className="p-10 text-center">Exam not found</div>;
+
   return (
-    <DashboardLayout active="exams" title={exam.title} subtitle={`${exam.subject} · ${exam.date}`}
+    <DashboardLayout active="exams" title={exam.title} subtitle={`${exam.subject || "No Subject"} · ${new Date(exam.createdAt).toLocaleDateString()}`}
       actions={<>
         <StatusBadge status={exam.status}/>
         <button onClick={()=>navigate(`/dashboard/exams/${exam.id}/edit`)} className="flex items-center gap-2 text-white text-xs font-bold px-4 py-2 rounded-xl hover:opacity-90" style={{ background:INK, fontFamily:U }}><Pencil size={13}/>Edit</button>
@@ -47,14 +60,14 @@ export function ExamDetail() {
         <div className="grid lg:grid-cols-[1fr_300px] gap-5">
           <div className="space-y-4">
             <div className="grid grid-cols-3 gap-4">
-              {[{l:"Questions",v:String(exam.questions)},{l:"Duration",v:`${exam.duration} min`},{l:"Students",v:String(exam.students||0)},{l:"Avg Score",v:exam.students?"74%":"—"},{l:"Pass Rate",v:exam.students?"78%":"—"},{l:"Attempts",v:"1 max"}].map(({l,v})=>(
+              {[{l:"Questions",v:String((exam as any).questions || 0)},{l:"Duration",v:`${exam.duration || 0} min`},{l:"Students",v:String((exam as any).students||0)},{l:"Avg Score",v:(exam as any).students?"74%":"—"},{l:"Pass Rate",v:(exam as any).students?"78%":"—"},{l:"Attempts",v:exam.maxAttempts ? `${exam.maxAttempts} max` : "Unlimited"}].map(({l,v})=>(
                 <div key={l} className="bg-white rounded-xl p-4 border border-gray-100 text-center">
                   <p className="text-xl font-black" style={{ fontFamily:U, color:INK }}>{v}</p>
                   <p className="text-xs text-gray-400 mt-0.5" style={{ fontFamily:I }}>{l}</p>
                 </div>
               ))}
             </div>
-            {exam.students>0&&(
+            {((exam as any).students || 0)>0&&(
               <div className="bg-white rounded-2xl border border-gray-100 overflow-hidden">
                 <div className="px-6 py-4 border-b border-gray-100"><h3 className="text-sm font-black" style={{ fontFamily:U, color:INK }}>Student Results</h3></div>
                 <table className="w-full text-sm">
@@ -76,7 +89,7 @@ export function ExamDetail() {
           <div className="bg-white rounded-2xl border border-gray-100 p-5">
             <h3 className="text-sm font-black mb-4" style={{ fontFamily:U, color:INK }}>Exam Code</h3>
             <div className="bg-gray-50 rounded-xl p-4 text-center mb-4 border border-gray-200">
-              <p className="text-2xl font-black tracking-widest" style={{ fontFamily:U, color:INK }}>{exam.code}</p>
+              <p className="text-2xl font-black tracking-widest" style={{ fontFamily:U, color:INK }}>{exam.uniqueCode || "NO-CODE"}</p>
             </div>
             <p className="text-xs text-gray-400 text-center mb-4" style={{ fontFamily:I }}>Share this code with students to let them join</p>
             <button onClick={()=>setTab("sharing")} className="w-full text-xs font-semibold py-2.5 rounded-xl border border-gray-200 text-gray-600 hover:bg-gray-50 transition-all" style={{ fontFamily:U }}>View all sharing options</button>
@@ -89,7 +102,7 @@ export function ExamDetail() {
         <div className="max-w-lg space-y-4">
           <div className="bg-white rounded-2xl border border-gray-100 p-6 space-y-5">
             <CopyField label="Magic Link" value={magicLink}/>
-            <CopyField label="Exam Code" value={exam.code}/>
+            <CopyField label="Exam Code" value={exam.uniqueCode || ""}/>
             <div>
               <p className="text-xs font-bold text-gray-500 uppercase tracking-wider mb-3" style={{ fontFamily:U }}>QR Code</p>
               <div className="flex items-start gap-5">
@@ -145,7 +158,7 @@ export function ExamDetail() {
             {/* Student exam bar */}
             <div className="flex items-center justify-between px-6 py-4 border-b border-gray-100" style={{ background:"#f9fafb" }}>
               <div><p className="text-xs text-gray-400 mb-0.5" style={{ fontFamily:I }}>Student view · Read-only preview</p><h3 className="text-sm font-bold" style={{ fontFamily:U, color:INK }}>{exam.title}</h3></div>
-              <div className="flex items-center gap-2 text-sm font-semibold" style={{ fontFamily:U, color:INK }}><Clock size={14} style={{ color:CAMEL }}/>{exam.duration}:00</div>
+              <div className="flex items-center gap-2 text-sm font-semibold" style={{ fontFamily:U, color:INK }}><Clock size={14} style={{ color:CAMEL }}/>{exam.duration || 0}:00</div>
             </div>
             <div className="p-6 space-y-6">
               {[
