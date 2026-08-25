@@ -3,26 +3,41 @@
 import { useNavigate } from "@/lib/hooks";
 import { DashboardLayout, StatusBadge } from "@/components/dashboard/DashboardShared";
 import { FileText, Users, CheckCircle2, Award, Plus, Sparkles, Download } from "lucide-react";
-import { MOCK_EXAMS } from "@/lib/mock-data";
 import { U, I, INK, CAMEL } from "@/lib/tokens";
+import { reportsApi, DashboardAnalytics } from "@/lib/api/reports";
+import { useEffect, useState } from "react";
 
 export function DashboardOverview() {
   const navigate = useNavigate();
+  const [data, setData] = useState<DashboardAnalytics | null>(null);
+  const [loading, setLoading] = useState(true);
+
+  useEffect(() => {
+    reportsApi.getAnalytics()
+      .then(setData)
+      .catch(console.error)
+      .finally(() => setLoading(false));
+  }, []);
+
   const primaryStats = [
-    { label:"Total Exams", value:"48", meta:"+3 this week", icon:FileText, bg:"#F0EDE8" },
-    { label:"Active Students", value:"1,240", meta:"+87 active", icon:Users, bg:"#e6f4ff" },
-    { label:"Pass Rate", value:"78.4%", meta:"+2.1% trend", icon:CheckCircle2, bg:"#f0fdf4" },
-    { label:"Avg Score", value:"74.2", meta:"out of 100", icon:Award, bg:"#fff7ed" },
+    { label:"Total Exams", value: data?.primaryStats.totalExams.toString() || "-", meta:"All time", icon:FileText, bg:"#F0EDE8" },
+    { label:"Active Students", value: data?.primaryStats.activeStudents.toString() || "-", meta:"Unique students", icon:Users, bg:"#e6f4ff" },
+    { label:"Pass Rate", value: data ? `${data.primaryStats.passRate}%` : "-", meta:"Overall", icon:CheckCircle2, bg:"#f0fdf4" },
+    { label:"Avg Score", value: data?.primaryStats.avgScore.toString() || "-", meta:"out of 100", icon:Award, bg:"#fff7ed" },
   ];
   const examStatus = [
-    { label:"Ongoing", value:"3", color:"#2563eb" },
-    { label:"Upcoming", value:"7", color:CAMEL },
-    { label:"Completed", value:"38", color:"#16a34a" },
-    { label:"Review", value:"31", color:"#ef4444" },
+    { label:"Ongoing", value: data?.examStatus.ongoing.toString() || "-", color:"#2563eb" },
+    { label:"Upcoming", value: data?.examStatus.upcoming.toString() || "-", color:CAMEL },
+    { label:"Completed", value: data?.examStatus.completed.toString() || "-", color:"#16a34a" },
+    { label:"Review", value: data?.examStatus.review.toString() || "-", color:"#ef4444" },
   ];
 
+  if (loading) {
+    return <DashboardLayout active="overview" title="Overview"><div className="p-8 text-center text-gray-500">Loading analytics...</div></DashboardLayout>;
+  }
+
   return (
-    <DashboardLayout active="overview" title="Overview" subtitle="Monday, 13 July 2026"
+    <DashboardLayout active="overview" title="Overview" subtitle={new Date().toLocaleDateString("en-US", { weekday: 'long', day: 'numeric', month: 'long', year: 'numeric' })}
       actions={<button onClick={()=>navigate("/dashboard/exams/create")} className="flex items-center gap-2 text-white text-xs font-bold px-4 py-2 rounded-xl hover:opacity-90 transition-opacity" style={{ background:INK, fontFamily:U }}><Plus size={14}/>New exam</button>}>
       <div className="bg-white rounded-2xl border border-gray-100 p-5 mb-5">
         <div className="flex flex-col gap-4 xl:flex-row xl:items-center xl:justify-between">
@@ -57,16 +72,17 @@ export function DashboardOverview() {
           <table className="w-full text-sm">
             <thead><tr className="border-b border-gray-50">{["Exam","Subject","Date","Students","Avg","Status"].map(h=><th key={h} className="text-left px-6 py-3 text-xs font-semibold text-gray-400 uppercase tracking-wider" style={{ fontFamily:U }}>{h}</th>)}</tr></thead>
             <tbody>
-              {MOCK_EXAMS.filter(e=>e.status!=="archived").slice(0,5).map(ex=>(
+              {data?.recentExams.map(ex=>(
                 <tr key={ex.id} onClick={()=>navigate(`/dashboard/exams/${ex.id}`)} className="border-b border-gray-50 last:border-0 hover:bg-gray-50/50 transition-colors cursor-pointer">
                   <td className="px-6 py-3.5 font-semibold" style={{ fontFamily:U, color:INK }}>{ex.title}</td>
                   <td className="px-6 py-3.5 text-gray-500 text-xs" style={{ fontFamily:I }}>{ex.subject}</td>
                   <td className="px-6 py-3.5 text-gray-500 text-xs" style={{ fontFamily:I }}>{ex.date}</td>
                   <td className="px-6 py-3.5 text-gray-600 text-xs" style={{ fontFamily:I }}>{ex.students||"—"}</td>
-                  <td className="px-6 py-3.5 text-xs font-bold" style={{ fontFamily:U, color:ex.students?ex.students>25?"#16a34a":"#d97706":"#9ca3af" }}>{ex.students?"74%":"—"}</td>
+                  <td className="px-6 py-3.5 text-xs font-bold" style={{ fontFamily:U, color:ex.students?ex.avgScore>=50?"#16a34a":"#d97706":"#9ca3af" }}>{ex.students?`${ex.avgScore}%`:"—"}</td>
                   <td className="px-6 py-3.5"><StatusBadge status={ex.status}/></td>
                 </tr>
               ))}
+              {data?.recentExams.length === 0 && <tr><td colSpan={6} className="px-6 py-8 text-center text-gray-400 text-sm">No recent exams</td></tr>}
             </tbody>
           </table>
         </div>
@@ -76,13 +92,13 @@ export function DashboardOverview() {
             <div className="flex items-center gap-4">
               <div className="relative w-20 h-20 flex-shrink-0">
                 <svg viewBox="0 0 36 36" className="w-full h-full -rotate-90">
-                  <circle cx="18" cy="18" r="15.9" fill="none" stroke="#f3f4f6" strokeWidth="3.5"/>
-                  <circle cx="18" cy="18" r="15.9" fill="none" stroke="#22c55e" strokeWidth="3.5" strokeDasharray="78.4 21.6" strokeLinecap="round"/>
+                  <circle cx="18" cy="18" r="15.9" fill="none" stroke="#ef4444" strokeWidth="3.5"/>
+                  <circle cx="18" cy="18" r="15.9" fill="none" stroke="#22c55e" strokeWidth="3.5" strokeDasharray={`${data?.primaryStats.passRate || 0} 100`} strokeLinecap="round"/>
                 </svg>
-                <div className="absolute inset-0 flex flex-col items-center justify-center"><span className="text-base font-black" style={{ fontFamily:U, color:INK }}>78%</span></div>
+                <div className="absolute inset-0 flex flex-col items-center justify-center"><span className="text-base font-black" style={{ fontFamily:U, color:INK }}>{data?.primaryStats.passRate || 0}%</span></div>
               </div>
               <div className="space-y-2">
-                {[{l:"Passed",v:"78.4%",c:"#22c55e"},{l:"Failed",v:"21.6%",c:"#ef4444"}].map(r=>(
+                {[{l:"Passed",v:`${data?.primaryStats.passRate || 0}%`,c:"#22c55e"},{l:"Failed",v:`${data ? 100 - data.primaryStats.passRate : 0}%`,c:"#ef4444"}].map(r=>(
                   <div key={r.l} className="flex items-center gap-2"><div className="w-2.5 h-2.5 rounded-full" style={{ background:r.c }}/><span className="text-xs text-gray-500" style={{ fontFamily:I }}>{r.l}</span><span className="text-xs font-bold ml-auto" style={{ fontFamily:U, color:INK }}>{r.v}</span></div>
                 ))}
               </div>

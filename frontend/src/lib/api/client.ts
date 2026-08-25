@@ -18,6 +18,11 @@ export async function fetchApi<T>(endpoint: string, options: RequestInit = {}): 
   });
 
   if (!response.ok) {
+    if (response.status === 401 && typeof window !== "undefined") {
+      localStorage.removeItem("token");
+      window.location.href = "/";
+    }
+    
     let errorData;
     try {
       errorData = await response.json();

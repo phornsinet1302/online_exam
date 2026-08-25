@@ -287,56 +287,176 @@ export class ReportService {
       where: { ownerId },
       include: {
         attempts: {
-          select: { score: true, totalScore: true, submittedAt: true, autoSubmitted: true },
-        },
-        sections: {
-          include: { questions: { select: { id: true } } },
+          select: { score: true, totalScore: true, submittedAt: true, startedAt: true, studentId: true },
         },
       },
+      orderBy: { createdAt: 'desc' }
     });
 
     const totalExams = exams.length;
-    const totalAttempts = exams.reduce((s, e) => s + e.attempts.length, 0);
-    const submittedAttempts = exams.reduce(
-      (s, e) => s + e.attempts.filter(a => a.submittedAt).length, 0
-    );
-    const allScores = exams.flatMap(e =>
-      e.attempts.filter(a => a.submittedAt).map(a => a.score ?? a.totalScore ?? 0)
-    );
-    const avgScore = allScores.length > 0
-      ? Math.round(allScores.reduce((s, v) => s + v, 0) / allScores.length * 100) / 100
-      : 0;
-    const highestScore = allScores.length > 0 ? Math.max(...allScores) : 0;
-    const lowestScore = allScores.length > 0 ? Math.min(...allScores) : 0;
-    const totalQuestions = exams.reduce(
-      (s, e) => s + e.sections.reduce((qs, sec) => qs + sec.questions.length, 0), 0
-    );
+    const activeStudentsSet = new Set<string>();
+    let totalPassed = 0;
+    let totalScoredAttempts = 0;
+    let totalScoresSum = 0;
+
+    const examStatus = {
+      ongoing: 0,
+      upcoming: 0,
+      completed: 0,
+      review: 0,
+    };
+
+    const subjectMap = new Map<string, { totalScore: number; attempts: number; passed: number }>();
+    const monthMap = new Map<string, { totalScore: number; attempts: number; passed: number; started: number }>();
+
+    const recentExams = [];
+
+    for (const exam of exams) {
+      // 1. Status counts
+      if (exam.status === 'PUBLISHED') {
+        if (exam.startDate && exam.startDate > new Date()) examStatus.upcoming++;
+        else examStatus.ongoing++;
+      } else if (exam.status === 'ARCHIVED') {
+        examStatus.completed++;
+      } else {
+        examStatus.review++;
+      }
+
+      // 2. Recent exams mapping (take first 5 since ordered by createdAt desc)
+      if (recentExams.length < 5 && exam.status !== 'ARCHIVED') {
+        let passedInExam = 0;
+        let scoredInExam = 0;
+        let scoreSumInExam = 0;
+
+        exam.attempts.forEach(a => {
+           if (a.submittedAt) {
+             const score = a.score ?? a.totalScore ?? 0;
+             scoreSumInExam += score;
+             scoredInExam++;
+             if (exam.passingScore && score >= exam.passingScore) passedInExam++;
+           }
+        });
+
+        recentExams.push({
+          id: exam.id,
+          title: exam.title,
+          subject: exam.subject || 'General',
+          date: exam.startDate ? exam.startDate.toLocaleDateString() : 'N/A',
+          students: exam.attempts.length,
+          avgScore: scoredInExam > 0 ? Math.round(scoreSumInExam / scoredInExam) : 0,
+          passRate: scoredInExam > 0 ? Math.round((passedInExam / scoredInExam) * 100) : 0,
+          status: exam.status.toLowerCase(),
+        });
+      }
+
+      // 3. Aggregate data for primary stats, charts
+      const subject = exam.subject || 'General';
+      if (!subjectMap.has(subject)) subjectMap.set(subject, { totalScore: 0, attempts: 0, passed: 0 });
+      const subjData = subjectMap.get(subject)!;
+
+      for (const attempt of exam.attempts) {
+        if (attempt.studentId) activeStudentsSet.add(attempt.studentId);
+        
+        const startMonth = attempt.startedAt.toLocaleString('default', { month: 'short' });
+        if (!monthMap.has(startMonth)) monthMap.set(startMonth, { totalScore: 0, attempts: 0, passed: 0, started: 0 });
+        const mData = monthMap.get(startMonth)!;
+        
+        mData.started++;
+
+        if (attempt.submittedAt) {
+          const score = attempt.score ?? attempt.totalScore ?? 0;
+          totalScoresSum += score;
+          totalScoredAttempts++;
+          subjData.totalScore += score;
+          subjData.attempts++;
+          mData.totalScore += score;
+          mData.attempts++;
+
+          if (exam.passingScore && score >= exam.passingScore) {
+            totalPassed++;
+            subjData.passed++;
+            mData.passed++;
+          }
+        }
+      }
+    }
+
+    const avgScore = totalScoredAttempts > 0 ? Math.round((totalScoresSum / totalScoredAttempts) * 100) / 100 : 0;
+    const passRate = totalScoredAttempts > 0 ? Math.round((totalPassed / totalScoredAttempts) * 100) : 0;
+
+    // Build chart data
+    const months = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
+    const currentMonthIdx = new Date().getMonth();
+    const last6Months = [];
+    for (let i = 5; i >= 0; i--) {
+      let mIdx = currentMonthIdx - i;
+      if (mIdx < 0) mIdx += 12;
+      last6Months.push(months[mIdx]);
+    }
+
+    const scoreTrend = last6Months.map(m => {
+      const d = monthMap.get(m) || { totalScore: 0, attempts: 0, passed: 0, started: 0 };
+      return {
+        month: m,
+        avg: d.attempts > 0 ? Math.round(d.totalScore / d.attempts) : 0,
+        pass: d.attempts > 0 ? Math.round((d.passed / d.attempts) * 100) : 0,
+      };
+    });
+
+    const participationTrend = last6Months.map(m => {
+      const d = monthMap.get(m) || { started: 0, attempts: 0 };
+      return {
+        month: m,
+        rate: d.started,
+      };
+    });
+
+    const subjectPerformance = Array.from(subjectMap.entries()).map(([subject, d]) => ({
+      subject,
+      avg: d.attempts > 0 ? Math.round(d.totalScore / d.attempts) : 0,
+      pass: d.attempts > 0 ? Math.round((d.passed / d.attempts) * 100) : 0,
+    })).sort((a, b) => b.avg - a.avg).slice(0, 5);
+
+    const passFailDistribution = [
+      { name: 'Passed', value: passRate },
+      { name: 'Failed', value: totalScoredAttempts > 0 ? 100 - passRate : 0 },
+    ];
+
+    // Difficulty Analysis via question analysis reuse
+    const qaReport = await this.getQuestionAnalysis(ownerId);
+    const diffData = [
+      { level: 'Easy', pass: 0, fail: 0, _total: 0, _correct: 0 },
+      { level: 'Medium', pass: 0, fail: 0, _total: 0, _correct: 0 },
+      { level: 'Hard', pass: 0, fail: 0, _total: 0, _correct: 0 },
+    ];
+    for (const q of qaReport.questions) {
+      const diff = diffData.find(d => d.level.toUpperCase() === q.difficulty);
+      if (diff) {
+        diff._total += q.totalAnswered;
+        diff._correct += q.correctAnswers;
+      }
+    }
+    const difficultyAnalysis = diffData.map(d => {
+      const pass = d._total > 0 ? Math.round((d._correct / d._total) * 100) : 0;
+      return { level: d.level, pass, fail: d._total > 0 ? 100 - pass : 0 };
+    });
 
     return {
-      totalExams,
-      totalAttempts,
-      submittedAttempts,
-      totalQuestions,
-      avgScore,
-      highestScore,
-      lowestScore,
-      passRate: 0, // requires passing score comparison per exam
-      exams: exams.map(e => ({
-        id: e.id,
-        title: e.title,
-        subject: e.subject,
-        status: e.status,
-        attempts: e.attempts.length,
-        submitted: e.attempts.filter(a => a.submittedAt).length,
-        avgScore: e.attempts.length > 0
-          ? Math.round(
-              e.attempts
-                .filter(a => a.submittedAt)
-                .reduce((s, a) => s + (a.score ?? a.totalScore ?? 0), 0)
-              / Math.max(e.attempts.filter(a => a.submittedAt).length, 1) * 100
-            ) / 100
-          : 0,
-      })),
+      primaryStats: {
+        totalExams,
+        activeStudents: activeStudentsSet.size,
+        passRate,
+        avgScore,
+      },
+      examStatus,
+      recentExams,
+      chartData: {
+        scoreTrend,
+        subjectPerformance,
+        passFailDistribution,
+        participationTrend,
+        difficultyAnalysis,
+      },
     };
   }
 
