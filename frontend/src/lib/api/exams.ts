@@ -36,7 +36,7 @@ export const examsApi = {
 
   update: async (id: string, data: any): Promise<Exam> => {
     return fetchApi<Exam>(`/exams/${id}`, {
-      method: "PATCH",
+      method: "PUT",
       body: JSON.stringify(data),
     });
   },
@@ -46,6 +46,6 @@ export const examsApi = {
   },
   
   publish: async (id: string): Promise<Exam> => {
-    return fetchApi<Exam>(`/exams/${id}/publish`, { method: "PATCH" });
+    return fetchApi<Exam>(`/exams/${id}/publish`, { method: "POST" });
   }
 };

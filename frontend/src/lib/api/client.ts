@@ -1,12 +1,24 @@
-export const API_URL = process.env.NEXT_PUBLIC_API_URL || "http://localhost:5000/api";
+export const getApiUrl = () => {
+  const envUrl = process.env.NEXT_PUBLIC_API_URL || "http://localhost:5000/api";
+  if (typeof window !== "undefined" && envUrl.includes("localhost")) {
+    return envUrl.replace("localhost", window.location.hostname);
+  }
+  return envUrl;
+};
+
+export const API_URL = getApiUrl();
 
 export async function fetchApi<T>(endpoint: string, options: RequestInit = {}): Promise<T> {
   const token = typeof window !== "undefined" ? localStorage.getItem("token") : null;
   
+  const isFormData = options.body instanceof FormData;
   const headers: Record<string, string> = {
-    "Content-Type": "application/json",
     ...(options.headers as Record<string, string>),
   };
+
+  if (!isFormData && !headers["Content-Type"]) {
+    headers["Content-Type"] = "application/json";
+  }
 
   if (token) {
     headers["Authorization"] = `Bearer ${token}`;

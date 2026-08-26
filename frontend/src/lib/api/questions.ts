@@ -9,15 +9,15 @@ export const questionsApi = {
   },
 
   createQuestion: async (sectionId: string, data: any): Promise<any> => {
-    return fetchApi<any>(`/sections/${sectionId}/questions`, {
+    return fetchApi<any>(`/questions`, {
       method: "POST",
-      body: JSON.stringify(data),
+      body: JSON.stringify({ ...data, sectionId }),
     });
   },
 
   updateQuestion: async (questionId: string, data: any): Promise<any> => {
     return fetchApi<any>(`/questions/${questionId}`, {
-      method: "PATCH",
+      method: "PUT",
       body: JSON.stringify(data),
     });
   },

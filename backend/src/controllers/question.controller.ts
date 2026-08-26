@@ -41,8 +41,8 @@ export const reorderSections = async (req: Request, res: Response) => {
 
 export const createQuestion = async (req: Request, res: Response) => {
   try {
-    const sectionId = getParam(req.params.sectionId, "sectionId");
-    const { type, text, points, options, difficulty, metadata, title, description, required } = req.body;
+    const { sectionId, type, text, points, options, difficulty, metadata, title, description, required } = req.body;
+    if (!sectionId) throw new Error("Missing sectionId in body");
     const question = await questionService.createQuestion(
       sectionId, type, text, points, options, difficulty,
       metadata, title, description, required
