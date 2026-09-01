@@ -14,7 +14,11 @@ export interface Exam {
   endDate: string | null;
   duration: number | null;
   passingScore: number | null;
+  maxAttempts: number | null;
+  timezone: string | null;
   uniqueCode: string | null;
+  questionsCount?: number;
+  studentsCount?: number;
   sections?: any[];
 }
 
@@ -47,5 +51,13 @@ export const examsApi = {
   
   publish: async (id: string): Promise<Exam> => {
     return fetchApi<Exam>(`/exams/${id}/publish`, { method: "POST" });
+  },
+
+  duplicate: async (id: string): Promise<Exam> => {
+    return fetchApi<Exam>(`/exams/${id}/duplicate`, { method: "POST" });
+  },
+
+  archive: async (id: string): Promise<Exam> => {
+    return fetchApi<Exam>(`/exams/${id}/archive`, { method: "POST" });
   }
 };

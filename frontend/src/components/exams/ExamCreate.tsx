@@ -3,7 +3,7 @@
 import { useState, useRef } from "react";
 import { useNavigate, useParams } from "@/lib/hooks";
 import { DashboardLayout, Toggle } from "@/components/dashboard/DashboardShared";
-import { ChevronRight, Sparkles, ChevronUp, FileText, X, Upload, ChevronDown, Check, Plus, ArrowLeftRight, Copy, Trash2, Layers, FlaskConical, RefreshCw, CheckCircle2, GripVertical } from "lucide-react";
+import { ChevronRight, Sparkles, ChevronUp, FileText, X, Upload, ChevronDown, Check, Plus, ArrowLeftRight, Copy, Trash2, Layers, FlaskConical, RefreshCw, CheckCircle2, GripVertical, Hash } from "lucide-react";
 import { DndProvider, useDrag, useDrop } from "react-dnd";
 import { HTML5Backend } from "react-dnd-html5-backend";
 import { MOCK_EXAMS, Q_TYPES } from "@/lib/mock-data";
@@ -191,15 +191,18 @@ function DraggableQuestion({ question, index, sectionId, moveQuestion, children 
 export function ExamCreate() {
   const navigate = useNavigate();
   const { id } = useParams();
-  const existing = id ? MOCK_EXAMS.find(e=>e.id===id) : null;
-  const isEdit = !!existing;
+  const isCreateRoute = id === "create" || typeof id === "undefined";
+  const actualId = isCreateRoute ? undefined : id;
+  const [isEdit, setIsEdit] = useState(!isCreateRoute);
+  const [isLoading, setIsLoading] = useState(!isCreateRoute);
 
-  const [title, setTitle]       = useState(existing?.title||"");
-  const [subject, setSubject]   = useState(existing?.subject||"");
+  const [title, setTitle]       = useState("");
+  const [uniqueCode, setUniqueCode] = useState("");
+  const [subject, setSubject]   = useState("");
   const [desc, setDesc]         = useState("");
   const [startDate, setStartDate] = useState("2026-07-20");
   const [startTime, setStartTime] = useState("09:00");
-  const [duration, setDuration] = useState(String(existing?.duration||60));
+  const [duration, setDuration] = useState("60");
   const [timezone, setTimezone] = useState(() => typeof window !== "undefined" ? Intl.DateTimeFormat().resolvedOptions().timeZone || "Europe/London" : "Europe/London");
   const [passingScore, setPassingScore] = useState("50");
   const [maxAttempts, setMaxAttempts] = useState("1");
@@ -217,6 +220,64 @@ export function ExamCreate() {
       questions:[makeBuilderQuestion("question-1","mcq"), makeBuilderQuestion("question-2","short")],
     },
   ]);
+
+  useEffect(() => {
+    if (actualId) {
+      examsApi.getById(actualId as string).then(exam => {
+        setTitle(exam.title);
+        setUniqueCode(exam.uniqueCode || "");
+        setSubject(exam.subject || "");
+        setDesc(exam.description || "");
+        if (exam.startDate) {
+           const d = new Date(exam.startDate);
+           const year = d.getFullYear();
+           const month = String(d.getMonth() + 1).padStart(2, "0");
+           const day = String(d.getDate()).padStart(2, "0");
+           setStartDate(`${year}-${month}-${day}`);
+           const hh = String(d.getHours()).padStart(2, "0");
+           const mm = String(d.getMinutes()).padStart(2, "0");
+           setStartTime(`${hh}:${mm}`);
+        }
+        setDuration(String(exam.duration || 60));
+        if (exam.timezone) setTimezone(exam.timezone);
+        setPassingScore(String(exam.passingScore || 50));
+        if (exam.maxAttempts) setMaxAttempts(String(exam.maxAttempts));
+        if ((exam as any).accessType === "PUBLIC") setPrivacy("public");
+        else if ((exam as any).accessType === "PRIVATE") setPrivacy("private");
+        
+        if (exam.sections && exam.sections.length > 0) {
+          setSections(exam.sections.map((sec: any) => ({
+             id: sec.id,
+             title: sec.title,
+             description: "",
+             questions: sec.questions.map((q: any) => {
+                let qType = q.type.toLowerCase();
+                if (qType === "true_false") qType = "truefalse";
+                if (qType === "multiple_select") qType = "checkbox";
+                if (qType === "short_answer") qType = "short";
+                if (qType === "fill_in_blank") qType = "fill";
+                if (qType === "file_upload") qType = "file";
+                if (qType === "math_formula") qType = "math";
+                
+                const baseQuestion = makeBuilderQuestion(q.id, qType);
+                return {
+                  ...baseQuestion,
+                  title: q.text,
+                  description: q.description || "",
+                  points: String(q.points || 1),
+                  required: q.required,
+                  options: (q.options && q.options.length > 0) ? q.options.map((o: any) => ({ id: o.id, text: o.text, correct: o.isCorrect })) : baseQuestion.options,
+                };
+             })
+          })));
+        }
+        setIsLoading(false);
+      }).catch(err => {
+        console.error("Failed to load exam:", err);
+        setIsLoading(false);
+      });
+    }
+  }, [actualId]);
   const [activeQuestionId, setActiveQuestionId] = useState("question-1");
   const [showAiAssist, setShowAiAssist] = useState(false);
   const [aiTopic, setAiTopic] = useState("");
@@ -537,51 +598,20 @@ export function ExamCreate() {
         randomizeQuestions: randomize,
         showResults,
         accessType,
+        fullSections: sections,
+        status: status === "published" ? "PUBLISHED" : "DRAFT",
       };
 
       const exam = isEdit 
-        ? await examsApi.update(id as string, examData)
+        ? await examsApi.update(actualId as string, examData)
         : await examsApi.create(examData);
 
-      if (!isEdit) {
-        for (let i = 0; i < sections.length; i++) {
-          const sec = sections[i];
-          const createdSection = await questionsApi.createSection(exam.id, {
-            title: sec.title || `Section ${i+1}`,
-            order: i,
-            randomization: randomize,
-            shuffleAnswers: randomize
-          });
-
-          for (let j = 0; j < sec.questions.length; j++) {
-            const q = sec.questions[j];
-            let qType = q.type.toUpperCase();
-            if (qType === "TRUEFALSE") qType = "TRUE_FALSE";
-            if (qType === "SHORT") qType = "SHORT_ANSWER";
-            if (qType === "FILL") qType = "FILL_IN_BLANK";
-            if (qType === "CHECKBOX") qType = "MULTIPLE_SELECT";
-
-            await questionsApi.createQuestion(createdSection.id, {
-              type: qType,
-              text: q.title || "Untitled Question",
-              points: parseInt(q.points, 10) || 1,
-              options: q.options.map((o: any) => ({ text: o.text || "Option", isCorrect: !!o.correct })),
-              difficulty: "MEDIUM",
-              title: q.title || "Untitled Question",
-              description: q.description || "",
-              required: !!q.required
-            });
-          }
-        }
-      }
-
       setSaved(true);
-      if (status === "published") {
-        await examsApi.update(exam.id, { status: "PUBLISHED" });
-      }
       
       if (redirect) {
         navigate("/dashboard/exams");
+      } else if (!isEdit) {
+        navigate(`/dashboard/exams/${exam.id}/edit`, { replace: true });
       }
       return exam;
     } catch (err: any) {
@@ -703,13 +733,32 @@ export function ExamCreate() {
     );
   };
 
+  if (isLoading) {
+    return (
+      <DashboardLayout active="exams" title="Loading Exam..." subtitle="Please wait">
+        <div className="flex justify-center items-center py-20">
+          <RefreshCw className="animate-spin text-gray-400" size={32} />
+        </div>
+      </DashboardLayout>
+    );
+  }
+
   return (
-    <DashboardLayout active="exams-create" title={isEdit?"Edit Exam":"Create Exam"} subtitle={isEdit?existing?.title:"Set up your exam in minutes"}>
+    <DashboardLayout active="exams-create" title={isEdit?"Edit Exam":"Create Exam"} subtitle={isEdit?title:"Set up your exam in minutes"}>
       <div className="w-full">
         {/* Breadcrumb */}
         <div className="flex items-center gap-2 text-xs text-gray-400 mb-6" style={{ fontFamily:I }}>
           <button onClick={()=>navigate("/dashboard/exams")} className="hover:text-gray-700 transition-colors">My Exams</button>
           <ChevronRight size={13}/><span className="text-gray-600">{isEdit?"Edit Exam":"New Exam"}</span>
+          {uniqueCode && (
+            <>
+              <span className="mx-2 text-gray-300">•</span>
+              <span className="font-mono bg-gray-100 text-gray-600 px-2 py-0.5 rounded flex items-center gap-1">
+                <Hash size={11} className="text-gray-400"/>
+                {uniqueCode}
+              </span>
+            </>
+          )}
         </div>
 
         <div className="grid gap-4 xl:grid-cols-2">

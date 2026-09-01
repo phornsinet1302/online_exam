@@ -22,6 +22,34 @@ export function ExamList() {
     examsApi.getAll().then(setAllExams).finally(() => setLoading(false));
   }, []);
 
+  useEffect(() => {
+    const handleClickOutside = () => setMenuOpen(null);
+    if (menuOpen) {
+      document.addEventListener("click", handleClickOutside);
+    }
+    return () => document.removeEventListener("click", handleClickOutside);
+  }, [menuOpen]);
+
+  const handleDuplicate = async (examId: string) => {
+    try {
+      const newExam = await examsApi.duplicate(examId);
+      setAllExams(prev => [newExam, ...prev]);
+    } catch (e: any) {
+      alert("Failed to duplicate exam: " + e.message);
+    }
+  };
+
+  const handleArchive = async () => {
+    if (!archiveConfirm) return;
+    try {
+      const updated = await examsApi.archive(archiveConfirm);
+      setAllExams(prev => prev.map(e => e.id === updated.id ? updated : e));
+      setArchiveConfirm(null);
+    } catch (e: any) {
+      alert("Failed to archive exam: " + e.message);
+    }
+  };
+
   const exams = allExams.filter(e => {
     const matchStatus = statusFilter === "all" || (e.status.toLowerCase() === statusFilter);
     const matchSearch = e.title.toLowerCase().includes(search.toLowerCase()) || (e.subject || "").toLowerCase().includes(search.toLowerCase());
@@ -47,7 +75,7 @@ export function ExamList() {
             <p className="text-sm text-gray-500 mb-6" style={{ fontFamily:I }}>The exam will be hidden from students. You can unarchive it at any time.</p>
             <div className="flex gap-3">
               <button onClick={()=>setArchiveConfirm(null)} className="flex-1 text-sm font-semibold py-3 rounded-xl border border-gray-200 text-gray-600 hover:bg-gray-50" style={{ fontFamily:U }}>Cancel</button>
-              <button onClick={()=>setArchiveConfirm(null)} className="flex-1 text-sm font-bold py-3 rounded-xl text-white bg-amber-500 hover:bg-amber-600 transition-colors" style={{ fontFamily:U }}>Archive</button>
+              <button onClick={handleArchive} className="flex-1 text-sm font-bold py-3 rounded-xl text-white bg-amber-500 hover:bg-amber-600 transition-colors" style={{ fontFamily:U }}>Archive</button>
             </div>
           </div>
         </div>
@@ -97,7 +125,16 @@ export function ExamList() {
                     <button onClick={e=>{e.stopPropagation();setMenuOpen(menuOpen===exam.id?null:exam.id);}} className="w-8 h-8 rounded-lg flex items-center justify-center text-gray-400 hover:bg-gray-100 hover:text-gray-600 transition-all"><MoreVertical size={15}/></button>
                     {menuOpen===exam.id&&(
                       <div className="absolute right-0 top-9 bg-white border border-gray-200 rounded-xl shadow-xl z-50 w-44 py-1" onClick={e=>e.stopPropagation()}>
-                        {[{icon:Eye,label:"Preview",action:()=>navigate(`/dashboard/exams/${exam.id}?tab=preview`)},{icon:Pencil,label:"Edit",action:()=>navigate(`/dashboard/exams/${exam.id}/edit`)},{icon:Hash,label:"Copy code",action:()=>copyExamCode(exam.uniqueCode || "")},{icon:Copy,label:"Duplicate",action:()=>{}},{icon:Archive,label:"Archive",action:()=>{setArchiveConfirm(exam.id);setMenuOpen(null);}},{icon:Trash2,label:"Delete",action:()=>{}}].map(({icon:Icon,label,action})=>(
+                        {[{icon:Eye,label:"Preview",action:()=>navigate(`/dashboard/exams/${exam.id}?tab=preview`)},{icon:Pencil,label:"Edit",action:()=>navigate(`/dashboard/exams/${exam.id}/edit`)},{icon:Hash,label:"Copy code",action:()=>copyExamCode(exam.uniqueCode || "")},{icon:Copy,label:"Duplicate",action:()=>handleDuplicate(exam.id)},{icon:Archive,label:"Archive",action:()=>{setArchiveConfirm(exam.id);setMenuOpen(null);}},{icon:Trash2,label:"Delete",action:async ()=>{
+                          if (window.confirm("Are you sure you want to delete this exam?")) {
+                            try {
+                              await examsApi.delete(exam.id);
+                              setAllExams(prev => prev.filter(e => e.id !== exam.id));
+                            } catch (e: any) {
+                              alert("Failed to delete exam: " + e.message);
+                            }
+                          }
+                        }}].map(({icon:Icon,label,action})=>(
                           <button key={label} onClick={()=>{action();setMenuOpen(null);}} className={`w-full flex items-center gap-2.5 px-4 py-2 text-sm hover:bg-gray-50 transition-colors text-left ${label==="Delete"?"text-red-500":"text-gray-700"}`} style={{ fontFamily:I }}>
                             <Icon size={13}/>{label}
                           </button>
@@ -107,7 +144,7 @@ export function ExamList() {
                   </div>
                 </div>
                 <div className="grid grid-cols-3 gap-2 mt-4 pt-4 border-t border-gray-50">
-                  {[{l:"Questions",v:(exam as any).questions || "0"},{l:"Duration",v:`${exam.duration || 0}m`},{l:"Students",v:(exam as any).students || "—"}].map(({l,v})=>(
+                  {[{l:"Questions",v:exam.questionsCount || "0"},{l:"Duration",v:`${exam.duration || 0}m`},{l:"Students",v:exam.studentsCount || "—"}].map(({l,v})=>(
                     <div key={l} className="text-center">
                       <p className="text-sm font-black" style={{ fontFamily:U, color:INK }}>{v}</p>
                       <p className="text-[10px] text-gray-400" style={{ fontFamily:I }}>{l}</p>
