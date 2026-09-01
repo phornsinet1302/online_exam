@@ -3,8 +3,13 @@
 import { useState, useRef } from "react";
 import { useNavigate, useParams } from "@/lib/hooks";
 import { DashboardLayout, Toggle } from "@/components/dashboard/DashboardShared";
-import { ChevronRight, Sparkles, ChevronUp, FileText, X, Upload, ChevronDown, Check, Plus, ArrowLeftRight, Copy, Trash2, Layers, FlaskConical, RefreshCw, CheckCircle2 } from "lucide-react";
+import { ChevronRight, Sparkles, ChevronUp, FileText, X, Upload, ChevronDown, Check, Plus, ArrowLeftRight, Copy, Trash2, Layers, FlaskConical, RefreshCw, CheckCircle2, GripVertical, Hash } from "lucide-react";
+import { DndProvider, useDrag, useDrop } from "react-dnd";
+import { HTML5Backend } from "react-dnd-html5-backend";
 import { MOCK_EXAMS, Q_TYPES } from "@/lib/mock-data";
+import { examsApi } from "@/lib/api/exams";
+import { questionsApi } from "@/lib/api/questions";
+import { aiApi } from "@/lib/api/ai";
 import { U, I, INK, CAMEL } from "@/lib/tokens";
 
 type ExamBuilderOption = {
@@ -64,19 +69,141 @@ function makeBuilderQuestion(id: string, type = "mcq"): ExamBuilderQuestion {
   };
 }
 
+import { useEffect } from "react";
+function TimezoneSelect({ value, onChange, timezones }: { value: string, onChange: (v: string) => void, timezones: {label:string, value:string}[] }) {
+  const [open, setOpen] = useState(false);
+  const [search, setSearch] = useState("");
+  const ref = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    const handleClick = (e: MouseEvent) => {
+      if (ref.current && !ref.current.contains(e.target as Node)) setOpen(false);
+    };
+    document.addEventListener("mousedown", handleClick);
+    return () => document.removeEventListener("mousedown", handleClick);
+  }, []);
+
+  const filtered = timezones.filter(t => t.label.toLowerCase().includes(search.toLowerCase()) || t.value.toLowerCase().includes(search.toLowerCase()));
+  const selected = timezones.find(t => t.value === value) || { label: value, value }; // fallback if not in list
+
+  return (
+    <div className="relative w-full" ref={ref}>
+      <button type="button" onClick={() => setOpen(!open)} className="w-full text-left border border-gray-200 rounded-xl px-4 py-3 text-sm text-gray-900 focus:outline-none focus:border-gray-400 bg-white flex items-center justify-between" style={{ fontFamily: I }}>
+        <span className="truncate">{selected.label}</span>
+        <ChevronDown size={16} className="text-gray-400" />
+      </button>
+      {open && (
+        <div className="absolute z-50 top-full mt-2 w-full max-h-60 overflow-y-auto bg-white border border-gray-200 rounded-xl shadow-lg p-2">
+          <input 
+            autoFocus
+            type="text" 
+            placeholder="Search timezone..." 
+            value={search} 
+            onChange={e => setSearch(e.target.value)}
+            className="w-full px-3 py-2 mb-2 text-sm border-b border-gray-100 focus:outline-none"
+            style={{ fontFamily: I }}
+          />
+          {filtered.length === 0 ? (
+            <div className="px-3 py-2 text-sm text-gray-400">No timezones found</div>
+          ) : (
+            filtered.map(t => (
+              <button 
+                key={t.value}
+                type="button"
+                onClick={() => { onChange(t.value); setOpen(false); setSearch(""); }}
+                className={`w-full text-left px-3 py-2 rounded-lg text-sm transition-colors ${value === t.value ? 'bg-gray-100 font-bold' : 'hover:bg-gray-50'}`}
+                style={{ fontFamily: I }}
+              >
+                {t.label}
+              </button>
+            ))
+          )}
+        </div>
+      )}
+    </div>
+  );
+}
+
+const ITEM_TYPE = { SECTION: "section", QUESTION: "question" };
+
+function DraggableSection({ section, index, moveSection, children }: any) {
+  const ref = useRef<HTMLDivElement>(null);
+  const [, drop] = useDrop({
+    accept: ITEM_TYPE.SECTION,
+    hover(item: any, monitor) {
+      if (!ref.current) return;
+      const dragIndex = item.index;
+      const hoverIndex = index;
+      if (dragIndex === hoverIndex) return;
+      const hoverBoundingRect = ref.current.getBoundingClientRect();
+      const hoverMiddleY = (hoverBoundingRect.bottom - hoverBoundingRect.top) / 2;
+      const clientOffset = monitor.getClientOffset();
+      if (!clientOffset) return;
+      const hoverClientY = clientOffset.y - hoverBoundingRect.top;
+      if (dragIndex < hoverIndex && hoverClientY < hoverMiddleY) return;
+      if (dragIndex > hoverIndex && hoverClientY > hoverMiddleY) return;
+      moveSection(dragIndex, hoverIndex);
+      item.index = hoverIndex;
+    }
+  });
+  const [{ isDragging }, drag, preview] = useDrag({
+    type: ITEM_TYPE.SECTION,
+    item: { type: ITEM_TYPE.SECTION, id: section.id, index },
+    collect: (monitor) => ({ isDragging: monitor.isDragging() })
+  });
+  preview(drop(ref));
+  return <div ref={ref} style={{ opacity: isDragging ? 0.4 : 1 }}>
+    {children(drag)}
+  </div>;
+}
+
+function DraggableQuestion({ question, index, sectionId, moveQuestion, children }: any) {
+  const ref = useRef<HTMLDivElement>(null);
+  const [, drop] = useDrop({
+    accept: ITEM_TYPE.QUESTION,
+    hover(item: any, monitor) {
+      if (!ref.current || item.sectionId !== sectionId) return;
+      const dragIndex = item.index;
+      const hoverIndex = index;
+      if (dragIndex === hoverIndex) return;
+      const hoverBoundingRect = ref.current.getBoundingClientRect();
+      const hoverMiddleY = (hoverBoundingRect.bottom - hoverBoundingRect.top) / 2;
+      const clientOffset = monitor.getClientOffset();
+      if (!clientOffset) return;
+      const hoverClientY = clientOffset.y - hoverBoundingRect.top;
+      if (dragIndex < hoverIndex && hoverClientY < hoverMiddleY) return;
+      if (dragIndex > hoverIndex && hoverClientY > hoverMiddleY) return;
+      moveQuestion(sectionId, dragIndex, hoverIndex);
+      item.index = hoverIndex;
+    }
+  });
+  const [{ isDragging }, drag, preview] = useDrag({
+    type: ITEM_TYPE.QUESTION,
+    item: { type: ITEM_TYPE.QUESTION, id: question.id, index, sectionId },
+    collect: (monitor) => ({ isDragging: monitor.isDragging() })
+  });
+  preview(drop(ref));
+  return <div ref={ref} style={{ opacity: isDragging ? 0.4 : 1 }}>
+    {children(drag)}
+  </div>;
+}
+
 export function ExamCreate() {
   const navigate = useNavigate();
   const { id } = useParams();
-  const existing = id ? MOCK_EXAMS.find(e=>e.id===id) : null;
-  const isEdit = !!existing;
+  const isCreateRoute = id === "create" || typeof id === "undefined";
+  const actualId = isCreateRoute ? undefined : id;
+  const [isEdit, setIsEdit] = useState(!isCreateRoute);
+  const [isLoading, setIsLoading] = useState(!isCreateRoute);
 
-  const [title, setTitle]       = useState(existing?.title||"");
-  const [subject, setSubject]   = useState(existing?.subject||"");
+  const [title, setTitle]       = useState("");
+  const [uniqueCode, setUniqueCode] = useState("");
+  const [subject, setSubject]   = useState("");
   const [desc, setDesc]         = useState("");
   const [startDate, setStartDate] = useState("2026-07-20");
   const [startTime, setStartTime] = useState("09:00");
-  const [duration, setDuration] = useState(String(existing?.duration||60));
-  const [timezone, setTimezone] = useState("UTC+0 London");
+  const [duration, setDuration] = useState("60");
+  const [timezone, setTimezone] = useState(() => typeof window !== "undefined" ? Intl.DateTimeFormat().resolvedOptions().timeZone || "Europe/London" : "Europe/London");
   const [passingScore, setPassingScore] = useState("50");
   const [maxAttempts, setMaxAttempts] = useState("1");
   const [privacy, setPrivacy]   = useState("public");
@@ -93,17 +220,103 @@ export function ExamCreate() {
       questions:[makeBuilderQuestion("question-1","mcq"), makeBuilderQuestion("question-2","short")],
     },
   ]);
+
+  useEffect(() => {
+    if (actualId) {
+      examsApi.getById(actualId as string).then(exam => {
+        setTitle(exam.title);
+        setUniqueCode(exam.uniqueCode || "");
+        setSubject(exam.subject || "");
+        setDesc(exam.description || "");
+        if (exam.startDate) {
+           const d = new Date(exam.startDate);
+           const year = d.getFullYear();
+           const month = String(d.getMonth() + 1).padStart(2, "0");
+           const day = String(d.getDate()).padStart(2, "0");
+           setStartDate(`${year}-${month}-${day}`);
+           const hh = String(d.getHours()).padStart(2, "0");
+           const mm = String(d.getMinutes()).padStart(2, "0");
+           setStartTime(`${hh}:${mm}`);
+        }
+        setDuration(String(exam.duration || 60));
+        if (exam.timezone) setTimezone(exam.timezone);
+        setPassingScore(String(exam.passingScore || 50));
+        if (exam.maxAttempts) setMaxAttempts(String(exam.maxAttempts));
+        if ((exam as any).accessType === "PUBLIC") setPrivacy("public");
+        else if ((exam as any).accessType === "PRIVATE") setPrivacy("private");
+        
+        if (exam.sections && exam.sections.length > 0) {
+          setSections(exam.sections.map((sec: any) => ({
+             id: sec.id,
+             title: sec.title,
+             description: "",
+             questions: sec.questions.map((q: any) => {
+                let qType = q.type.toLowerCase();
+                if (qType === "true_false") qType = "truefalse";
+                if (qType === "multiple_select") qType = "checkbox";
+                if (qType === "short_answer") qType = "short";
+                if (qType === "fill_in_blank") qType = "fill";
+                if (qType === "file_upload") qType = "file";
+                if (qType === "math_formula") qType = "math";
+                
+                const baseQuestion = makeBuilderQuestion(q.id, qType);
+                return {
+                  ...baseQuestion,
+                  title: q.text,
+                  description: q.description || "",
+                  points: String(q.points || 1),
+                  required: q.required,
+                  options: (q.options && q.options.length > 0) ? q.options.map((o: any) => ({ id: o.id, text: o.text, correct: o.isCorrect })) : baseQuestion.options,
+                };
+             })
+          })));
+        }
+        setIsLoading(false);
+      }).catch(err => {
+        console.error("Failed to load exam:", err);
+        setIsLoading(false);
+      });
+    }
+  }, [actualId]);
   const [activeQuestionId, setActiveQuestionId] = useState("question-1");
   const [showAiAssist, setShowAiAssist] = useState(false);
   const [aiTopic, setAiTopic] = useState("");
-  const [aiFile, setAiFile] = useState<string|null>(null);
+  const [aiFile, setAiFile] = useState<File|null>(null);
   const [aiCount, setAiCount] = useState(5);
   const [aiDifficulty, setAiDifficulty] = useState("Mixed");
   const [aiGenerating, setAiGenerating] = useState(false);
   const [aiAdded, setAiAdded] = useState(false);
 
   const subjects = ["Mathematics","Science","English","History","Computer Science","Physics","Chemistry","Geography"];
-  const timezones = ["UTC+0 London","UTC+1 Paris","UTC+2 Cairo","UTC+3 Nairobi","UTC+5:30 Mumbai","UTC+8 Singapore","UTC+10 Sydney","UTC-5 New York","UTC-8 Los Angeles"];
+  const timezones = [
+    { label: "UTC-11 Pago Pago", value: "Pacific/Pago_Pago" },
+    { label: "UTC-10 Honolulu", value: "Pacific/Honolulu" },
+    { label: "UTC-9 Anchorage", value: "America/Anchorage" },
+    { label: "UTC-8 Pacific Time", value: "America/Los_Angeles" },
+    { label: "UTC-7 Mountain Time", value: "America/Denver" },
+    { label: "UTC-6 Central Time", value: "America/Chicago" },
+    { label: "UTC-5 Eastern Time", value: "America/New_York" },
+    { label: "UTC-4 Halifax", value: "America/Halifax" },
+    { label: "UTC-3 Buenos Aires", value: "America/Argentina/Buenos_Aires" },
+    { label: "UTC-2 Fernando de Noronha", value: "America/Noronha" },
+    { label: "UTC-1 Azores", value: "Atlantic/Azores" },
+    { label: "UTC+0 London", value: "Europe/London" },
+    { label: "UTC+1 Paris", value: "Europe/Paris" },
+    { label: "UTC+2 Cairo", value: "Africa/Cairo" },
+    { label: "UTC+3 Nairobi", value: "Africa/Nairobi" },
+    { label: "UTC+4 Dubai", value: "Asia/Dubai" },
+    { label: "UTC+5 Karachi", value: "Asia/Karachi" },
+    { label: "UTC+5:30 Mumbai", value: "Asia/Kolkata" },
+    { label: "UTC+6 Dhaka", value: "Asia/Dhaka" },
+    { label: "UTC+7 Bangkok", value: "Asia/Bangkok" },
+    { label: "UTC+7 Jakarta", value: "Asia/Jakarta" },
+    { label: "UTC+7 Ho Chi Minh", value: "Asia/Ho_Chi_Minh" },
+    { label: "UTC+8 Singapore", value: "Asia/Singapore" },
+    { label: "UTC+9 Tokyo", value: "Asia/Tokyo" },
+    { label: "UTC+10 Sydney", value: "Australia/Sydney" },
+    { label: "UTC+11 Noumea", value: "Pacific/Noumea" },
+    { label: "UTC+12 Auckland", value: "Pacific/Auckland" }
+  ];
   const totalQuestions = sections.reduce((sum, section)=>sum + section.questions.length, 0);
   const totalPoints = sections.reduce((sum, section)=>sum + section.questions.reduce((qSum, q)=>qSum + (Number(q.points)||0), 0), 0);
   const activeSection = sections.find(section=>section.questions.some(question=>question.id===activeQuestionId)) || sections[0];
@@ -145,48 +358,90 @@ export function ExamCreate() {
     setActiveQuestionId(question.id);
   };
 
-  const addAiQuestions = () => {
+  const addAiQuestions = async () => {
     if (!aiTopic && !aiFile) return;
-    const sample = [
-      { type:"mcq", title:"Which concept best matches the main topic?", options:["Primary idea","Unrelated detail","Example only","Exception"], answer:"Primary idea" },
-      { type:"short", title:"Explain the key idea in your own words.", answer:"Clear explanation of the topic" },
-      { type:"truefalse", title:"The statement is always true for this topic.", answer:"False" },
-      { type:"essay", title:"Analyze the topic and include evidence or examples.", answer:"Reasoned analysis with evidence" },
-      { type:"fill", title:"Fill in the blank: The core term is ___.", answer:aiTopic || "topic" },
-      { type:"mcq", title:"Which answer is the strongest example?", options:["Accurate example","Distractor one","Distractor two","Distractor three"], answer:"Accurate example" },
-      { type:"checkbox", title:"Select all correct statements.", options:["Correct statement","Another correct statement","Incorrect statement","Unrelated statement"], answer:"Correct statement, Another correct statement" },
-      { type:"matching", title:"Match each term with its meaning.", answer:"Terms matched correctly" },
-      { type:"math", title:"Write the formula or calculation that applies.", answer:"Expected formula" },
-      { type:"dropdown", title:"Choose the best category.", options:["Category A","Category B","Category C"], answer:"Category A" },
-    ];
-
+    
     setAiGenerating(true);
     setAiAdded(false);
-    setTimeout(()=>{
-      const topicLabel = aiTopic.trim() || aiFile || "uploaded material";
-      const questions = sample.slice(0, aiCount).map((item, index)=>{
-        const question = makeBuilderQuestion(nextId("question"), item.type);
-        const optionValues = item.options || ["Correct answer","Distractor","Another option","Final option"];
+    
+    try {
+      let currentExamId = id;
+      let currentSectionId = activeSection.id;
+      
+      // If exam hasn't been saved yet, auto-save as draft
+      if (!currentExamId) {
+        const savedExam = await handleSave("draft", false);
+        if (!savedExam) throw new Error("Failed to auto-save exam draft");
+        currentExamId = savedExam.id;
+        
+        // When exam is created, we need to fetch the newly created section ID
+        // The backend creates sections in order, so let's get the sections for this exam
+        const examDetails = await examsApi.getById(currentExamId);
+        // Find the matching section by order (index) or title
+        const activeSectionIndex = sections.findIndex(s => s.id === activeSection.id);
+        if (examDetails.sections && examDetails.sections[activeSectionIndex]) {
+          currentSectionId = examDetails.sections[activeSectionIndex].id;
+        } else if (examDetails.sections && examDetails.sections.length > 0) {
+          currentSectionId = examDetails.sections[0].id;
+        }
+        
+        // Update URL without a full page reload so user can keep editing
+        navigate(`/dashboard/exams/${currentExamId}/edit`);
+      }
+
+      // Prepare FormData
+      const formData = new FormData();
+      formData.append("examId", currentExamId as string);
+      formData.append("sectionId", currentSectionId);
+      formData.append("subject", subject || "General Subject");
+      if (aiTopic) formData.append("topic", aiTopic);
+      formData.append("difficulty", aiDifficulty);
+      formData.append("numQuestions", aiCount.toString());
+      formData.append("questionType", "MIXED");
+      if (aiFile) formData.append("file", aiFile);
+
+      // Call API
+      const result = await aiApi.generateFromPdf(formData);
+      
+      // Map generated questions to frontend builder format
+      const generatedQuestions = result.questions.map((q: any) => {
+        const qId = q.id || nextId("question");
+        const mappedType = q.type === "TRUE_FALSE" ? "truefalse" : (q.type === "MULTIPLE_SELECT" ? "checkbox" : "mcq"); // Fallbacks for UI
+        const baseQuestion = makeBuilderQuestion(qId, mappedType);
+        
         return {
-          ...question,
-          title:`${item.title} (${topicLabel})`,
-          description:`AI generated · ${aiDifficulty}`,
-          answer:item.answer,
-          options:optionValues.map((text, optionIndex)=>({ id:nextId("option"), text, correct:optionIndex===0 })),
-          pairs:item.type==="matching"?[
-            { id:nextId("pair"), left:"Term 1", right:"Meaning 1" },
-            { id:nextId("pair"), left:"Term 2", right:"Meaning 2" },
-            { id:nextId("pair"), left:"Term 3", right:"Meaning 3" },
-          ]:question.pairs,
-          points:index<2?"1":"2",
+          ...baseQuestion,
+          title: q.text || q.questionText,
+          description: q.metadata?.explanation ? `AI generated: ${q.metadata.explanation}` : "AI generated",
+          points: (q.points || q.marks || 1).toString(),
+          required: false,
+          options: q.options ? q.options.map((opt: any) => ({
+            id: opt.id || nextId("option"),
+            text: opt.text,
+            correct: opt.isCorrect
+          })) : [],
         };
       });
-      const firstId = questions[0]?.id;
-      setSections(prev=>prev.map(section=>section.id===activeSection.id?{...section,questions:[...section.questions, ...questions]}:section));
+
+      // Update local state
+      setSections(prev => prev.map(section => {
+        if (section.id === activeSection.id) {
+          // If we had a temporary section ID, we might need to map it, but for UI state we just append
+          return { ...section, questions: [...section.questions, ...generatedQuestions] };
+        }
+        return section;
+      }));
+
+      const firstId = generatedQuestions[0]?.id;
       if (firstId) setActiveQuestionId(firstId);
-      setAiGenerating(false);
       setAiAdded(true);
-    }, 900);
+      
+    } catch (error) {
+      console.error("AI Generation failed:", error);
+      alert("Failed to generate questions. Please ensure you have uploaded a valid PDF and filled out subject details.");
+    } finally {
+      setAiGenerating(false);
+    }
   };
 
   const duplicateQuestion = (sectionId: string, question: ExamBuilderQuestion) => {
@@ -208,6 +463,38 @@ export function ExamCreate() {
       const nextQuestions = section.questions.filter(question=>question.id!==questionId);
       return {...section, questions:nextQuestions.length?nextQuestions:[makeBuilderQuestion(nextId("question"), "mcq")]};
     }));
+  };
+
+  const moveSection = (dragIndex: number, hoverIndex: number) => {
+    setSections(prev => {
+      const newSections = [...prev];
+      const dragged = newSections[dragIndex];
+      newSections.splice(dragIndex, 1);
+      newSections.splice(hoverIndex, 0, dragged);
+      return newSections;
+    });
+  };
+
+  const moveQuestion = (sectionId: string, dragIndex: number, hoverIndex: number) => {
+    setSections(prev => prev.map(section => {
+      if (section.id !== sectionId) return section;
+      const newQuestions = [...section.questions];
+      const dragged = newQuestions[dragIndex];
+      newQuestions.splice(dragIndex, 1);
+      newQuestions.splice(hoverIndex, 0, dragged);
+      return { ...section, questions: newQuestions };
+    }));
+  };
+
+  const deleteSection = (sectionId: string) => {
+    if (sections.length === 1) return; // Prevent deleting the last section
+    setSections(prev => {
+      const filtered = prev.filter(s => s.id !== sectionId);
+      if (activeSection.id === sectionId) {
+        setActiveQuestionId(filtered[0].questions[0].id);
+      }
+      return filtered;
+    });
   };
 
   const addOption = (sectionId: string, questionId: string) => {
@@ -280,9 +567,57 @@ export function ExamCreate() {
     }:section));
   };
 
-  const handleSave = (status = "draft") => {
-    setSaved(true);
-    setTimeout(()=>{ setSaved(false); navigate("/dashboard/exams"); }, 800);
+  async function handleSave(status: string = "draft", redirect: boolean = true) {
+    try {
+      setSaved(false);
+      const [year, month, day] = startDate.split("-");
+      const formattedStartDate = `${month}/${day}/${year}`;
+      
+      let formattedStartTime = startTime;
+      if (startTime && startTime.includes(":")) {
+        const [hr, min] = startTime.split(":");
+        let h = parseInt(hr, 10);
+        const ampm = h >= 12 ? "PM" : "AM";
+        h = h % 12;
+        if (h === 0) h = 12;
+        formattedStartTime = `${h.toString().padStart(2, "0")}:${min} ${ampm}`;
+      }
+
+      const accessType = privacy === "public" ? "PUBLIC" : (privacy === "private" ? "PRIVATE" : "PASSWORD_PROTECTED");
+      
+      const examData = {
+        title: title || "Untitled Exam",
+        description: desc,
+        subject,
+        startDate: formattedStartDate,
+        startTime: formattedStartTime,
+        duration: parseInt(duration, 10) || 60,
+        timezone,
+        passingScore: parseInt(passingScore, 10) || 50,
+        maxAttempts: maxAttempts === "Unlimited" ? undefined : parseInt(maxAttempts, 10),
+        randomizeQuestions: randomize,
+        showResults,
+        accessType,
+        fullSections: sections,
+        status: status === "published" ? "PUBLISHED" : "DRAFT",
+      };
+
+      const exam = isEdit 
+        ? await examsApi.update(actualId as string, examData)
+        : await examsApi.create(examData);
+
+      setSaved(true);
+      
+      if (redirect) {
+        navigate("/dashboard/exams");
+      } else if (!isEdit) {
+        navigate(`/dashboard/exams/${exam.id}/edit`, { replace: true });
+      }
+      return exam;
+    } catch (err: any) {
+      console.error(err);
+      alert("Failed to save exam: " + err.message);
+    }
   };
 
   const renderQuestionBody = (sectionId: string, question: ExamBuilderQuestion) => {
@@ -358,8 +693,9 @@ export function ExamCreate() {
         <div className="grid gap-4 sm:grid-cols-2">
           <div>
             <label className="text-xs font-bold text-gray-500 uppercase tracking-wider mb-1.5 block" style={{ fontFamily:U }}>Allowed file types</label>
-            <input value={question.fileTypes} onChange={e=>updateQuestion(sectionId, question.id, { fileTypes:e.target.value })}
-              className="w-full border border-gray-200 rounded-xl px-4 py-3 text-sm focus:outline-none focus:border-gray-400" style={{ fontFamily:I }}/>
+            <div className="w-full flex items-center border border-gray-100 bg-gray-50 rounded-xl px-4 py-3">
+              <span className="text-sm font-semibold text-gray-500" style={{ fontFamily:I }}>PDF Only</span>
+            </div>
           </div>
           <div>
             <label className="text-xs font-bold text-gray-500 uppercase tracking-wider mb-1.5 block" style={{ fontFamily:U }}>Max files</label>
@@ -397,13 +733,32 @@ export function ExamCreate() {
     );
   };
 
+  if (isLoading) {
+    return (
+      <DashboardLayout active="exams" title="Loading Exam..." subtitle="Please wait">
+        <div className="flex justify-center items-center py-20">
+          <RefreshCw className="animate-spin text-gray-400" size={32} />
+        </div>
+      </DashboardLayout>
+    );
+  }
+
   return (
-    <DashboardLayout active="exams-create" title={isEdit?"Edit Exam":"Create Exam"} subtitle={isEdit?existing?.title:"Set up your exam in minutes"}>
+    <DashboardLayout active="exams-create" title={isEdit?"Edit Exam":"Create Exam"} subtitle={isEdit?title:"Set up your exam in minutes"}>
       <div className="w-full">
         {/* Breadcrumb */}
         <div className="flex items-center gap-2 text-xs text-gray-400 mb-6" style={{ fontFamily:I }}>
           <button onClick={()=>navigate("/dashboard/exams")} className="hover:text-gray-700 transition-colors">My Exams</button>
           <ChevronRight size={13}/><span className="text-gray-600">{isEdit?"Edit Exam":"New Exam"}</span>
+          {uniqueCode && (
+            <>
+              <span className="mx-2 text-gray-300">•</span>
+              <span className="font-mono bg-gray-100 text-gray-600 px-2 py-0.5 rounded flex items-center gap-1">
+                <Hash size={11} className="text-gray-400"/>
+                {uniqueCode}
+              </span>
+            </>
+          )}
         </div>
 
         <div className="grid gap-4 xl:grid-cols-2">
@@ -451,9 +806,7 @@ export function ExamCreate() {
               </div>
               <div>
                 <label className="text-xs font-bold text-gray-500 uppercase tracking-wider mb-1.5 block" style={{ fontFamily:U }}>Timezone</label>
-                <select value={timezone} onChange={e=>setTimezone(e.target.value)} className="w-full border border-gray-200 rounded-xl px-4 py-3 text-sm text-gray-900 focus:outline-none focus:border-gray-400 bg-white" style={{ fontFamily:I }}>
-                  {timezones.map(t=><option key={t} value={t}>{t}</option>)}
-                </select>
+                <TimezoneSelect value={timezone} onChange={setTimezone} timezones={timezones} />
               </div>
             </div>
           </div>
@@ -520,11 +873,11 @@ export function ExamCreate() {
               <div className="mt-5 grid gap-4 xl:grid-cols-2">
                 <div>
                   <label className="text-xs font-bold text-gray-500 uppercase tracking-wider mb-1.5 block" style={{ fontFamily:U }}>Material</label>
-                  <input ref={aiFileRef} type="file" accept=".pdf,.doc,.docx,.txt,.ppt,.pptx" className="hidden" onChange={e=>setAiFile(e.target.files?.[0]?.name||null)}/>
+                  <input ref={aiFileRef} type="file" accept=".pdf" className="hidden" onChange={e=>setAiFile(e.target.files?.[0]||null)}/>
                   {aiFile?(
                     <div className="flex items-center gap-3 rounded-xl border border-gray-200 bg-gray-50 px-4 py-3">
                       <FileText size={16} style={{ color:CAMEL }}/>
-                      <span className="min-w-0 flex-1 truncate text-sm text-gray-700" style={{ fontFamily:I }}>{aiFile}</span>
+                      <span className="min-w-0 flex-1 truncate text-sm text-gray-700" style={{ fontFamily:I }}>{aiFile.name}</span>
                       <button onClick={()=>setAiFile(null)} className="text-gray-400 hover:text-gray-700"><X size={14}/></button>
                     </div>
                   ):(
@@ -566,12 +919,13 @@ export function ExamCreate() {
           </div>
 
           {/* Google Forms style builder */}
-          <div className="xl:col-span-2 grid gap-4 xl:grid-cols-[minmax(0,1fr)_280px]">
-            <div className="space-y-4">
-              <div className="bg-white rounded-2xl border border-gray-100 p-6">
-                <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
-                  <div>
-                    <h3 className="text-sm font-black" style={{ fontFamily:U, color:INK }}>Exam Questions</h3>
+          <DndProvider backend={HTML5Backend}>
+            <div className="xl:col-span-2 grid gap-4 xl:grid-cols-[minmax(0,1fr)_280px]">
+              <div className="space-y-4">
+                <div className="bg-white rounded-2xl border border-gray-100 p-6">
+                  <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+                    <div>
+                      <h3 className="text-sm font-black" style={{ fontFamily:U, color:INK }}>Exam Questions</h3>
                     <p className="text-xs text-gray-400 mt-1" style={{ fontFamily:I }}>Build sections and mix question types in the same exam.</p>
                   </div>
                   <div className="flex items-center gap-2">
@@ -581,38 +935,52 @@ export function ExamCreate() {
                 </div>
               </div>
 
-              {sections.map((section, sectionIndex)=>(
-                <div key={section.id} className="rounded-2xl border border-gray-100 bg-white overflow-hidden">
-                  <div className="border-l-4 px-6 py-5" style={{ borderColor:CAMEL }}>
-                    <div className="grid gap-3 sm:grid-cols-[1fr_auto] sm:items-start">
-                      <div className="space-y-3">
-                        <input value={section.title} onChange={e=>updateSection(section.id, { title:e.target.value })}
-                          className="w-full text-lg font-black text-gray-900 placeholder:text-gray-300 focus:outline-none" placeholder={`Section ${sectionIndex + 1}`}
-                          style={{ fontFamily:U }}/>
-                        <input value={section.description} onChange={e=>updateSection(section.id, { description:e.target.value })}
-                          className="w-full text-sm text-gray-500 placeholder:text-gray-300 focus:outline-none" placeholder="Section description or instructions"
-                          style={{ fontFamily:I }}/>
-                      </div>
-                      <span className="rounded-full bg-gray-50 px-3 py-1.5 text-xs font-bold text-gray-500" style={{ fontFamily:U }}>{section.questions.length} items</span>
-                    </div>
-                  </div>
+                {sections.map((section, sectionIndex)=>(
+                  <DraggableSection key={section.id} section={section} index={sectionIndex} moveSection={moveSection}>
+                    {(dragHandle: any) => (
+                      <div className="rounded-2xl border border-gray-100 bg-white overflow-hidden">
+                        <div className="border-l-4 px-6 py-5" style={{ borderColor:CAMEL }}>
+                          <div className="grid gap-3 sm:grid-cols-[auto_1fr_auto] sm:items-start">
+                            <div ref={dragHandle} className="cursor-grab text-gray-300 hover:text-gray-500 pt-1" title="Drag to reorder section">
+                              <GripVertical size={20} />
+                            </div>
+                            <div className="space-y-3">
+                              <input value={section.title} onChange={e=>updateSection(section.id, { title:e.target.value })}
+                                className="w-full text-lg font-black text-gray-900 placeholder:text-gray-300 focus:outline-none" placeholder={`Section ${sectionIndex + 1}`}
+                                style={{ fontFamily:U }}/>
+                              <input value={section.description} onChange={e=>updateSection(section.id, { description:e.target.value })}
+                                className="w-full text-sm text-gray-500 placeholder:text-gray-300 focus:outline-none" placeholder="Section description or instructions"
+                                style={{ fontFamily:I }}/>
+                            </div>
+                            <div className="flex flex-col items-end gap-2">
+                              <span className="rounded-full bg-gray-50 px-3 py-1.5 text-xs font-bold text-gray-500" style={{ fontFamily:U }}>{section.questions.length} items</span>
+                              {sections.length > 1 && (
+                                <button onClick={() => deleteSection(section.id)} className="p-2 text-gray-400 hover:text-red-500 transition-colors rounded-lg hover:bg-red-50" title="Delete section">
+                                  <Trash2 size={16} />
+                                </button>
+                              )}
+                            </div>
+                          </div>
+                        </div>
 
-                  <div className="space-y-3 bg-gray-50/60 p-4">
-                    {section.questions.map((question, questionIndex)=>{
+                        <div className="space-y-3 bg-gray-50/60 p-4">
+                          {section.questions.map((question, questionIndex)=>{
                       const typeInfo = Q_TYPES.find(type=>type.id===question.type) || Q_TYPES[0];
                       const TypeIcon = typeInfo.icon;
                       const isActive = activeQuestionId===question.id;
 
-                      return (
-                        <div key={question.id} onClick={()=>setActiveQuestionId(question.id)}
-                          className={`rounded-2xl border bg-white p-5 transition-all ${isActive?"border-gray-300 shadow-sm":"border-gray-100 hover:border-gray-200"}`}>
-                          <div className="mb-4 flex flex-col gap-3 lg:flex-row lg:items-start">
-                            <div className="flex min-w-0 flex-1 gap-3">
-                              <div className="mt-1 flex h-8 w-8 flex-shrink-0 items-center justify-center rounded-xl text-xs font-black" style={{ background:typeInfo.color, color:INK, fontFamily:U }}>
-                                {questionIndex + 1}
-                              </div>
-                              <div className="min-w-0 flex-1 space-y-3">
-                                <input value={question.title} onChange={e=>updateQuestion(section.id, question.id, { title:e.target.value })}
+                        return (
+                          <DraggableQuestion key={question.id} question={question} index={questionIndex} sectionId={section.id} moveQuestion={moveQuestion}>
+                            {(qDragHandle: any) => (
+                              <div onClick={()=>setActiveQuestionId(question.id)}
+                                className={`rounded-2xl border bg-white p-5 transition-all ${isActive?"border-gray-300 shadow-sm":"border-gray-100 hover:border-gray-200"}`}>
+                                <div className="mb-4 flex flex-col gap-3 lg:flex-row lg:items-start">
+                                  <div className="flex min-w-0 flex-1 gap-3">
+                                    <div ref={qDragHandle} className="mt-1 flex h-8 w-8 flex-shrink-0 items-center justify-center rounded-xl text-xs font-black cursor-grab" style={{ background:typeInfo.color, color:INK, fontFamily:U }} title="Drag to reorder question">
+                                      <GripVertical size={16} className="opacity-50" />
+                                    </div>
+                                    <div className="min-w-0 flex-1 space-y-3">
+                                      <input value={question.title} onChange={e=>updateQuestion(section.id, question.id, { title:e.target.value })}
                                   placeholder="Question"
                                   className="w-full border-b border-gray-200 px-0 py-2 text-base font-bold text-gray-900 placeholder:text-gray-300 focus:border-gray-500 focus:outline-none"
                                   style={{ fontFamily:U }}/>
@@ -648,23 +1016,27 @@ export function ExamCreate() {
                               <button onClick={()=>duplicateQuestion(section.id, question)} className="h-9 w-9 rounded-lg flex items-center justify-center text-gray-400 hover:bg-gray-50 hover:text-gray-700 transition-all" title="Duplicate question"><Copy size={15}/></button>
                               <button onClick={()=>deleteQuestion(section.id, question.id)} className="h-9 w-9 rounded-lg flex items-center justify-center text-gray-400 hover:bg-red-50 hover:text-red-500 transition-all" title="Delete question"><Trash2 size={15}/></button>
                             </div>
-                          </div>
-                        </div>
-                      );
-                    })}
+                                </div>
+                              </div>
+                            )}
+                          </DraggableQuestion>
+                        );
+                      })}
 
-                    <div className="flex flex-wrap gap-2">
-                      <button onClick={()=>addQuestion(section.id)} className="flex items-center gap-2 rounded-xl border border-dashed border-gray-200 bg-white px-4 py-3 text-xs font-bold text-gray-600 hover:border-gray-300 hover:text-gray-900 transition-all" style={{ fontFamily:U }}>
-                        <Plus size={14}/>Add question
-                      </button>
-                      <button onClick={addSection} className="flex items-center gap-2 rounded-xl border border-dashed border-gray-200 bg-white px-4 py-3 text-xs font-bold text-gray-600 hover:border-gray-300 hover:text-gray-900 transition-all" style={{ fontFamily:U }}>
-                        <Layers size={14}/>Add section
-                      </button>
+                      <div className="flex flex-wrap gap-2">
+                        <button onClick={()=>addQuestion(section.id)} className="flex items-center gap-2 rounded-xl border border-dashed border-gray-200 bg-white px-4 py-3 text-xs font-bold text-gray-600 hover:border-gray-300 hover:text-gray-900 transition-all" style={{ fontFamily:U }}>
+                          <Plus size={14}/>Add question
+                        </button>
+                        <button onClick={addSection} className="flex items-center gap-2 rounded-xl border border-dashed border-gray-200 bg-white px-4 py-3 text-xs font-bold text-gray-600 hover:border-gray-300 hover:text-gray-900 transition-all" style={{ fontFamily:U }}>
+                          <Layers size={14}/>Add section
+                        </button>
+                      </div>
                     </div>
                   </div>
-                </div>
-              ))}
-            </div>
+                )}
+              </DraggableSection>
+            ))}
+          </div>
 
             <div className="xl:sticky xl:top-36 xl:self-start">
               <div className="rounded-2xl border border-gray-100 bg-white p-4">
@@ -682,9 +1054,10 @@ export function ExamCreate() {
                     <div><p className="text-lg font-black" style={{ fontFamily:U, color:INK }}>{totalPoints}</p><p className="text-[11px] text-gray-400" style={{ fontFamily:I }}>Points</p></div>
                   </div>
                 </div>
+                </div>
               </div>
             </div>
-          </div>
+          </DndProvider>
 
           {/* Actions */}
           <div className="flex gap-3 pb-2 xl:col-span-2">

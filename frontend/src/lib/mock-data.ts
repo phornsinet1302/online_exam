@@ -41,7 +41,6 @@ export const Q_TYPES = [
   { id: "fill",      label: "Fill in Blank",   icon: Minus,         color: "#fff7ed" },
   { id: "matching",  label: "Matching",        icon: ArrowLeftRight, color: "#eff6ff" },
   { id: "checkbox",  label: "Checkbox",        icon: CheckSquare,   color: "#f0fdf4" },
-  { id: "dropdown",  label: "Dropdown",        icon: ChevronDown,   color: "#fefce8" },
   { id: "file",      label: "File Upload",     icon: Upload,        color: "#fdf4ff" },
   { id: "math",      label: "Math / Formula",  icon: FlaskConical,  color: "#fff7ed" },
 ];

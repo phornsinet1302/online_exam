@@ -9,6 +9,7 @@ import {
 } from "lucide-react";
 import { U, I, INK, CAMEL, CREAM } from "@/lib/tokens";
 import { useNavigate } from "@/lib/hooks";
+import { useAuth } from "@/components/providers/AuthProvider";
 
 // ─── Layout constants ─────────────────────────────────────────────────────────
 export const SIDEBAR_W = 240;
@@ -69,7 +70,10 @@ export function getTeacherSection(active: string) {
 // ─── Sidebar ──────────────────────────────────────────────────────────────────
 export function DashboardSidebar({ active }: { active: string }) {
   const navigate = useNavigate();
+  const { user, logout } = useAuth();
   const section = getTeacherSection(active);
+  const name = user?.name || "Teacher";
+  const initials = name ? name.split(" ").map((n: string) => n[0]).join("").toUpperCase().substring(0, 2) : "T";
   return (
     <aside className="fixed top-0 left-0 h-screen flex flex-col z-40 select-none"
       style={{ width: SIDEBAR_W, background: INK, borderRight: "1px solid rgba(255,255,255,0.06)" }}>
@@ -95,12 +99,12 @@ export function DashboardSidebar({ active }: { active: string }) {
       </nav>
       <div className="px-4 py-4 border-t" style={{ borderColor: "rgba(255,255,255,0.07)" }}>
         <div className="flex items-center gap-3 px-2 py-2 rounded-xl hover:bg-white/5 transition-all cursor-pointer">
-          <div className="w-9 h-9 rounded-full flex items-center justify-center text-white text-sm font-bold flex-shrink-0" style={{ background: CAMEL, fontFamily: U }}>JR</div>
+          <div className="w-9 h-9 rounded-full flex items-center justify-center text-white text-sm font-bold flex-shrink-0" style={{ background: CAMEL, fontFamily: U }}>{initials}</div>
           <div className="flex-1 min-w-0">
-            <p className="text-sm font-semibold text-white truncate" style={{ fontFamily: U }}>Jane Robertson</p>
-            <p className="text-xs text-gray-500 truncate" style={{ fontFamily: I }}>Mathematics · Year 9–12</p>
+            <p className="text-sm font-semibold text-white truncate" style={{ fontFamily: U }}>{name}</p>
+            <p className="text-xs text-gray-500 truncate" style={{ fontFamily: I }}>{user?.email || "Teacher"}</p>
           </div>
-          <button type="button" onClick={() => navigate("/")} aria-label="Log out"
+          <button type="button" onClick={logout} aria-label="Log out"
             className="rounded-md p-1 text-gray-600 transition-colors hover:text-red-400 focus:outline-none focus:ring-2 focus:ring-white/20">
             <LogOut size={14} className="flex-shrink-0"/>
           </button>
@@ -139,6 +143,9 @@ export function DashboardSectionTabs({ active }: { active: string }) {
 // ─── Header ───────────────────────────────────────────────────────────────────
 export function DashboardHeader({ title, subtitle, actions }: { title: string; subtitle?: string; actions?: React.ReactNode }) {
   const navigate = useNavigate();
+  const { user } = useAuth();
+  const name = user?.name || "Teacher";
+  const initials = name ? name.split(" ").map((n: string) => n[0]).join("").toUpperCase().substring(0, 2) : "T";
   return (
     <header className="fixed top-0 right-0 z-30 bg-white border-b border-gray-100 flex items-center justify-between px-7 h-16" style={{ left: SIDEBAR_W }}>
       <div>
@@ -155,7 +162,7 @@ export function DashboardHeader({ title, subtitle, actions }: { title: string; s
           <Bell size={16}/>
           <span className="absolute -top-1 -right-1 w-4 h-4 rounded-full flex items-center justify-center text-[9px] font-bold text-white" style={{ background: "#ef4444" }}>4</span>
         </button>
-        <div className="w-9 h-9 rounded-xl flex items-center justify-center text-white text-sm font-bold cursor-pointer" style={{ background: CAMEL, fontFamily: U }}>JR</div>
+        <div className="w-9 h-9 rounded-xl flex items-center justify-center text-white text-sm font-bold cursor-pointer" style={{ background: CAMEL, fontFamily: U }}>{initials}</div>
       </div>
     </header>
   );

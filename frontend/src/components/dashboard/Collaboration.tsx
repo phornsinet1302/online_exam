@@ -1,4 +1,6 @@
-﻿import { useState } from "react";
+"use client";
+
+import { useState } from "react";
 import { Crown, UserCheck, ShieldCheck, Mail, ArrowRight, Check, CheckCircle2, UserPlus, Link, Copy, MoreVertical, Trash2, RefreshCw, UserX, Users } from "lucide-react";
 import { U, I, INK, CAMEL, CREAM } from "@/lib/tokens";
 import { useNavigate } from "@/lib/hooks";

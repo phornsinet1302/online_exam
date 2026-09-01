@@ -5,7 +5,13 @@ import { useRouter, usePathname } from "next/navigation";
 /** Thin wrapper so components can navigate without importing next/navigation directly */
 export function useNavigate() {
   const router = useRouter();
-  return (path: string) => router.push(path as never);
+  return (path: string, options?: { replace?: boolean }) => {
+    if (options?.replace) {
+      router.replace(path);
+    } else {
+      router.push(path);
+    }
+  };
 }
 
 /** Extracts dynamic route params from the pathname */
