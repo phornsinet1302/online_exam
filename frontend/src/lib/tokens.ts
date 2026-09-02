@@ -7,4 +7,12 @@ export const CREAM = "#FAF8F5";
 export const BLUE  = "#2563EB";
 
 // API base URL (set in .env as NEXT_PUBLIC_API_URL)
-export const API_URL = process.env.NEXT_PUBLIC_API_URL ?? "http://localhost:5000/api";
+export const getApiUrl = () => {
+  const envUrl = process.env.NEXT_PUBLIC_API_URL || "http://localhost:5000/api";
+  if (typeof window !== "undefined" && envUrl.includes("localhost")) {
+    return envUrl.replace("localhost", window.location.hostname);
+  }
+  return envUrl;
+};
+
+export const API_URL = getApiUrl();

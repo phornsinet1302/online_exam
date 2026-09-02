@@ -9,6 +9,8 @@ import {
 } from "lucide-react";
 import { U, I, INK, CAMEL, CREAM, BLUE } from "@/lib/tokens";
 import { useNavigate } from "@/lib/hooks";
+import { authApi } from "@/lib/api/auth";
+import { useAuth } from "@/components/providers/AuthProvider";
 
 // ─── Enter Code Modal ─────────────────────────────────────────────────────────
 export function EnterCodeModal({ onClose }: { onClose: () => void }) {
@@ -54,17 +56,36 @@ export function AuthModal({ mode, onClose, onSwitch }: { mode: "login" | "regist
   const [showPw, setShowPw] = useState(false);
   const [loading, setLoading] = useState(false);
   const [authError, setAuthError] = useState("");
+  const [successMsg, setSuccessMsg] = useState("");
+  const { login: loginContext } = useAuth();
 
-  const handleSubmit = (e: React.FormEvent) => {
+  const handleGoogle = () => {
+    const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL || "https://jfebblgfihkhuaewxnjs.supabase.co";
+    window.location.href = `${supabaseUrl}/auth/v1/authorize?provider=google&redirect_to=${window.location.origin}/auth/callback`;
+  };
+
+  const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     setAuthError("");
+    setSuccessMsg("");
     setLoading(true);
-    const isTeacherDemo = email.trim().toLowerCase() === "teacher@gmail.com" && password === "123";
-    if (mode === "login" && !isTeacherDemo) {
-      setTimeout(() => { setLoading(false); setAuthError("Use teacher@gmail.com and password 123 to sign in."); }, 500);
-      return;
+
+    try {
+      const cleanEmail = email.trim();
+      if (mode === "login") {
+        const data = await authApi.login({ email: cleanEmail, password });
+        loginContext(data.access_token, data.user);
+        onClose();
+        navigate("/dashboard");
+      } else {
+        await authApi.register({ email: cleanEmail, password, name, role: "teacher" });
+        setSuccessMsg("Registration successful! Please check your email to verify your account before signing in.");
+      }
+    } catch (err: any) {
+      setAuthError(err.message || "Authentication failed");
+    } finally {
+      setLoading(false);
     }
-    setTimeout(() => { setLoading(false); onClose(); navigate("/dashboard"); }, 900);
   };
 
   return (
@@ -80,7 +101,7 @@ export function AuthModal({ mode, onClose, onSwitch }: { mode: "login" | "regist
           </div>
           <h2 className="text-2xl font-black mb-1" style={{ fontFamily: U, color: INK }}>{mode === "login" ? "Welcome back" : "Create your account"}</h2>
           <p className="text-sm text-gray-500 mb-6" style={{ fontFamily: I }}>{mode === "login" ? "Sign in to access your teacher dashboard." : "Start your 30-day free trial today."}</p>
-          <button type="button" className="w-full flex items-center justify-center gap-3 border border-gray-200 hover:bg-gray-50 rounded-xl py-3 text-sm font-semibold text-gray-700 transition-all mb-4" style={{ fontFamily: U }}>
+          <button type="button" onClick={handleGoogle} className="w-full flex items-center justify-center gap-3 border border-gray-200 hover:bg-gray-50 rounded-xl py-3 text-sm font-semibold text-gray-700 transition-all mb-4" style={{ fontFamily: U }}>
             <svg width="17" height="17" viewBox="0 0 48 48" fill="none"><path d="M43.6 20.5H42V20H24v8h11.3C33.7 32.7 29.3 36 24 36c-6.6 0-12-5.4-12-12s5.4-12 12-12c3.1 0 5.8 1.2 7.9 3l5.7-5.7C34.5 6.5 29.5 4 24 4 12.9 4 4 12.9 4 24s8.9 20 20 20 20-8.9 20-20c0-1.2-.1-2.3-.4-3.5z" fill="#FFC107"/><path d="M6.3 14.7l6.6 4.8C14.5 16 19 13 24 13c3.1 0 5.8 1.2 7.9 3l5.7-5.7C34.5 6.5 29.5 4 24 4 16.3 4 9.7 8.4 6.3 14.7z" fill="#FF3D00"/><path d="M24 44c5.2 0 9.9-2 13.4-5.2l-6.2-5.2C29.3 35.3 26.8 36 24 36c-5.3 0-9.7-3.3-11.3-8H6.3C9.7 35.6 16.3 44 24 44z" fill="#4CAF50"/><path d="M43.6 20.5H42V20H24v8h11.3c-.8 2.1-2.2 3.9-4 5.2l6.2 5.2C37.2 38.6 44 33.3 44 24c0-1.2-.1-2.3-.4-3.5z" fill="#1976D2"/></svg>
             Continue with Google
           </button>
@@ -93,6 +114,7 @@ export function AuthModal({ mode, onClose, onSwitch }: { mode: "login" | "regist
               <button type="button" onClick={() => setShowPw(s => !s)} className="absolute right-3.5 top-1/2 -translate-y-1/2 text-gray-400 hover:text-gray-600">{showPw ? <EyeOff size={15}/> : <Eye size={15}/>}</button>
             </div>
             {authError && <p className="text-xs font-semibold text-red-500" style={{ fontFamily: I }}>{authError}</p>}
+            {successMsg && <p className="text-xs font-semibold text-green-600" style={{ fontFamily: I }}>{successMsg}</p>}
             {mode === "login" && <div className="flex justify-end -mt-1"><button type="button" className="text-xs font-semibold hover:underline" style={{ color: CAMEL, fontFamily: U }}>Forgot password?</button></div>}
             <button type="submit" disabled={loading} className="w-full flex items-center justify-center gap-2 text-white font-bold py-3.5 rounded-xl transition-all hover:opacity-90 active:scale-[0.98] mt-1 disabled:opacity-60" style={{ background: INK, fontFamily: U }}>
               {loading ? <RefreshCw size={15} className="animate-spin"/> : mode === "login" ? "Sign in to dashboard" : "Create free account"}

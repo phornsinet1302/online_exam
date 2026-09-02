@@ -1,3 +1,4 @@
+// Service responsible for handling exam-related business logic
 // backend/src/services/exam.service.ts
 import prisma from '../config/database.js';
 import { ExamStatus } from '@prisma/client';
@@ -26,11 +27,8 @@ function combineDateAndTime(
   return fromZonedTime(parsedDate, timezone);
 }
 
-// Generate short unique code (8 digits)
-function generateUniqueCode(length: number = 8): string {
-  const min = 10 ** (length - 1);
-  const max = 10 ** length - 1;
-  return String(Math.floor(Math.random() * (max - min + 1)) + min);
+function generateUniqueCode(length: number = 6): string {
+  return crypto.randomBytes(Math.ceil(length / 2)).toString('hex').toUpperCase().slice(0, length);
 }
 
 // Generate JWT magic link token (7 days expiry)
@@ -45,10 +43,137 @@ async function hasAttempts(examId: string): Promise<boolean> {
   return count > 0;
 }
 
+// Helper: sync sections and questions
+async function syncSectionsAndQuestions(examId: string, fullSections: any[], randomizeQuestions: boolean) {
+  const processedSectionIds: string[] = [];
+  const processedQuestionIds: string[] = [];
+  const processedOptionIds: string[] = [];
+
+  for (let i = 0; i < fullSections.length; i++) {
+    const sec = fullSections[i];
+    let sectionId = sec.id;
+    
+    if (!sectionId || sectionId.startsWith('section-')) {
+      const newSec = await prisma.section.create({
+        data: {
+          examId,
+          title: sec.title || `Section ${i+1}`,
+          order: i,
+          randomization: randomizeQuestions,
+          shuffleAnswers: randomizeQuestions
+        }
+      });
+      sectionId = newSec.id;
+    } else {
+      await prisma.section.update({
+        where: { id: sectionId },
+        data: { title: sec.title, order: i }
+      });
+    }
+    processedSectionIds.push(sectionId);
+
+    for (let j = 0; j < sec.questions.length; j++) {
+      const q = sec.questions[j];
+      let qId = q.id;
+
+      let qType = (q.type || "MCQ").toUpperCase();
+      if (qType === "TRUEFALSE") qType = "TRUE_FALSE";
+      if (qType === "SHORT") qType = "SHORT_ANSWER";
+      if (qType === "FILL") qType = "FILL_IN_BLANK";
+      if (qType === "CHECKBOX") qType = "MULTIPLE_SELECT";
+      if (qType === "FILE") qType = "FILE_UPLOAD";
+      if (qType === "MATH") qType = "MATH_FORMULA";
+
+      const isChoiceType = ["TRUE_FALSE", "MULTIPLE_SELECT", "MCQ", "CHECKBOX"].includes(qType);
+      
+      if (!qId || qId.startsWith('question-')) {
+        const newQ = await prisma.question.create({
+          data: {
+            sectionId: sectionId,
+            type: qType as any,
+            text: q.title || "Untitled Question",
+            points: parseInt(q.points, 10) || 1,
+            difficulty: "MEDIUM",
+            order: j,
+            required: !!q.required,
+            description: q.description || ""
+          }
+        });
+        qId = newQ.id;
+      } else {
+        await prisma.question.update({
+          where: { id: qId },
+          data: {
+            type: qType as any,
+            text: q.title || "Untitled Question",
+            points: parseInt(q.points, 10) || 1,
+            order: j,
+            required: !!q.required,
+            description: q.description || ""
+          }
+        });
+      }
+      processedQuestionIds.push(qId);
+
+      if (isChoiceType && q.options) {
+        for (let k = 0; k < q.options.length; k++) {
+          const opt = q.options[k];
+          let optId = opt.id;
+          if (!optId || optId.startsWith('option-') || optId.startsWith(`${q.id}-opt-`)) {
+            const newOpt = await prisma.option.create({
+              data: {
+                questionId: qId,
+                text: opt.text || "Option",
+                isCorrect: !!opt.correct,
+                order: k
+              }
+            });
+            processedOptionIds.push(newOpt.id);
+          } else {
+            await prisma.option.update({
+              where: { id: optId },
+              data: {
+                text: opt.text || "Option",
+                isCorrect: !!opt.correct,
+                order: k
+              }
+            });
+            processedOptionIds.push(optId);
+          }
+        }
+      }
+    }
+  }
+
+  // Cleanup removed options
+  await prisma.option.deleteMany({
+    where: {
+      questionId: { in: processedQuestionIds },
+      id: { notIn: processedOptionIds }
+    }
+  });
+  
+  // Cleanup removed questions
+  await prisma.question.deleteMany({
+    where: {
+      sectionId: { in: processedSectionIds },
+      id: { notIn: processedQuestionIds }
+    }
+  });
+  
+  // Cleanup removed sections
+  await prisma.section.deleteMany({
+    where: {
+      examId: examId,
+      id: { notIn: processedSectionIds }
+    }
+  });
+}
+
 export class ExamService {
   // -------- Create Exam --------
   async createExam(ownerId: string, data: any) {
-    const { startDate, startTime, timezone, ...rest } = data;
+    const { startDate, startTime, timezone, fullSections, ...rest } = data;
     const combinedStartDate = combineDateAndTime(startDate, startTime, timezone || 'UTC');
 
     const examData = {
@@ -56,11 +181,17 @@ export class ExamService {
       status: 'DRAFT',
       timezone: timezone || 'UTC',
       accessType: rest.accessType || 'PUBLIC',
+      uniqueCode: generateUniqueCode(),
       ...rest,
       startDate: combinedStartDate,
     };
     delete examData.startTime;
-    return prisma.exam.create({ data: examData });
+    
+    const exam = await prisma.exam.create({ data: examData as any });
+    if (fullSections) {
+      await syncSectionsAndQuestions(exam.id, fullSections, !!rest.randomizeQuestions);
+    }
+    return exam;
   }
 
   // -------- Get Exams (filterable) --------
@@ -70,12 +201,31 @@ export class ExamService {
     if (filters?.subject) where.subject = filters.subject;
     if (filters?.startDateFrom) where.startDate = { gte: filters.startDateFrom };
     if (filters?.startDateTo) where.startDate = { ...where.startDate, lte: filters.startDateTo };
-    return prisma.exam.findMany({
+    const exams = await prisma.exam.findMany({
       where,
       orderBy: { createdAt: 'desc' },
       include: {
-        sections: { include: { questions: { include: { options: true } } } },
+        _count: {
+          select: { attempts: true },
+        },
+        sections: {
+          include: {
+            _count: {
+              select: { questions: true }
+            }
+          }
+        }
       },
+    });
+
+    return exams.map((exam: any) => {
+      const { _count, sections, ...rest } = exam;
+      const questionsCount = sections.reduce((acc: number, sec: any) => acc + sec._count.questions, 0);
+      return {
+        ...rest,
+        studentsCount: _count.attempts,
+        questionsCount,
+      };
     });
   }
 
@@ -85,11 +235,25 @@ export class ExamService {
       where: { id: examId },
       include: {
         sections: { include: { questions: { include: { options: true } } } },
+        attempts: {
+          orderBy: { startedAt: 'desc' },
+          take: 50 // Limit to recent 50 attempts for dashboard preview
+        },
+        _count: {
+          select: { attempts: true },
+        },
       },
     });
     if (!exam) throw new Error('Exam not found');
     if (exam.ownerId !== ownerId) throw new Error('Access denied');
-    return exam;
+
+    const questionsCount = exam.sections.reduce((acc, sec) => acc + sec.questions.length, 0);
+
+    return {
+      ...exam,
+      questionsCount,
+      studentsCount: exam._count.attempts,
+    };
   }
 
   // -------- Update Exam --------
@@ -98,18 +262,24 @@ export class ExamService {
     if (!exam) throw new Error('Exam not found');
     if (exam.ownerId !== ownerId) throw new Error('Access denied');
 
-    const { startDate, startTime, ...rest } = data;
-    const combinedStartDate = combineDateAndTime(startDate, startTime);
+    const { startDate, startTime, fullSections, ...rest } = data;
+    const combinedStartDate = combineDateAndTime(startDate, startTime, rest.timezone || exam.timezone || 'UTC');
     const updateData = {
       ...rest,
       startDate: combinedStartDate,
     };
     delete updateData.startTime;
 
-    return prisma.exam.update({
+    const updatedExam = await prisma.exam.update({
       where: { id: examId },
-      data: updateData,
+      data: updateData as any,
     });
+    
+    if (fullSections) {
+      await syncSectionsAndQuestions(exam.id, fullSections, !!updateData.randomizeQuestions);
+    }
+    
+    return updatedExam;
   }
 
   // -------- Delete Exam --------
@@ -490,6 +660,7 @@ export class ExamService {
         studentId: studentId || `anonymous_${Date.now()}`,
         startedAt,
         snapshot: snapshot,
+        gradingKey: gradingKey,
         deadline,
         gradingKey: gradingKey,
       },
