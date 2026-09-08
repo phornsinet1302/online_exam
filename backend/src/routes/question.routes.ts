@@ -20,9 +20,6 @@ import multer from 'multer';
 const router = Router();
 const upload = multer({ storage: multer.memoryStorage() });
 
-// All routes require authentication
-router.use(authMiddleware);
-
 /**
  * @openapi
  * /api/exams/{examId}/sections:
@@ -51,7 +48,7 @@ router.use(authMiddleware);
  *       201:
  *         description: Section created
  */
-router.post('/exams/:examId/sections', createSection);
+router.post('/exams/:examId/sections', authMiddleware, createSection);
 
 /**
  * @openapi
@@ -84,7 +81,7 @@ router.post('/exams/:examId/sections', createSection);
  *       200:
  *         description: Sections reordered
  */
-router.put('/exams/:examId/sections/reorder', reorderSections);
+router.put('/exams/:examId/sections/reorder', authMiddleware, reorderSections);
 
 /**
  * @openapi
@@ -149,7 +146,7 @@ router.put('/exams/:examId/sections/reorder', reorderSections);
  *       400:
  *         description: Validation error (e.g., invalid type, missing options)
  */
-router.post('/questions', createQuestion);
+router.post('/questions', authMiddleware, createQuestion);
 
 /**
  * @openapi
@@ -207,7 +204,7 @@ router.post('/questions', createQuestion);
  *       400:
  *         description: Validation error
  */
-router.put('/questions/:questionId', updateQuestion);
+router.put('/questions/:questionId', authMiddleware, updateQuestion);
 
 /**
  * @openapi
@@ -225,7 +222,7 @@ router.put('/questions/:questionId', updateQuestion);
  *       200:
  *         description: Question deleted
  */
-router.delete('/questions/:questionId', deleteQuestion);
+router.delete('/questions/:questionId', authMiddleware, deleteQuestion);
 
 /**
  * @openapi
@@ -253,7 +250,7 @@ router.delete('/questions/:questionId', deleteQuestion);
  *       200:
  *         description: Import successful
  */
-router.post('/exams/:examId/questions/import', upload.single('file'), importQuestions);
+router.post('/exams/:examId/questions/import', authMiddleware, upload.single('file'), importQuestions);
 
 /**
  * @openapi
@@ -280,7 +277,7 @@ router.post('/exams/:examId/questions/import', upload.single('file'), importQues
  *       200:
  *         description: Material uploaded
  */
-router.post('/exams/:examId/questions/ai/upload-material', upload.single('file'), uploadMaterial);
+router.post('/exams/:examId/questions/ai/upload-material', authMiddleware, upload.single('file'), uploadMaterial);
 
 /**
  * @openapi
@@ -310,7 +307,7 @@ router.post('/exams/:examId/questions/ai/upload-material', upload.single('file')
  *       200:
  *         description: Questions generated
  */
-router.post('/exams/:examId/questions/ai/generate', generateAIQuestions);
+router.post('/exams/:examId/questions/ai/generate', authMiddleware, generateAIQuestions);
 
 /**
  * @openapi
@@ -333,7 +330,7 @@ router.post('/exams/:examId/questions/ai/generate', generateAIQuestions);
  *       200:
  *         description: Review completed
  */
-router.post('/questions/ai/batch-review', batchReviewQuestions);
+router.post('/questions/ai/batch-review', authMiddleware, batchReviewQuestions);
 
 
 /**
@@ -360,7 +357,7 @@ router.post('/questions/ai/batch-review', batchReviewQuestions);
  *       404:
  *         description: Question not found
  */
-router.post('/questions/:questionId/duplicate', duplicateQuestion);
+router.post('/questions/:questionId/duplicate', authMiddleware, duplicateQuestion);
 
 /**
  * @openapi
@@ -404,7 +401,7 @@ router.post('/questions/:questionId/duplicate', duplicateQuestion);
  *       404:
  *         description: Section not found
  */
-router.put('/sections/:sectionId/questions/reorder', reorderQuestions);
+router.put('/sections/:sectionId/questions/reorder', authMiddleware, reorderQuestions);
 
 /**
  * @openapi
@@ -443,6 +440,6 @@ router.put('/sections/:sectionId/questions/reorder', reorderQuestions);
  *       404:
  *         description: Question or target section not found
  */
-router.put('/questions/:questionId/move', moveQuestion);
+router.put('/questions/:questionId/move', authMiddleware, moveQuestion);
 
 export default router;

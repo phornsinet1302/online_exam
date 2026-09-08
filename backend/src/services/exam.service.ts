@@ -52,12 +52,12 @@ async function syncSectionsAndQuestions(examId: string, fullSections: any[], ran
   for (let i = 0; i < fullSections.length; i++) {
     const sec = fullSections[i];
     let sectionId = sec.id;
-    
+
     if (!sectionId || sectionId.startsWith('section-')) {
       const newSec = await prisma.section.create({
         data: {
           examId,
-          title: sec.title || `Section ${i+1}`,
+          title: sec.title || `Section ${i + 1}`,
           order: i,
           randomization: randomizeQuestions,
           shuffleAnswers: randomizeQuestions
@@ -85,7 +85,7 @@ async function syncSectionsAndQuestions(examId: string, fullSections: any[], ran
       if (qType === "MATH") qType = "MATH_FORMULA";
 
       const isChoiceType = ["TRUE_FALSE", "MULTIPLE_SELECT", "MCQ", "CHECKBOX"].includes(qType);
-      
+
       if (!qId || qId.startsWith('question-')) {
         const newQ = await prisma.question.create({
           data: {
@@ -152,7 +152,7 @@ async function syncSectionsAndQuestions(examId: string, fullSections: any[], ran
       id: { notIn: processedOptionIds }
     }
   });
-  
+
   // Cleanup removed questions
   await prisma.question.deleteMany({
     where: {
@@ -160,7 +160,7 @@ async function syncSectionsAndQuestions(examId: string, fullSections: any[], ran
       id: { notIn: processedQuestionIds }
     }
   });
-  
+
   // Cleanup removed sections
   await prisma.section.deleteMany({
     where: {
@@ -186,7 +186,7 @@ export class ExamService {
       startDate: combinedStartDate,
     };
     delete examData.startTime;
-    
+
     const exam = await prisma.exam.create({ data: examData as any });
     if (fullSections) {
       await syncSectionsAndQuestions(exam.id, fullSections, !!rest.randomizeQuestions);
@@ -256,11 +256,11 @@ export class ExamService {
     };
   }
 
-  // -------- Update Exam --------
   async updateExam(examId: string, ownerId: string, data: any) {
     const exam = await prisma.exam.findUnique({ where: { id: examId } });
     if (!exam) throw new Error('Exam not found');
     if (exam.ownerId !== ownerId) throw new Error('Access denied');
+    if (exam.sessionState === 'ENDED') throw new Error('Cannot edit an exam that has already ended.');
 
     const { startDate, startTime, fullSections, ...rest } = data;
     const combinedStartDate = combineDateAndTime(startDate, startTime, rest.timezone || exam.timezone || 'UTC');
@@ -274,11 +274,11 @@ export class ExamService {
       where: { id: examId },
       data: updateData as any,
     });
-    
+
     if (fullSections) {
       await syncSectionsAndQuestions(exam.id, fullSections, !!updateData.randomizeQuestions);
     }
-    
+
     return updatedExam;
   }
 
@@ -325,7 +325,8 @@ export class ExamService {
         accessType: exam.accessType,
         password: exam.password,
         status: 'DRAFT',
-        // DO NOT copy uniqueCode, magicLinkToken
+        // Generate a fresh unique code — do NOT copy the original's code
+        uniqueCode: generateUniqueCode(),
       },
     });
 
@@ -660,8 +661,8 @@ export class ExamService {
         studentId: studentId || `anonymous_${Date.now()}`,
         startedAt,
         snapshot: snapshot,
-        gradingKey: gradingKey,
         deadline,
+        gradingKey: gradingKey,
       },
     });
 

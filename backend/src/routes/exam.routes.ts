@@ -19,7 +19,6 @@ import {
 import { authMiddleware } from '../middleware/auth.middleware.js';
 
 const router = Router();
-router.use(authMiddleware); // all routes require auth
 
 /**
  * @openapi
@@ -200,8 +199,8 @@ router.use(authMiddleware); // all routes require auth
  *       201:
  *         description: Exam created
  */
-router.get('/exams', getExams);
-router.post('/exams', createExam);
+router.get('/exams', authMiddleware, getExams);
+router.post('/exams', authMiddleware, createExam);
 
 /**
  * @openapi
@@ -249,9 +248,9 @@ router.post('/exams', createExam);
  *       200:
  *         description: Deletion confirmation
  */
-router.get('/exams/:id', getExamById);
-router.put('/exams/:id', updateExam);
-router.delete('/exams/:id', deleteExam);
+router.get('/exams/:id', authMiddleware, getExamById);
+router.put('/exams/:id', authMiddleware, updateExam);
+router.delete('/exams/:id', authMiddleware, deleteExam);
 
 /**
  * @openapi
@@ -269,7 +268,7 @@ router.delete('/exams/:id', deleteExam);
  *       201:
  *         description: New draft exam
  */
-router.post('/exams/:id/duplicate', duplicateExam);
+router.post('/exams/:id/duplicate', authMiddleware, duplicateExam);
 
 /**
  * @openapi
@@ -287,7 +286,7 @@ router.post('/exams/:id/duplicate', duplicateExam);
  *       200:
  *         description: Published exam with access tokens
  */
-router.post('/exams/:id/publish', publishExam);
+router.post('/exams/:id/publish', authMiddleware, publishExam);
 
 /**
  * @openapi
@@ -305,7 +304,7 @@ router.post('/exams/:id/publish', publishExam);
  *       200:
  *         description: Archived exam
  */
-router.post('/exams/:id/archive', archiveExam);
+router.post('/exams/:id/archive', authMiddleware, archiveExam);
 
 /**
  * @openapi
@@ -323,9 +322,9 @@ router.post('/exams/:id/archive', archiveExam);
  *       200:
  *         description: Preview structure
  */
-router.get('/exams/:id/preview', previewExam);
+router.get('/exams/:id/preview', authMiddleware, previewExam);
 
-router.post('/exams/:examId/start', startExamSession);
+router.post('/exams/:examId/start', authMiddleware, startExamSession);
 
 // ═══════════════════════════════════════════════════════════════════════════════
 // TIMER ENDPOINTS (SRS 3.9)
@@ -370,7 +369,7 @@ router.post('/exams/:examId/start', startExamSession);
  *       200:
  *         description: Updated exam with timer config
  */
-router.put('/exams/:id/timer', updateTimerConfig);
+router.put('/exams/:id/timer', authMiddleware, updateTimerConfig);
 
 /**
  * @openapi
@@ -400,7 +399,7 @@ router.put('/exams/:id/timer', updateTimerConfig);
  *       200:
  *         description: Updated attempt with extra time
  */
-router.post('/exams/:id/extra-time', setExtraTime);
+router.post('/exams/:id/extra-time', authMiddleware, setExtraTime);
 
 /**
  * @openapi
@@ -418,7 +417,7 @@ router.post('/exams/:id/extra-time', setExtraTime);
  *       200:
  *         description: Attempt auto-submitted
  */
-router.post('/exams/attempts/:attemptId/auto-submit', autoSubmitAttempt);
+router.post('/exams/attempts/:attemptId/auto-submit', authMiddleware, autoSubmitAttempt);
 
 /**
  * @openapi
@@ -436,6 +435,6 @@ router.post('/exams/attempts/:attemptId/auto-submit', autoSubmitAttempt);
  *       200:
  *         description: Timer status
  */
-router.get('/exams/attempts/:attemptId/timer', getTimerStatus);
+router.get('/exams/attempts/:attemptId/timer', authMiddleware, getTimerStatus);
 
 export default router;

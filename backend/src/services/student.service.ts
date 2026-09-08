@@ -4,6 +4,7 @@ import { Prisma } from '@prisma/client';
 import { supabase } from '../config/supabase.js';
 import jwt from 'jsonwebtoken';
 import { v4 as uuidv4 } from 'uuid';
+import { broadcastToTeacher } from './session.service.js';
 
 const MATH_JWT_SECRET = process.env.JWT_SECRET || 'fallback-secret';
 const MATH_SESSION_TTL_MINUTES = 15;
@@ -22,11 +23,17 @@ export async function getExamState(attemptId: string) {
   const baseDuration = exam.duration ?? 0;
   const extraTime = attempt.extraTimeMinutes ?? 0;
   const totalMinutes = baseDuration + extraTime;
-  const deadline =
-    attempt.deadline ??
-    new Date(attempt.startedAt.getTime() + totalMinutes * 60_000);
-  const now = new Date();
-  const remainingMs = Math.max(0, deadline.getTime() - now.getTime());
+  
+  let deadline = attempt.deadline;
+  let remainingMs = 0;
+  let isExpired = false;
+
+  if (totalMinutes > 0) {
+    deadline = deadline ?? new Date(attempt.startedAt.getTime() + totalMinutes * 60_000);
+    const now = new Date();
+    remainingMs = Math.max(0, deadline.getTime() - now.getTime());
+    isExpired = remainingMs <= 0;
+  }
 
   return {
     attemptId: attempt.id,
@@ -41,7 +48,7 @@ export async function getExamState(attemptId: string) {
       extraTime,
       totalMinutes,
       remainingSeconds: Math.floor(remainingMs / 1000),
-      isExpired: remainingMs <= 0,
+      isExpired,
       showCountdown: exam.showCountdown,
       autoSubmit: exam.autoSubmit,
     },
@@ -418,6 +425,13 @@ export async function submitExam(attemptId: string) {
       answers: autosaveData as unknown as Prisma.InputJsonValue,
     },
   });
+
+  // Broadcast to teacher dashboard
+  try {
+    broadcastToTeacher(exam.id, 'student_submitted', { attemptId: attemptId });
+  } catch (err) {
+    console.error('Failed to broadcast student_submitted:', err);
+  }
 
   return {
     message: 'Exam submitted successfully.',

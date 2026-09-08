@@ -17,9 +17,11 @@ export interface Exam {
   maxAttempts: number | null;
   timezone: string | null;
   uniqueCode: string | null;
+  sessionState?: string;
   questionsCount?: number;
   studentsCount?: number;
   sections?: any[];
+  requireLateApproval?: boolean;
 }
 
 export const examsApi = {

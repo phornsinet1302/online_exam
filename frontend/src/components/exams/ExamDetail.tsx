@@ -1,38 +1,270 @@
 "use client";
 
-import { useState, useEffect } from "react";
+import { useState, useEffect, useRef } from "react";
 import { useParams, useNavigate } from "@/lib/hooks";
 import { DashboardLayout, StatusBadge, CopyField, Toggle } from "@/components/dashboard/DashboardShared";
-import { Pencil, ChevronRight, Download, Clock } from "lucide-react";
+import { Pencil, ChevronRight, Download, Clock, Users, Play, StopCircle, Wifi, WifiOff, Loader2 } from "lucide-react";
 import { QRCodeCanvas } from "qrcode.react";
 import { examsApi } from "@/lib/api/exams";
+import { startExamSession, endExamSession } from "@/lib/api/session";
+import { API_URL } from "@/lib/api/client";
 import { U, I, INK, CAMEL } from "@/lib/tokens";
 
+const S = "#059669";
+const SL = "#ecfdf5";
+
+// ─── Live Session Panel ───────────────────────────────────────────────────────
+function LiveSessionPanel({ examId, sessionState, onSessionChange }: {
+  examId: string;
+  sessionState: string;
+  onSessionChange: (state: string) => void;
+}) {
+  const [waitingStudents, setWaitingStudents] = useState<any[]>([]);
+  const [starting, setStarting] = useState(false);
+  const [ending, setEnding] = useState(false);
+  const [connected, setConnected] = useState(false);
+  const esRef = useRef<EventSource | null>(null);
+
+  useEffect(() => {
+    if (!examId) return;
+    const es = new EventSource(`${API_URL}/session/${examId}/teacher-live`);
+    esRef.current = es;
+
+    es.onopen = () => setConnected(true);
+    es.onerror = () => setConnected(false);
+
+    es.addEventListener("session_state", (e) => {
+      try {
+        const state = JSON.parse(e.data);
+        setWaitingStudents(state.joinedStudents || []);
+        if (state.sessionState) onSessionChange(state.sessionState);
+        setConnected(true);
+      } catch {}
+    });
+
+    es.addEventListener("student_joined", (e) => {
+      try {
+        const payload = JSON.parse(e.data);
+        setWaitingStudents(prev => {
+          const exists = prev.findIndex(s => s.attemptId === payload.attemptId);
+          if (exists >= 0) {
+            const updated = [...prev];
+            updated[exists] = { ...updated[exists], ...payload };
+            return updated;
+          }
+          return [...prev, payload];
+        });
+      } catch {}
+    });
+
+    es.addEventListener("student_offline", (e) => {
+      try {
+        const { attemptId } = JSON.parse(e.data);
+        setWaitingStudents(prev => prev.filter(s => s.attemptId !== attemptId));
+      } catch {}
+    });
+
+    es.addEventListener("student_kicked", (e) => {
+      try {
+        const { attemptId } = JSON.parse(e.data);
+        setWaitingStudents(prev => prev.filter(s => s.attemptId !== attemptId));
+      } catch {}
+    });
+
+    es.addEventListener("exam_started", () => {
+      onSessionChange("ACTIVE");
+    });
+
+    es.addEventListener("exam_ended", () => {
+      onSessionChange("ENDED");
+      setWaitingStudents([]);
+    });
+
+    return () => { es.close(); esRef.current = null; };
+  }, [examId]);
+
+  const handleStart = async () => {
+    setStarting(true);
+    try {
+      await startExamSession(examId);
+      onSessionChange("ACTIVE");
+    } catch (err: any) {
+      alert(err.message || "Failed to start exam.");
+    } finally {
+      setStarting(false);
+    }
+  };
+
+  const handleEnd = async () => {
+    setEnding(true);
+    try {
+      await endExamSession(examId);
+      onSessionChange("ENDED");
+    } catch (err: any) {
+      alert(err.message || "Failed to end exam.");
+    } finally {
+      setEnding(false);
+    }
+  };
+
+  const isActive = sessionState === "ACTIVE";
+  const isEnded = sessionState === "ENDED";
+  const avatarColors = [S, CAMEL, INK, "#2563EB", "#7c3aed", "#db2777"];
+
+  return (
+    <div className="space-y-4">
+      {/* Status banner */}
+      <div className={`rounded-2xl p-5 flex items-center justify-between gap-4 flex-wrap`}
+        style={{ background: isActive ? SL : isEnded ? "#f3f4f6" : INK }}>
+        <div>
+          <div className="flex items-center gap-2 mb-1">
+            <span className="w-2.5 h-2.5 rounded-full" style={{
+              background: isActive ? S : isEnded ? "#9ca3af" : CAMEL,
+              boxShadow: isActive ? `0 0 0 4px ${SL}` : undefined,
+              animation: isActive ? undefined : "pulse 1.5s infinite",
+            }}/>
+            <span className="text-xs font-black uppercase tracking-wider"
+              style={{ fontFamily: U, color: isActive ? S : isEnded ? "#6b7280" : "#fde68a" }}>
+              {isActive ? "Session Active" : isEnded ? "Session Ended" : "Waiting Room Open"}
+            </span>
+          </div>
+          <p className="text-sm" style={{
+            fontFamily: I,
+            color: isActive ? "#065f46" : isEnded ? "#6b7280" : "rgba(255,255,255,0.75)"
+          }}>
+            {isActive
+              ? `${waitingStudents.length} student${waitingStudents.length !== 1 ? "s" : ""} currently in the exam`
+              : isEnded
+              ? "This exam session has ended"
+              : `${waitingStudents.length} student${waitingStudents.length !== 1 ? "s" : ""} waiting to start`}
+          </p>
+        </div>
+        <div className="flex items-center gap-2">
+          {/* Live connection indicator */}
+          <span className={`flex items-center gap-1.5 text-xs font-bold px-3 py-1.5 rounded-full ${connected ? "bg-green-100 text-green-700" : "bg-red-100 text-red-600"}`}
+            style={{ fontFamily: U }}>
+            {connected ? <Wifi size={11}/> : <WifiOff size={11}/>}
+            {connected ? "Live" : "Reconnecting..."}
+          </span>
+          {!isActive && !isEnded && (
+            <button onClick={handleStart} disabled={starting}
+              className="flex items-center gap-2 px-5 py-2.5 rounded-xl text-sm font-black text-white hover:opacity-90 transition-all disabled:opacity-60"
+              style={{ background: S, fontFamily: U }}>
+              {starting ? <Loader2 size={14} className="animate-spin"/> : <Play size={14}/>}
+              {starting ? "Starting..." : "Start Exam Now"}
+            </button>
+          )}
+          {isActive && (
+            <button onClick={handleEnd} disabled={ending}
+              className="flex items-center gap-2 px-5 py-2.5 rounded-xl text-sm font-black text-white hover:opacity-90 transition-all disabled:opacity-60"
+              style={{ background: "#ef4444", fontFamily: U }}>
+              {ending ? <Loader2 size={14} className="animate-spin"/> : <StopCircle size={14}/>}
+              {ending ? "Ending..." : "End Exam"}
+            </button>
+          )}
+        </div>
+      </div>
+
+      {/* Student list */}
+      {!isEnded && (
+        <div className="bg-white rounded-2xl border border-gray-100 overflow-hidden">
+          <div className="px-6 py-4 border-b border-gray-100 flex items-center justify-between">
+            <div>
+              <h3 className="text-sm font-black" style={{ fontFamily: U, color: INK }}>
+                {isActive ? "Students in Exam" : "Students in Waiting Room"}
+              </h3>
+              <p className="text-xs text-gray-400 mt-0.5" style={{ fontFamily: I }}>
+                Updates in real-time via live connection
+              </p>
+            </div>
+            <span className="text-xs font-black px-2.5 py-1 rounded-full"
+              style={{ background: `${S}15`, color: S, fontFamily: U }}>
+              {waitingStudents.length} online
+            </span>
+          </div>
+          {waitingStudents.length === 0 ? (
+            <div className="p-12 text-center">
+              <Users size={32} className="mx-auto mb-3 text-gray-200"/>
+              <p className="text-sm text-gray-400" style={{ fontFamily: I }}>
+                {isActive ? "No active students" : "Waiting for students to join..."}
+              </p>
+              <p className="text-xs text-gray-300 mt-1" style={{ fontFamily: I }}>
+                Students join using the exam code or link
+              </p>
+            </div>
+          ) : (
+            <div className="grid grid-cols-2 gap-3 p-5 sm:grid-cols-3 lg:grid-cols-4">
+              {waitingStudents.map((student, idx) => {
+                const info = student.studentInfo || {};
+                const name = info.name || "Student";
+                const initials = name.split(" ").map((p: string) => p[0]).join("").slice(0, 2).toUpperCase();
+                const color = avatarColors[idx % avatarColors.length];
+                return (
+                  <div key={student.attemptId}
+                    className="flex flex-col items-center rounded-2xl border border-gray-100 bg-gray-50 p-4 text-center">
+                    <div className="relative mb-3">
+                      <div className="w-12 h-12 rounded-full flex items-center justify-center text-sm font-black text-white"
+                        style={{ background: color, fontFamily: U }}>{initials}</div>
+                      <span className="absolute bottom-0 right-0 w-3 h-3 rounded-full border-2 border-white"
+                        style={{ background: S }}/>
+                    </div>
+                    <p className="text-xs font-black truncate w-full" style={{ fontFamily: U, color: INK }}>{name}</p>
+                    <p className="text-[10px] text-gray-400 truncate w-full mt-0.5" style={{ fontFamily: I }}>
+                      {info.studentId || info.email || "—"}
+                    </p>
+                  </div>
+                );
+              })}
+            </div>
+          )}
+        </div>
+      )}
+
+      {isEnded && (
+        <div className="bg-white rounded-2xl border border-gray-100 p-8 text-center">
+          <StopCircle size={32} className="mx-auto mb-3 text-gray-300"/>
+          <p className="text-sm font-black text-gray-500" style={{ fontFamily: U }}>Session has ended</p>
+          <p className="text-xs text-gray-400 mt-1" style={{ fontFamily: I }}>
+            Student results are available in the Overview tab
+          </p>
+        </div>
+      )}
+    </div>
+  );
+}
+
+// ─── Main Component ───────────────────────────────────────────────────────────
 export function ExamDetail() {
   const { id } = useParams();
   const navigate = useNavigate();
   
   const [exam, setExam] = useState<any>(null);
   const [loading, setLoading] = useState(true);
+  const [sessionState, setSessionState] = useState("WAITING");
   
   useEffect(() => {
     if (id) {
-      examsApi.getById(id as string).then(setExam).catch(() => setExam(null)).finally(() => setLoading(false));
+      examsApi.getById(id as string).then(data => {
+        setExam(data);
+        setSessionState(data.sessionState || "WAITING");
+      }).catch(() => setExam(null)).finally(() => setLoading(false));
     } else {
       setLoading(false);
     }
   }, [id]);
-  const [tab, setTab] = useState("overview");
+
+  const [tab, setTab] = useState("session");
 
   useEffect(() => {
     if (typeof window !== "undefined") {
       const urlParams = new URLSearchParams(window.location.search);
       const initialTab = urlParams.get("tab");
-      if (initialTab && ["overview", "sharing", "settings", "preview"].includes(initialTab)) {
+      if (initialTab && ["session", "overview", "sharing", "settings", "preview"].includes(initialTab)) {
         setTab(initialTab);
       }
     }
   }, []);
+
   const [privacy, setPrivacy] = useState("public");
   const [proctoring, setProctoring] = useState(true);
   const [shuffleQ, setShuffleQ] = useState(true);
@@ -63,16 +295,34 @@ export function ExamDetail() {
     }
   };
 
-  const tabs = ["overview","sharing","settings","preview"];
+  const tabs = ["session", "overview", "sharing", "settings", "preview"];
 
-  if (loading) return <div className="p-10 text-center">Loading...</div>;
+  const sessionStateLabel: Record<string, string> = {
+    WAITING: "Waiting",
+    ACTIVE: "Active",
+    ENDED: "Ended",
+  };
+
+  if (loading) return <div className="p-10 text-center"><Loader2 className="animate-spin mx-auto text-gray-400" size={28}/></div>;
   if (!exam) return <div className="p-10 text-center">Exam not found</div>;
 
   return (
     <DashboardLayout active="exams" title={exam.title} subtitle={`${exam.subject || "No Subject"} · ${new Date(exam.createdAt).toLocaleDateString()}`}
       actions={<>
         <StatusBadge status={exam.status}/>
-        <button onClick={()=>navigate(`/dashboard/exams/${exam.id}/edit`)} className="flex items-center gap-2 text-white text-xs font-bold px-4 py-2 rounded-xl hover:opacity-90" style={{ background:INK, fontFamily:U }}><Pencil size={13}/>Edit</button>
+        {sessionState !== "WAITING" && (
+          <span className={`text-xs font-black px-3 py-1.5 rounded-full`}
+            style={{
+              background: sessionState === "ACTIVE" ? SL : "#f3f4f6",
+              color: sessionState === "ACTIVE" ? S : "#6b7280",
+              fontFamily: U,
+            }}>
+            ● {sessionStateLabel[sessionState] || sessionState}
+          </span>
+        )}
+        {sessionState !== "ENDED" && (
+          <button onClick={()=>navigate(`/dashboard/exams/${exam.id}/edit`)} className="flex items-center gap-2 text-white text-xs font-bold px-4 py-2 rounded-xl hover:opacity-90" style={{ background:INK, fontFamily:U }}><Pencil size={13}/>Edit</button>
+        )}
       </>}>
 
       {/* Breadcrumb */}
@@ -82,13 +332,40 @@ export function ExamDetail() {
       </div>
 
       {/* Tabs */}
-      <div className="flex gap-1 bg-white rounded-xl border border-gray-100 p-1 w-fit mb-5">
+      <div className="flex gap-1 bg-white rounded-xl border border-gray-100 p-1 w-fit mb-5 flex-wrap">
         {tabs.map(t=>(
           <button key={t} onClick={()=>setTab(t)}
-            className={`text-xs font-semibold px-4 py-2 rounded-lg capitalize transition-all ${tab===t?"text-white shadow-sm":"text-gray-500 hover:text-gray-700"}`}
-            style={{ background:tab===t?INK:undefined, fontFamily:U }}>{t}</button>
+            className={`text-xs font-semibold px-4 py-2 rounded-lg capitalize transition-all flex items-center gap-1.5 ${tab===t?"text-white shadow-sm":"text-gray-500 hover:text-gray-700"}`}
+            style={{ background:tab===t?INK:undefined, fontFamily:U }}>
+            {t === "session" && sessionState === "ACTIVE" && (
+              <span className="w-1.5 h-1.5 rounded-full bg-green-400 animate-pulse"/>
+            )}
+            {t}
+          </button>
         ))}
       </div>
+
+      {/* Session tab (Live Control) */}
+      {tab==="session" && exam.status === "PUBLISHED" && (
+        <LiveSessionPanel
+          examId={exam.id}
+          sessionState={sessionState}
+          onSessionChange={setSessionState}
+        />
+      )}
+      {tab==="session" && exam.status !== "PUBLISHED" && (
+        <div className="bg-amber-50 border border-amber-200 rounded-2xl p-8 text-center">
+          <p className="text-sm font-black text-amber-700" style={{ fontFamily: U }}>Exam is not published</p>
+          <p className="text-xs text-amber-600 mt-1 mb-4" style={{ fontFamily: I }}>
+            Publish this exam first before starting a live session.
+          </p>
+          <button onClick={() => navigate(`/dashboard/exams/${exam.id}/edit`)}
+            className="text-xs font-bold px-4 py-2 rounded-xl text-white hover:opacity-90"
+            style={{ background: INK, fontFamily: U }}>
+            Go to Editor
+          </button>
+        </div>
+      )}
 
       {/* Overview tab */}
       {tab==="overview"&&(
@@ -157,13 +434,7 @@ export function ExamDetail() {
               <p className="text-xs font-bold text-gray-500 uppercase tracking-wider mb-3" style={{ fontFamily:U }}>QR Code</p>
               <div className="flex items-start gap-5">
                 <div className="bg-white p-2 rounded-xl border border-gray-200">
-                  <QRCodeCanvas 
-                    id="qrCodeCanvas"
-                    value={magicLink} 
-                    size={100} 
-                    level={"H"}
-                    includeMargin={true}
-                  />
+                  <QRCodeCanvas id="qrCodeCanvas" value={magicLink} size={100} level={"H"} includeMargin={true}/>
                 </div>
                 <div>
                   <p className="text-sm text-gray-600 mb-3" style={{ fontFamily:I }}>Students can scan this code to join the exam instantly from their phone.</p>
@@ -205,7 +476,6 @@ export function ExamDetail() {
       {tab==="preview"&&(
         <div className="max-w-2xl">
           <div className="bg-white rounded-2xl border border-gray-200 overflow-hidden">
-            {/* Student exam bar */}
             <div className="flex items-center justify-between px-6 py-4 border-b border-gray-100" style={{ background:"#f9fafb" }}>
               <div><p className="text-xs text-gray-400 mb-0.5" style={{ fontFamily:I }}>Student view · Read-only preview</p><h3 className="text-sm font-bold" style={{ fontFamily:U, color:INK }}>{exam.title}</h3></div>
               <div className="flex items-center gap-2 text-sm font-semibold" style={{ fontFamily:U, color:INK }}><Clock size={14} style={{ color:CAMEL }}/>{exam.duration || 0}:00</div>

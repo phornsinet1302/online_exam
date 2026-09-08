@@ -1,2 +1,3 @@
 import { StudentInfo } from "@/components/student-flow/StudentInfo";
-export default function InfoPage({ searchParams }: any) { return <StudentInfo searchParams={searchParams} />; }
+import { Suspense } from "react";
+export default function InfoPage() { return <Suspense fallback={<div>Loading...</div>}><StudentInfo /></Suspense>; }

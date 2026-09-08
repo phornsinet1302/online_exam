@@ -111,7 +111,7 @@ export function ExamList() {
                   <div>
                     <StatusBadge status={exam.status.toLowerCase()}/>
                     <h3 className="text-sm font-black mt-2 mb-1 leading-snug" style={{ fontFamily:U, color:INK }}>{exam.title}</h3>
-                    <p className="text-xs text-gray-400" style={{ fontFamily:I }}>{exam.subject || "No Subject"} · {exam.createdAt ? new Date(exam.createdAt).toLocaleDateString() : "No Date"}</p>
+                    <p className="text-xs text-gray-400" style={{ fontFamily:I }}>{exam.subject || "No Subject"} · {exam.startDate ? new Date(exam.startDate).toLocaleDateString() : new Date(exam.updatedAt || exam.createdAt).toLocaleDateString()}</p>
                     <button onClick={()=>copyExamCode(exam.uniqueCode || "")}
                       className="mt-3 inline-flex items-center gap-2 rounded-lg border border-gray-200 bg-gray-50 px-3 py-1.5 text-[11px] font-bold text-gray-600 hover:border-gray-300 hover:bg-white hover:text-gray-900 transition-all"
                       style={{ fontFamily:U }}>
@@ -125,7 +125,13 @@ export function ExamList() {
                     <button onClick={e=>{e.stopPropagation();setMenuOpen(menuOpen===exam.id?null:exam.id);}} className="w-8 h-8 rounded-lg flex items-center justify-center text-gray-400 hover:bg-gray-100 hover:text-gray-600 transition-all"><MoreVertical size={15}/></button>
                     {menuOpen===exam.id&&(
                       <div className="absolute right-0 top-9 bg-white border border-gray-200 rounded-xl shadow-xl z-50 w-44 py-1" onClick={e=>e.stopPropagation()}>
-                        {[{icon:Eye,label:"Preview",action:()=>navigate(`/dashboard/exams/${exam.id}?tab=preview`)},{icon:Pencil,label:"Edit",action:()=>navigate(`/dashboard/exams/${exam.id}/edit`)},{icon:Hash,label:"Copy code",action:()=>copyExamCode(exam.uniqueCode || "")},{icon:Copy,label:"Duplicate",action:()=>handleDuplicate(exam.id)},{icon:Archive,label:"Archive",action:()=>{setArchiveConfirm(exam.id);setMenuOpen(null);}},{icon:Trash2,label:"Delete",action:async ()=>{
+                        {[
+                          {icon:Eye,label:"Preview",action:()=>navigate(`/dashboard/exams/${exam.id}?tab=preview`)},
+                          ...(exam.sessionState !== "ENDED" ? [{icon:Pencil,label:"Edit",action:()=>navigate(`/dashboard/exams/${exam.id}/edit`)}] : []),
+                          {icon:Hash,label:"Copy code",action:()=>copyExamCode(exam.uniqueCode || "")},
+                          {icon:Copy,label:"Duplicate",action:()=>handleDuplicate(exam.id)},
+                          {icon:Archive,label:"Archive",action:()=>{setArchiveConfirm(exam.id);setMenuOpen(null);}},
+                          {icon:Trash2,label:"Delete",action:async ()=>{
                           if (window.confirm("Are you sure you want to delete this exam?")) {
                             try {
                               await examsApi.delete(exam.id);
@@ -154,7 +160,9 @@ export function ExamList() {
               </div>
               <div className="px-5 pb-4 flex gap-2">
                 <button onClick={()=>navigate(`/dashboard/exams/${exam.id}`)} className="flex-1 text-xs font-semibold py-2 rounded-lg text-gray-700 border border-gray-200 hover:bg-gray-50 transition-all" style={{ fontFamily:U }}>View</button>
-                <button onClick={()=>navigate(`/dashboard/exams/${exam.id}/edit`)} className="flex-1 text-xs font-semibold py-2 rounded-lg text-white hover:opacity-90 transition-all" style={{ background:INK, fontFamily:U }}>Edit</button>
+                {exam.sessionState !== "ENDED" && (
+                  <button onClick={()=>navigate(`/dashboard/exams/${exam.id}/edit`)} className="flex-1 text-xs font-semibold py-2 rounded-lg text-white hover:opacity-90 transition-all" style={{ background:INK, fontFamily:U }}>Edit</button>
+                )}
               </div>
             </div>
           ))}

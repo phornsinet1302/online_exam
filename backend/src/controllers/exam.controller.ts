@@ -3,6 +3,7 @@ import { Request, Response } from 'express';
 import { ExamService } from '../services/exam.service.js';
 import { ExamStatus } from '@prisma/client';
 import { z } from 'zod';
+import { scheduleAutoStart } from '../services/session.service.js';
 
 const examService = new ExamService();
 
@@ -79,6 +80,10 @@ export const updateExam = async (req: Request, res: Response) => {
     const ownerId = getOwnerId(req);
     const { id } = idSchema.parse(req.params);
     const exam = await examService.updateExam(id, ownerId, req.body);
+    // Re-schedule auto-start if this exam has a future startDate and is published
+    if (exam.startDate && exam.status === 'PUBLISHED') {
+      scheduleAutoStart(exam.id, new Date(exam.startDate));
+    }
     res.status(200).json(exam);
   } catch (error: any) {
     res.status(400).json({ message: error.message });
@@ -112,6 +117,11 @@ export const publishExam = async (req: Request, res: Response) => {
     const ownerId = getOwnerId(req);
     const { id } = idSchema.parse(req.params);
     const result = await examService.publishExam(id, ownerId);
+    // Schedule auto-start if exam has a future startDate
+    const exam = (result as any).exam || result;
+    if (exam.startDate && new Date(exam.startDate) > new Date()) {
+      scheduleAutoStart(exam.id, new Date(exam.startDate));
+    }
     res.status(200).json(result);
   } catch (error: any) {
     res.status(400).json({ message: error.message });

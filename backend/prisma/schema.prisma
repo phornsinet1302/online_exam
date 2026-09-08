@@ -50,12 +50,14 @@ model Exam {
   autoClose            Boolean          @default(false)
   autoSubmit           Boolean          @default(true)
   showCountdown        Boolean          @default(true)
+  requireLateApproval  Boolean          @default(false)
   attempts             ExamAttempt[]
   owner                User             @relation(fields: [ownerId], references: [supabaseId])
   materials            Material[]
   sections             Section[]
   collaborators        Collaborator[]
   reports              Report[]
+  antiCheatRules       ExamAntiCheatRule[]
 
   @@map("exams")
 }
@@ -81,10 +83,13 @@ model ExamAttempt {
   // Phase 5: Student Exam (SRS 3.12 & 3.13)
   autosaveData     Json?               // { [questionId]: { answer, savedAt } }
   reviewFlags      String[]            @default([]) // questionIds marked for review
+  isApproved       Boolean             @default(true)
   exam             Exam                @relation(fields: [examId], references: [id], onDelete: Cascade)
-  student_answers  student_answers[]
+
   mathUploadSessions MathUploadSession[]
   mathUploads      MathUpload[]
+  studentAnswers   StudentAnswer[]
+  violations       ViolationLog[]
 
   @@map("exam_attempts")
 }
@@ -181,24 +186,6 @@ model MathUpload {
   @@map("math_uploads")
 }
 
-model student_answers {
-  id                String        @id
-  attempt_id        String
-  question_id       String
-  selectedOptionIds String[]
-  textAnswer        String?
-  matchingPairs     Json?
-  fileUrl           String?
-  score             Float?
-  maxScore          Float
-  status            GradingStatus @default(needs_review)
-  feedback          String?
-  gradedBy          String?
-  gradedAt          DateTime?
-  createdAt         DateTime      @default(now())
-  updatedAt         DateTime
-  exam_attempts     ExamAttempt   @relation(fields: [attempt_id], references: [id], onDelete: Cascade)
-}
 
 // ═══════════════════════════════════════════════════════════════════════════════
 // Teacher Collaboration (SRS 3.10)
@@ -249,17 +236,33 @@ enum Role {
   INVIGILATOR
 }
 
+
+enum ExamSessionState {
+  WAITING
+  ACTIVE
+  ENDED
+}
+
 enum ExamAccess {
   PUBLIC
   PRIVATE
   PASSWORD_PROTECTED
 }
 
+
 enum ExamStatus {
   DRAFT
   PUBLISHED
   ARCHIVED
 }
+
+enum GradingStatus {
+  auto_graded
+  needs_review
+  graded
+}
+
+
 
 enum QuestionType {
   MCQ
@@ -281,17 +284,8 @@ enum Difficulty {
   MIXED
 }
 
-enum ExamSessionState {
-  WAITING
-  ACTIVE
-  ENDED
-}
 
-enum GradingStatus {
-  auto_graded
-  needs_review
-  graded
-}
+
 
 enum CollaboratorRole {
   COLLABORATOR
@@ -322,4 +316,83 @@ enum ReportStatus {
   GENERATING
   COMPLETED
   FAILED
+}
+
+model StudentAnswer {
+  id         String      @id @default(cuid())
+  attemptId  String      @map("attempt_id")
+  attempt    ExamAttempt @relation(fields: [attemptId], references: [id], onDelete: Cascade)
+  questionId String      @map("question_id")
+
+  // Raw answer from student
+  selectedOptionIds String[]  // for MCQ, TRUE_FALSE, MULTIPLE_SELECT, CHECKBOX
+  textAnswer        String?   // for SHORT_ANSWER, ESSAY, FILL_IN_BLANK, MATH_FORMULA
+  matchingPairs     Json?     // for MATCHING: [{leftId, rightId}]
+  fileUrl           String?   // for FILE_UPLOAD
+
+  // Grading output
+  score    Float?
+  maxScore Float
+  status   GradingStatus @default(needs_review)
+  feedback String?       // teacher feedback for manual grading
+  gradedBy String?       // teacher supabaseId
+  gradedAt DateTime?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@map("student_answers")
+}
+
+// ─── Anti-Cheat ───────────────────────────────────────────────────────────────
+
+model ExamAntiCheatRule {
+  id        String   @id @default(cuid())
+  examId    String   @map("exam_id")
+  exam      Exam     @relation(fields: [examId], references: [id], onDelete: Cascade)
+
+  // eventType values:
+  // tab_switch | copy | paste | right_click | keyboard_shortcut
+  // fullscreen_exit | window_blur | devtools | print_screen
+  // idle | disconnect_internet | disconnect_camera | disconnect_mic
+  // resize | multiple_windows | extension_detected
+  eventType String
+
+  enabled   Boolean @default(true)
+  // action: "ignore" | "warn" | "flag" | "block" | "auto_submit"
+  action    String  @default("warn")
+  // trigger action after N cumulative occurrences (null = every occurrence)
+  threshold Int?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@unique([examId, eventType])
+  @@map("exam_anti_cheat_rules")
+}
+
+model ViolationLog {
+  id        String      @id @default(cuid())
+  attemptId String      @map("attempt_id")
+  attempt   ExamAttempt @relation(fields: [attemptId], references: [id], onDelete: Cascade)
+  examId    String      @map("exam_id")
+
+  eventType String  // same values as ExamAntiCheatRule.eventType
+  detail    String? // extra context, e.g. "Ctrl+C", "3 windows"
+
+  // severity: "info" | "warn" | "critical"
+  severity  String @default("warn")
+  // action actually taken: "ignored" | "warned" | "flagged" | "blocked" | "auto_submitted"
+  actionTaken String?
+
+  // cumulative count of this eventType for this attempt at time of log
+  occurrenceCount Int @default(1)
+
+  resolved   Boolean  @default(false)
+  resolvedBy String?  // teacher supabaseId
+  resolvedAt DateTime?
+
+  createdAt DateTime @default(now())
+
+  @@map("violation_logs")
 }

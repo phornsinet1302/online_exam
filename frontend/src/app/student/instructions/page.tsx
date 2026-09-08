@@ -1,2 +1,3 @@
 import { ExamInstructions } from "@/components/student-flow/ExamInstructions";
-export default function InstructionsPage({ searchParams }: any) { return <ExamInstructions searchParams={searchParams} />; }
+import { Suspense } from "react";
+export default function InstructionsPage() { return <Suspense fallback={<div>Loading...</div>}><ExamInstructions /></Suspense>; }
