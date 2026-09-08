@@ -223,7 +223,7 @@ export class ReportService {
         attempts: {
           where: { submittedAt: { not: null } },
           include: {
-            student_answers: true,
+            studentAnswers: true,
           },
         },
       },
@@ -235,7 +235,7 @@ export class ReportService {
       for (const section of exam.sections) {
         for (const question of section.questions) {
           const answers = exam.attempts.flatMap(a =>
-            a.student_answers.filter(sa => sa.question_id === question.id)
+            a.studentAnswers.filter(sa => sa.questionId === question.id)
           );
 
           const totalAnswered = answers.length;
@@ -329,12 +329,12 @@ export class ReportService {
         let scoreSumInExam = 0;
 
         exam.attempts.forEach(a => {
-           if (a.submittedAt) {
-             const score = a.score ?? a.totalScore ?? 0;
-             scoreSumInExam += score;
-             scoredInExam++;
-             if (exam.passingScore && score >= exam.passingScore) passedInExam++;
-           }
+          if (a.submittedAt) {
+            const score = a.score ?? a.totalScore ?? 0;
+            scoreSumInExam += score;
+            scoredInExam++;
+            if (exam.passingScore && score >= exam.passingScore) passedInExam++;
+          }
         });
 
         recentExams.push({
@@ -356,11 +356,11 @@ export class ReportService {
 
       for (const attempt of exam.attempts) {
         if (attempt.studentId) activeStudentsSet.add(attempt.studentId);
-        
+
         const startMonth = attempt.startedAt.toLocaleString('default', { month: 'short' });
         if (!monthMap.has(startMonth)) monthMap.set(startMonth, { totalScore: 0, attempts: 0, passed: 0, started: 0 });
         const mData = monthMap.get(startMonth)!;
-        
+
         mData.started++;
 
         if (attempt.submittedAt) {

@@ -9,6 +9,8 @@ import {
   createMathUploadSession,
   processMathUpload,
   submitExam,
+  refreshStudentToken,
+  leaveSession,
 } from '../controllers/student.controller.js';
 
 const router = Router();
@@ -438,5 +440,8 @@ router.post('/exam/math-upload', uploadMathFile, processMathUpload);
  *         description: Attempt already submitted
  */
 router.post('/exam/submit', validateAttempt, submitExam);
+
+router.post('/student/refresh', refreshStudentToken);
+router.post('/student/leave', leaveSession);
 
 export default router;

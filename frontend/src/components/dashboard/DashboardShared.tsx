@@ -1,6 +1,6 @@
 "use client";
 
-import React, { useState } from "react";
+import React, { useState, useEffect } from "react";
 import { usePathname } from "next/navigation";
 import {
   GraduationCap, Search, Bell, ChevronDown, ChevronUp,
@@ -173,6 +173,27 @@ export function DashboardLayout({ children, active, title, subtitle, actions }: 
   children: React.ReactNode; active: string; title: string; subtitle?: string; actions?: React.ReactNode;
 }) {
   const pathname = usePathname();
+  const navigate = useNavigate();
+  const { user, loading } = useAuth();
+
+  useEffect(() => {
+    if (!loading && !user) {
+      navigate("/");
+    }
+  }, [loading, user, navigate]);
+
+  if (loading || !user) {
+    return (
+      <div className="min-h-screen flex flex-col items-center justify-center" style={{ background: CREAM }}>
+        <div className="flex items-center gap-2 mb-4 animate-pulse">
+           <div className="w-8 h-8 rounded-lg flex items-center justify-center" style={{ background: CAMEL }}><GraduationCap size={16} className="text-white"/></div>
+           <span className="text-[17px] font-black" style={{ fontFamily: U, color: INK }}>exam<span style={{ color: CAMEL }}>·ai</span></span>
+        </div>
+        <p className="text-sm text-gray-500 font-semibold" style={{ fontFamily: I }}>Authenticating...</p>
+      </div>
+    );
+  }
+
   return (
     <div className="min-h-screen" style={{ background: CREAM }}>
       <DashboardSidebar active={active}/>

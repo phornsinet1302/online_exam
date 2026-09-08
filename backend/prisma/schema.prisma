@@ -50,12 +50,14 @@ model Exam {
   autoClose            Boolean          @default(false)
   autoSubmit           Boolean          @default(true)
   showCountdown        Boolean          @default(true)
+  requireLateApproval  Boolean          @default(false)
   attempts             ExamAttempt[]
   owner                User             @relation(fields: [ownerId], references: [supabaseId])
   materials            Material[]
   sections             Section[]
   collaborators        Collaborator[]
   reports              Report[]
+  antiCheatRules       ExamAntiCheatRule[]
 
   @@map("exams")
 }
@@ -81,10 +83,13 @@ model ExamAttempt {
   // Phase 5: Student Exam (SRS 3.12 & 3.13)
   autosaveData     Json?               // { [questionId]: { answer, savedAt } }
   reviewFlags      String[]            @default([]) // questionIds marked for review
+  isApproved       Boolean             @default(true)
   exam             Exam                @relation(fields: [examId], references: [id], onDelete: Cascade)
-  student_answers  student_answers[]
+
   mathUploadSessions MathUploadSession[]
   mathUploads      MathUpload[]
+  studentAnswers   StudentAnswer[]
+  violations       ViolationLog[]
 
   @@map("exam_attempts")
 }
@@ -181,24 +186,6 @@ model MathUpload {
   @@map("math_uploads")
 }
 
-model student_answers {
-  id                String        @id
-  attempt_id        String
-  question_id       String
-  selectedOptionIds String[]
-  textAnswer        String?
-  matchingPairs     Json?
-  fileUrl           String?
-  score             Float?
-  maxScore          Float
-  status            GradingStatus @default(needs_review)
-  feedback          String?
-  gradedBy          String?
-  gradedAt          DateTime?
-  createdAt         DateTime      @default(now())
-  updatedAt         DateTime
-  exam_attempts     ExamAttempt   @relation(fields: [attempt_id], references: [id], onDelete: Cascade)
-}
 
 // ═══════════════════════════════════════════════════════════════════════════════
 // Teacher Collaboration (SRS 3.10)
@@ -249,41 +236,6 @@ enum Role {
   INVIGILATOR
 }
 
-model Exam {
-  id          String    @id @default(cuid())
-  title       String
-  description String?
-  status      ExamStatus @default(DRAFT)
-  ownerId     String    @map("owner_id")
-  owner       User      @relation(fields: [ownerId], references: [supabaseId])
-  createdAt   DateTime  @default(now())
-  updatedAt   DateTime  @updatedAt
-
-  subject     String?
-  startDate   DateTime?
-  duration    Int?
-  timezone    String?
-  passingScore Float?
-  maxAttempts Int?
-
-  randomizeQuestions Boolean @default(false)
-  showResults        Boolean @default(false)
-
-  accessType  ExamAccess @default(PUBLIC)
-  password    String?
-
-  sections        Section[]
-  materials       Material[]
-  attempts        ExamAttempt[]
-  antiCheatRules  ExamAntiCheatRule[]
-
-  uniqueCode           String?   @unique
-  magicLinkToken       String?
-  lateAllowanceMinutes Int @default(0)
-  sessionState         ExamSessionState @default(WAITING)
-
-  @@map("exams")
-}
 
 enum ExamSessionState {
   WAITING
@@ -297,30 +249,6 @@ enum ExamAccess {
   PASSWORD_PROTECTED
 }
 
-model ExamAttempt {
-  id          String   @id @default(cuid())
-  examId      String   @map("exam_id")
-  exam        Exam     @relation(fields: [examId], references: [id], onDelete: Cascade)
-  studentId   String?  // if you have student accounts; or a session ID for anonymous
-  startedAt   DateTime @default(now())
-  submittedAt DateTime?
-  score       Float?
-
-  snapshot    Json     // Stores the full exam structure at start time (NO correct answers)
-  answers     Json?    // Legacy: raw answers blob (kept for backward compat)
-  gradingKey  Json?    // Private: correct answers keyed by questionId for server-side grading
-
-  // Grading
-  totalScore     Float?
-  gradingStatus  GradingStatus?
-  studentAnswers StudentAnswer[]
-  violations     ViolationLog[]
-
-  createdAt   DateTime @default(now())
-  updatedAt   DateTime @updatedAt
-
-  @@map("exam_attempts")
-}
 
 enum ExamStatus {
   DRAFT
@@ -334,44 +262,7 @@ enum GradingStatus {
   graded
 }
 
-model Section {
-  id             String   @id @default(cuid())
-  examId         String   @map("exam_id")
-  exam           Exam     @relation(fields: [examId], references: [id], onDelete: Cascade)
-  title          String
-  order          Int      // display order
-  randomization  Boolean  @default(false)
-  shuffleAnswers Boolean  @default(false)
-  createdAt      DateTime @default(now())
-  updatedAt      DateTime @updatedAt
 
-  questions   Question[]
-
-  @@map("sections")
-}
-
-model Question {
-  id            String       @id @default(cuid())
-  sectionId     String       @map("section_id")
-  section       Section      @relation(fields: [sectionId], references: [id], onDelete: Cascade)
-  type          QuestionType
-  title         String?      // optional short title for the question
-  description   String?      // optional description (can be rich text)
-  text          String       // question stem
-  points        Float        @default(1.0)
-  difficulty    Difficulty
-  order         Int
-  createdAt     DateTime     @default(now())
-  updatedAt     DateTime     @updatedAt
-  required      Boolean      @default(true)  // whether student must answer
-  reviewed      Boolean      @default(false) // for AI-generated drafts
-  metadata      Json?
-  isAIGenerated Boolean      @default(false)
-
-  options     Option[] // for MCQ/True-False
-
-  @@map("questions")
-}
 
 enum QuestionType {
   MCQ
@@ -393,41 +284,8 @@ enum Difficulty {
   MIXED
 }
 
-model Option {
-  id         String   @id @default(cuid())
-  questionId String   @map("question_id")
-  question   Question @relation(fields: [questionId], references: [id], onDelete: Cascade)
-  text       String
-  isCorrect  Boolean  @default(false)
-  order      Int
-  createdAt  DateTime @default(now())
-  updatedAt  DateTime @updatedAt
 
-  @@map("options")
-}
 
-model Material {
-  id        String   @id @default(cuid())
-  examId    String   @map("exam_id")
-  exam      Exam     @relation(fields: [examId], references: [id], onDelete: Cascade)
-  content   String?  // text content
-  fileUrl   String?  // if file uploaded, store URL
-  createdAt DateTime @default(now())
-
-  @@map("materials")
-
-}
-enum ExamSessionState {
-  WAITING
-  ACTIVE
-  ENDED
-}
-
-enum GradingStatus {
-  auto_graded
-  needs_review
-  graded
-}
 
 enum CollaboratorRole {
   COLLABORATOR

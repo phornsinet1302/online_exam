@@ -9,6 +9,10 @@ import {
   startSession,
   endSession,
   saveProgress,
+  kickStudent,
+  validateAttempt,
+  approveLateStudent,
+  rejectLateStudent,
 } from '../controllers/session.controller.js';
 import { authMiddleware } from '../middleware/auth.middleware.js';
 
@@ -60,6 +64,28 @@ router.post('/join', joinByCode);
  *         description: Student token and exam snapshot
  */
 router.post('/join/register', registerStudent);
+
+/**
+ * @openapi
+ * /api/join/validate:
+ *   post:
+ *     tags: [Student Session]
+ *     summary: Validate that a student attempt still exists
+ *     requestBody:
+ *       required: true
+ *       content:
+ *         application/json:
+ *           schema:
+ *             type: object
+ *             required: [attemptId, examId]
+ *             properties:
+ *               attemptId: { type: string }
+ *               examId:    { type: string }
+ *     responses:
+ *       200:
+ *         description: Validation result
+ */
+router.post('/join/validate', validateAttempt);
 
 /**
  * @openapi
@@ -185,5 +211,71 @@ router.post('/session/:examId/end', authMiddleware, endSession);
  *         description: Progress saved timestamp
  */
 router.patch('/attempts/:attemptId/progress', saveProgress);
+
+/**
+ * @openapi
+ * /api/session/{examId}/attempts/{attemptId}:
+ *   delete:
+ *     tags: [Student Session]
+ *     summary: Teacher kicks a student from the session
+ *     security: [{ bearerAuth: [] }]
+ *     parameters:
+ *       - in: path
+ *         name: examId
+ *         required: true
+ *         schema: { type: string }
+ *       - in: path
+ *         name: attemptId
+ *         required: true
+ *         schema: { type: string }
+ *     responses:
+ *       200:
+ *         description: Student removed successfully
+ */
+router.delete('/session/:examId/attempts/:attemptId', authMiddleware, kickStudent);
+
+/**
+ * @openapi
+ * /api/session/{examId}/approve/{attemptId}:
+ *   post:
+ *     tags: [Student Session]
+ *     summary: Teacher approves a late student
+ *     security: [{ bearerAuth: [] }]
+ *     parameters:
+ *       - in: path
+ *         name: examId
+ *         required: true
+ *         schema: { type: string }
+ *       - in: path
+ *         name: attemptId
+ *         required: true
+ *         schema: { type: string }
+ *     responses:
+ *       200:
+ *         description: Student approved successfully
+ */
+router.post('/session/:examId/approve/:attemptId', authMiddleware, approveLateStudent);
+
+/**
+ * @openapi
+ * /api/session/{examId}/reject/{attemptId}:
+ *   post:
+ *     tags: [Student Session]
+ *     summary: Teacher rejects a late student
+ *     security: [{ bearerAuth: [] }]
+ *     parameters:
+ *       - in: path
+ *         name: examId
+ *         required: true
+ *         schema: { type: string }
+ *       - in: path
+ *         name: attemptId
+ *         required: true
+ *         schema: { type: string }
+ *     responses:
+ *       200:
+ *         description: Student rejected successfully
+ */
+router.post('/session/:examId/reject/:attemptId', authMiddleware, rejectLateStudent);
 
 export default router;

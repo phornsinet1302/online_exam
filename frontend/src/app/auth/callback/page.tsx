@@ -15,10 +15,12 @@ export default function AuthCallback() {
       // Supabase appends tokens as hash fragment e.g., #access_token=...
       const params = new URLSearchParams(hash.substring(1));
       const accessToken = params.get("access_token");
+      const refreshToken = params.get("refresh_token");
       
       if (accessToken) {
-        // Save the token so fetchApi can use it
+        // Save both tokens so we can silently refresh the session later
         localStorage.setItem("token", accessToken);
+        if (refreshToken) localStorage.setItem("refresh_token", refreshToken);
         
         // Fetch the user data from backend and login to context
         authApi.google(accessToken).then(res => {

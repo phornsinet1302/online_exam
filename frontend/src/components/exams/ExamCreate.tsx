@@ -209,6 +209,7 @@ export function ExamCreate() {
   const [privacy, setPrivacy]   = useState("public");
   const [randomize, setRandomize] = useState(true);
   const [showResults, setShowResults] = useState(true);
+  const [requireLateApproval, setRequireLateApproval] = useState(false);
   const [saved, setSaved]       = useState(false);
   const idRef = useRef(3);
   const aiFileRef = useRef<HTMLInputElement|null>(null);
@@ -245,6 +246,8 @@ export function ExamCreate() {
         if ((exam as any).accessType === "PUBLIC") setPrivacy("public");
         else if ((exam as any).accessType === "PRIVATE") setPrivacy("private");
         
+        if (exam.requireLateApproval !== undefined) setRequireLateApproval(exam.requireLateApproval);
+
         if (exam.sections && exam.sections.length > 0) {
           setSections(exam.sections.map((sec: any) => ({
              id: sec.id,
@@ -597,6 +600,7 @@ export function ExamCreate() {
         maxAttempts: maxAttempts === "Unlimited" ? undefined : parseInt(maxAttempts, 10),
         randomizeQuestions: randomize,
         showResults,
+        requireLateApproval,
         accessType,
         fullSections: sections,
         status: status === "published" ? "PUBLISHED" : "DRAFT",
@@ -828,7 +832,11 @@ export function ExamCreate() {
               </div>
             </div>
             <div className="space-y-3">
-              {[{label:"Randomize question order",desc:"Shuffle questions differently for each student",on:randomize,set:setRandomize},{label:"Show results after submission",desc:"Students see their score immediately",on:showResults,set:setShowResults}].map(({label,desc,on,set})=>(
+              {[
+                {label:"Require late entry approval",desc:"Students arriving after start time need teacher approval to enter",on:requireLateApproval,set:setRequireLateApproval},
+                {label:"Randomize question order",desc:"Shuffle questions differently for each student",on:randomize,set:setRandomize},
+                {label:"Show results after submission",desc:"Students see their score immediately",on:showResults,set:setShowResults}
+              ].map(({label,desc,on,set})=>(
                 <div key={label} className="flex items-center justify-between py-3 border-t border-gray-50">
                   <div><p className="text-sm font-semibold text-gray-700" style={{ fontFamily:U }}>{label}</p><p className="text-xs text-gray-400 mt-0.5" style={{ fontFamily:I }}>{desc}</p></div>
                   <Toggle on={on} onChange={()=>set((s: boolean)=>!s)}/>

@@ -10,30 +10,149 @@ import { ExamSessionState } from '@prisma/client';
 const sseClients        = new Map<string, Set<any>>();
 const sseTeacherClients = new Map<string, Set<any>>();
 
-// ── Student channel ────────────────────────────────────────────────────────
-export function registerSSEClient(examId: string, res: any) {
-  if (!sseClients.has(examId)) sseClients.set(examId, new Set());
-  sseClients.get(examId)!.add(res);
+const onlineStudents = new Map<string, Set<any>>();
+
+export function isStudentOnline(attemptId: string) {
+  return onlineStudents.has(attemptId) && onlineStudents.get(attemptId)!.size > 0;
 }
 
-export function unregisterSSEClient(examId: string, res: any) {
+// ─── Auto-start scheduler ─────────────────────────────────────────────────────
+// Keeps NodeJS timer handles so we can cancel them if needed
+const autoStartTimers = new Map<string, ReturnType<typeof setTimeout>>();
+
+/**
+ * Schedule an exam to auto-start at its startDate.
+ * Safe to call multiple times — previous timer for the same exam is cancelled.
+ */
+export function scheduleAutoStart(examId: string, startDate: Date) {
+  // Cancel any existing timer for this exam
+  const existing = autoStartTimers.get(examId);
+  if (existing) clearTimeout(existing);
+
+  const msUntilStart = startDate.getTime() - Date.now();
+  if (msUntilStart <= 0) return; // Already past start time
+
+  const timer = setTimeout(async () => {
+    autoStartTimers.delete(examId);
+    try {
+      const exam = await prisma.exam.findUnique({ where: { id: examId } });
+      if (!exam || exam.sessionState !== ExamSessionState.WAITING) return;
+
+      await prisma.exam.update({
+        where: { id: examId },
+        data: { sessionState: ExamSessionState.ACTIVE },
+      });
+
+      const now = new Date();
+      await prisma.examAttempt.updateMany({
+        where: { examId, submittedAt: null },
+        data: { startedAt: now },
+      });
+
+      const payload = { examId, startedAt: now.toISOString(), autoStarted: true };
+      broadcastToStudents(examId, 'exam_started', payload);
+      broadcastToTeacher(examId, 'exam_started', payload);
+      console.log(`[AutoStart] Exam ${examId} auto-started at scheduled time.`);
+    } catch (err) {
+      console.error(`[AutoStart] Failed to auto-start exam ${examId}:`, err);
+    }
+  }, msUntilStart);
+
+  autoStartTimers.set(examId, timer);
+  console.log(`[AutoStart] Exam ${examId} scheduled to start in ${Math.round(msUntilStart / 1000)}s`);
+}
+
+/**
+ * On server boot, re-schedule all WAITING exams that have a future startDate.
+ * Call this once during app startup.
+ */
+export async function restoreAutoStartSchedules() {
+  try {
+    const now = new Date();
+    const pendingExams = await prisma.exam.findMany({
+      where: {
+        status: 'PUBLISHED',
+        sessionState: ExamSessionState.WAITING,
+        startDate: { gt: now },
+      },
+      select: { id: true, startDate: true, title: true },
+    });
+
+    for (const exam of pendingExams) {
+      if (exam.startDate) {
+        scheduleAutoStart(exam.id, exam.startDate);
+      }
+    }
+    console.log(`[AutoStart] Restored ${pendingExams.length} pending exam schedule(s).`);
+  } catch (err) {
+    console.error('[AutoStart] Failed to restore schedules:', err);
+  }
+}
+
+export async function registerSSEClient(examId: string, res: any, attemptId?: string) {
+  if (!sseClients.has(examId)) sseClients.set(examId, new Set());
+  sseClients.get(examId)!.add(res);
+  if (attemptId) {
+    const isNewConnection = !onlineStudents.has(attemptId);
+    if (isNewConnection) onlineStudents.set(attemptId, new Set());
+    onlineStudents.get(attemptId)!.add(res);
+
+    if (isNewConnection) {
+      try {
+        const attempt = await prisma.examAttempt.findUnique({ where: { id: attemptId } });
+        if (attempt) {
+          const joinedPayload = {
+            attemptId: attempt.id,
+            studentInfo: (attempt.answers as any)?.studentInfo || {},
+            joinedAt: attempt.startedAt
+          };
+          // Exclude the newly connecting client — they'll get the full
+          // student list via session_state instead (avoids duplicate entries)
+          broadcast(examId, 'student_joined', joinedPayload, res);
+          broadcastToTeacher(examId, 'student_joined', joinedPayload);
+        }
+      } catch (e) {}
+    }
+  }
+}
+
+export function unregisterSSEClient(examId: string, res: any, attemptId?: string) {
   sseClients.get(examId)?.delete(res);
+  
+  if (attemptId) {
+    const connections = onlineStudents.get(attemptId);
+    if (connections) {
+      connections.delete(res);
+      if (connections.size === 0) {
+        onlineStudents.delete(attemptId);
+        // Delay the offline broadcast to avoid flickering on page reload
+        setTimeout(() => {
+          if (!onlineStudents.has(attemptId)) {
+            broadcast(examId, 'student_offline', { attemptId });
+            broadcastToTeacher(examId, 'student_offline', { attemptId });
+          }
+        }, 3000);
+      }
+    }
+  }
 }
 
 /** Broadcast an event to all students listening on an exam channel. */
-function broadcastToStudents(examId: string, event: string, data: object) {
+function broadcastToStudents(examId: string, event: string, data: object, exclude?: any) {
   const clients = sseClients.get(examId);
   if (!clients) return;
   const payload = `event: ${event}\ndata: ${JSON.stringify(data)}\n\n`;
-  for (const res of clients) {
-    try { res.write(payload); } catch { /* client disconnected */ }
+  for (const client of clients) {
+    if (client === exclude) continue;
+    try { client.write(payload); } catch { /* client disconnected */ }
   }
 }
 
 // Keep backward-compat alias used by startSession / endSession
-function broadcast(examId: string, event: string, data: object) {
-  broadcastToStudents(examId, event, data);
+function broadcast(examId: string, event: string, data: object, exclude?: any) {
+  broadcastToStudents(examId, event, data, exclude);
 }
+
 
 // ── Teacher channel ────────────────────────────────────────────────────────
 export function registerSSETeacherClient(examId: string, res: any) {
@@ -135,6 +254,7 @@ export class SessionService {
 
     if (!exam) throw new Error('Exam not found.');
     if (exam.status !== 'PUBLISHED') throw new Error('Exam not available.');
+    if (exam.sessionState === 'ENDED') throw new Error('This exam has ended. Registration is closed.');
 
     // Build snapshot (no isCorrect exposed)
     const snapshot = {
@@ -181,14 +301,46 @@ export class SessionService {
       })
     );
 
-    const studentIdStr = `${studentInfo.studentId}__${studentInfo.email}__${Date.now()}`;
+    const studentIdStr = studentInfo.email.toLowerCase().trim();
 
-    const attempt = await prisma.examAttempt.create({
+    // Check if an attempt already exists for this email
+    let attempt = await prisma.examAttempt.findFirst({
+      where: {
+        examId: exam.id,
+        studentId: studentIdStr,
+      },
+    });
+
+    if (attempt) {
+      // Update the attempt with the latest studentInfo so they can fix typos in their Student ID
+      const currentAnswers = (attempt.answers as any) || {};
+      await prisma.examAttempt.update({
+        where: { id: attempt.id },
+        data: {
+          answers: { ...currentAnswers, studentInfo }
+        }
+      });
+
+      // If it exists, just return a new token for the existing attempt
+      const token = signStudentToken({
+        attemptId: attempt.id,
+        examId: exam.id,
+        studentId: studentIdStr,
+      });
+      return { token, attemptId: attempt.id, snapshot: attempt.snapshot, isApproved: attempt.isApproved };
+    }
+
+    // Determine if student needs approval (joining late)
+    const needsApproval = exam.requireLateApproval && exam.sessionState === 'ACTIVE';
+
+    // Otherwise, create a new attempt
+    attempt = await prisma.examAttempt.create({
       data: {
         examId: exam.id,
         studentId: studentIdStr,
         snapshot,
         gradingKey,
+        isApproved: !needsApproval,
         answers: { studentInfo }, // store info in legacy answers field
       },
     });
@@ -199,7 +351,17 @@ export class SessionService {
       studentId: studentIdStr,
     });
 
-    return { token, attemptId: attempt.id, snapshot };
+    // Broadcast student joined event
+    const joinedPayload = {
+      attemptId: attempt.id,
+      studentInfo,
+      joinedAt: new Date().toISOString(),
+      isApproved: !needsApproval,
+    };
+    broadcast(exam.id, 'student_joined', joinedPayload);
+    broadcastToTeacher(exam.id, 'student_joined', joinedPayload);
+
+    return { token, attemptId: attempt.id, snapshot, isApproved: !needsApproval };
   }
 
   /**
@@ -208,10 +370,40 @@ export class SessionService {
   async getSessionState(examId: string) {
     const exam = await prisma.exam.findUnique({
       where: { id: examId },
-      select: { sessionState: true, startDate: true, duration: true },
+      select: { 
+        sessionState: true, 
+        startDate: true, 
+        duration: true,
+        title: true,
+        subject: true,
+        attempts: {
+          select: { id: true, answers: true, startedAt: true, isApproved: true, submittedAt: true }
+        }
+      },
     });
     if (!exam) throw new Error('Exam not found.');
-    return exam;
+
+    // Return students who are currently online OR who have submitted
+    const joinedStudents = exam.attempts
+      .filter(a => isStudentOnline(a.id) || a.submittedAt !== null)
+      .map(a => {
+        const answers = a.answers as any;
+        const studentInfo = answers?.studentInfo || {};
+        // Progress object stores violations
+        const progress = answers?.progress || {};
+        const violationCount = progress.violationCount || 0;
+        
+        return {
+          attemptId: a.id,
+          studentInfo,
+          joinedAt: a.startedAt,
+          isApproved: a.isApproved,
+          submitted: a.submittedAt !== null,
+          violationCount,
+        };
+      });
+
+    return { ...exam, joinedStudents };
   }
 
   /**
@@ -222,12 +414,22 @@ export class SessionService {
     if (!exam) throw new Error('Exam not found.');
     if (exam.ownerId !== ownerId) throw new Error('Access denied.');
 
+    const now = new Date();
+
     await prisma.exam.update({
       where: { id: examId },
       data: { sessionState: ExamSessionState.ACTIVE },
     });
 
-    broadcast(examId, 'exam_started', { examId, startedAt: new Date().toISOString() });
+    // Reset startedAt for all un-submitted attempts to the time the exam started
+    await prisma.examAttempt.updateMany({
+      where: { examId, submittedAt: null },
+      data: { startedAt: now },
+    });
+
+    const startPayload = { examId, startedAt: now.toISOString() };
+    broadcast(examId, 'exam_started', startPayload);
+    broadcastToTeacher(examId, 'exam_started', startPayload);
 
     return { message: 'Exam session started.' };
   }
@@ -245,7 +447,9 @@ export class SessionService {
       data: { sessionState: ExamSessionState.ENDED },
     });
 
-    broadcast(examId, 'exam_ended', { examId, endedAt: new Date().toISOString() });
+    const endPayload = { examId, endedAt: new Date().toISOString() };
+    broadcast(examId, 'exam_ended', endPayload);
+    broadcastToTeacher(examId, 'exam_ended', endPayload);
 
     return { message: 'Exam session ended.' };
   }
@@ -271,5 +475,136 @@ export class SessionService {
     });
 
     return { savedAt: new Date().toISOString() };
+  }
+
+  /**
+   * Teacher kicks a student from the active session or waiting room.
+   */
+  async kickStudent(examId: string, attemptId: string, ownerId: string) {
+    const exam = await prisma.exam.findUnique({ where: { id: examId } });
+    if (!exam) throw new Error('Exam not found.');
+    if (exam.ownerId !== ownerId) throw new Error('Access denied.');
+
+    const attempt = await prisma.examAttempt.findUnique({ where: { id: attemptId } });
+    if (!attempt || attempt.examId !== examId) throw new Error('Attempt not found.');
+
+    await prisma.examAttempt.delete({ where: { id: attemptId } });
+
+    // Notify the kicked student so their frontend can navigate out
+    broadcast(examId, 'student_kicked', { attemptId });
+    // Notify the teacher dashboard to update list
+    broadcastToTeacher(examId, 'student_kicked', { attemptId });
+
+    return { message: 'Student removed successfully.' };
+  }
+
+  /**
+   * Validate that a student's attempt still exists (not kicked/deleted).
+   * Used by frontend to check stale tokens before auto-redirecting.
+   */
+  async validateAttempt(attemptId: string, examId: string) {
+    const attempt = await prisma.examAttempt.findUnique({
+      where: { id: attemptId },
+      select: { id: true, examId: true, submittedAt: true },
+    });
+
+    if (!attempt || attempt.examId !== examId) {
+      return { valid: false, reason: 'Attempt not found or was removed.' };
+    }
+    if (attempt.submittedAt) {
+      return { valid: false, reason: 'Exam already submitted.' };
+    }
+
+    return { valid: true, attemptId: attempt.id };
+  }
+
+  /**
+   * Approve a late student to enter the exam.
+   */
+  async approveLateStudent(examId: string, attemptId: string, ownerId: string) {
+    const exam = await prisma.exam.findUnique({ where: { id: examId } });
+    if (!exam) throw new Error('Exam not found.');
+    if (exam.ownerId !== ownerId) throw new Error('Access denied.');
+
+    await prisma.examAttempt.update({
+      where: { id: attemptId },
+      data: { isApproved: true },
+    });
+
+    broadcast(examId, 'late_approved', { attemptId });
+    broadcastToTeacher(examId, 'late_approved', { attemptId });
+
+    return { message: 'Student approved.' };
+  }
+
+  /**
+   * Reject a late student from entering the exam.
+   */
+  async rejectLateStudent(examId: string, attemptId: string, ownerId: string) {
+    const exam = await prisma.exam.findUnique({ where: { id: examId } });
+    if (!exam) throw new Error('Exam not found.');
+    if (exam.ownerId !== ownerId) throw new Error('Access denied.');
+
+    await prisma.examAttempt.delete({ where: { id: attemptId } });
+
+    broadcast(examId, 'late_rejected', { attemptId });
+    broadcastToTeacher(examId, 'late_rejected', { attemptId });
+
+    return { message: 'Student rejected.' };
+  }
+
+  /**
+   * Refresh a student JWT token
+   */
+  async refreshStudentToken(oldToken: string) {
+    try {
+      // Decode ignoring expiration to get the payload
+      const decoded = jwt.decode(oldToken) as any;
+      if (!decoded || !decoded.attemptId) {
+        throw new Error('Invalid token structure');
+      }
+
+      const attempt = await prisma.examAttempt.findUnique({
+        where: { id: decoded.attemptId },
+        include: { exam: true }
+      });
+
+      if (!attempt) throw new Error('Attempt not found');
+      if (attempt.submittedAt) throw new Error('Attempt already submitted');
+      if (attempt.isApproved === false) throw new Error('Attempt not approved or kicked');
+
+      // Re-sign token
+      const newToken = signStudentToken({
+        attemptId: attempt.id,
+        examId: attempt.examId,
+        studentId: attempt.studentId || '',
+      });
+
+      return { token: newToken };
+    } catch (err: any) {
+      throw new Error(`Failed to refresh token: ${err.message}`);
+    }
+  }
+
+  /**
+   * Mark a student offline instantly via beacon / API
+   */
+  async handleStudentLeave(attemptId: string) {
+    const connections = onlineStudents.get(attemptId);
+    if (connections) {
+      connections.forEach(res => {
+        try {
+          res.end();
+        } catch(e) {}
+      });
+      onlineStudents.delete(attemptId);
+    }
+    
+    // Broadcast offline immediately
+    const attempt = await prisma.examAttempt.findUnique({ where: { id: attemptId } });
+    if (attempt) {
+      broadcast(attempt.examId, 'student_offline', { attemptId });
+      broadcastToTeacher(attempt.examId, 'student_offline', { attemptId });
+    }
   }
 }

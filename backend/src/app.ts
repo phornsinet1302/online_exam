@@ -51,11 +51,11 @@ app.use('/api', sessionRoutes);
 app.use('/api', gradingRoutes);
 app.use('/api', aiRoutes);
 app.use('/api', questionRoutes);
+app.use('/api', studentRoutes);
 app.use('/api', examRoutes);
 app.use('/api', antiCheatRoutes);
 app.use('/api', collaborationRoutes);
 app.use('/api', reportRoutes);
-app.use('/api', studentRoutes);
 
 
 // Global error handler

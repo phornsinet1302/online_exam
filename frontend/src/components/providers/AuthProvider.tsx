@@ -23,17 +23,59 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
 
   useEffect(() => {
     const token = localStorage.getItem("token");
-    if (token) {
-      authApi.getMe()
-        .then((userData) => setUser(userData))
-        .catch(() => {
+    if (!token) {
+      setLoading(false);
+      return;
+    }
+
+    // Try to restore session using stored access token
+    authApi.getMe()
+      .then((userData) => {
+        setUser(userData);
+        setLoading(false);
+      })
+      .catch(async () => {
+        // Access token expired — try to silently refresh using the refresh token
+        const refreshToken = localStorage.getItem("refresh_token");
+        if (!refreshToken) {
           localStorage.removeItem("token");
           setUser(null);
-        })
-        .finally(() => setLoading(false));
-    } else {
-      setLoading(false);
-    }
+          setLoading(false);
+          return;
+        }
+
+        try {
+          const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL || "https://jfebblgfihkhuaewxnjs.supabase.co";
+          const anonKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY || "";
+
+          const res = await fetch(`${supabaseUrl}/auth/v1/token?grant_type=refresh_token`, {
+            method: "POST",
+            headers: { "Content-Type": "application/json", "apikey": anonKey },
+            body: JSON.stringify({ refresh_token: refreshToken }),
+          });
+
+          if (!res.ok) throw new Error("Refresh failed");
+
+          const data = await res.json();
+          const newAccessToken = data.access_token;
+          const newRefreshToken = data.refresh_token;
+
+          // Persist the new tokens
+          localStorage.setItem("token", newAccessToken);
+          if (newRefreshToken) localStorage.setItem("refresh_token", newRefreshToken);
+
+          // Now fetch the user with the fresh token
+          const userData = await authApi.getMe();
+          setUser(userData);
+        } catch {
+          // Refresh also failed — clear everything and let user log in again
+          localStorage.removeItem("token");
+          localStorage.removeItem("refresh_token");
+          setUser(null);
+        } finally {
+          setLoading(false);
+        }
+      });
   }, []);
 
   const login = (token: string, userData: User) => {
@@ -43,6 +85,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
 
   const logout = () => {
     localStorage.removeItem("token");
+    localStorage.removeItem("refresh_token");
     setUser(null);
     window.location.href = "/";
   };
