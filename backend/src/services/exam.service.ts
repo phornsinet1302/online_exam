@@ -86,6 +86,25 @@ async function syncSectionsAndQuestions(examId: string, fullSections: any[], ran
 
       const isChoiceType = ["TRUE_FALSE", "MULTIPLE_SELECT", "MCQ", "CHECKBOX"].includes(qType);
 
+      let metadata: any = {};
+      if (q.metadata) {
+        metadata = { ...q.metadata };
+      }
+      if (q.hint) {
+        metadata.hint = q.hint;
+      }
+      if (qType === "MATCHING") {
+        const pairs = (q.pairs || []).map((p: any) => ({
+          L: p.left || '',
+          R: p.right || '',
+        }));
+        metadata.pairs = pairs;
+        metadata.correctPairs = pairs.map((p: any) => ({ leftId: p.L, rightId: p.R }));
+      } else if (qType === "FILL_IN_BLANK" && q.expectedText) {
+        metadata.expectedText = q.expectedText;
+        metadata.caseSensitive = !!q.caseSensitive;
+      }
+
       if (!qId || qId.startsWith('question-')) {
         const newQ = await prisma.question.create({
           data: {
@@ -96,11 +115,19 @@ async function syncSectionsAndQuestions(examId: string, fullSections: any[], ran
             difficulty: "MEDIUM",
             order: j,
             required: !!q.required,
-            description: q.description || ""
+            description: q.description || "",
+            metadata: metadata
           }
         });
         qId = newQ.id;
       } else {
+        const existing = await prisma.question.findUnique({
+          where: { id: qId },
+          select: { metadata: true },
+        });
+        const existingMetadata = (existing?.metadata as any) || {};
+        const mergedMetadata = { ...existingMetadata, ...metadata };
+
         await prisma.question.update({
           where: { id: qId },
           data: {
@@ -109,7 +136,8 @@ async function syncSectionsAndQuestions(examId: string, fullSections: any[], ran
             points: parseInt(q.points, 10) || 1,
             order: j,
             required: !!q.required,
-            description: q.description || ""
+            description: q.description || "",
+            metadata: mergedMetadata
           }
         });
       }
@@ -627,6 +655,10 @@ export class ExamService {
           points: q.points,
           difficulty: q.difficulty,
           order: q.order,
+          metadata: {
+            pairs: (q.metadata as any)?.pairs,
+            hint: (q.metadata as any)?.hint,
+          },
           options: q.options.map((opt) => ({
             id: opt.id,
             text: opt.text,

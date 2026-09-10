@@ -275,7 +275,10 @@ export class SessionService {
           text: q.text,
           points: q.points,
           order: q.order,
-          metadata: q.metadata,
+          metadata: {
+            pairs: (q.metadata as any)?.pairs,
+            hint: (q.metadata as any)?.hint,
+          },
           options: q.options.map((opt) => ({
             id: opt.id,
             text: opt.text,
@@ -447,6 +450,12 @@ export class SessionService {
       data: { sessionState: ExamSessionState.ENDED },
     });
 
+    // Auto-submit all remaining attempts
+    await prisma.examAttempt.updateMany({
+      where: { examId, submittedAt: null },
+      data: { submittedAt: new Date(), autoSubmitted: true },
+    });
+
     const endPayload = { examId, endedAt: new Date().toISOString() };
     broadcast(examId, 'exam_ended', endPayload);
     broadcastToTeacher(examId, 'exam_ended', endPayload);
@@ -607,4 +616,86 @@ export class SessionService {
       broadcastToTeacher(attempt.examId, 'student_offline', { attemptId });
     }
   }
+}
+
+// ─── Background Sweeper ────────────────────────────────────────────────────────
+let sweepTimer: ReturnType<typeof setInterval> | null = null;
+
+async function runSweep() {
+  const now = new Date();
+
+  // 1) Auto-start exams that should have started (includes server-restart case)
+  const toStart = await prisma.exam.findMany({
+    where: {
+      status: 'PUBLISHED',
+      sessionState: ExamSessionState.WAITING,
+      startDate: { lte: now },
+    },
+    select: { id: true, startDate: true },
+  });
+  for (const exam of toStart) {
+    await prisma.exam.update({
+      where: { id: exam.id },
+      data: { sessionState: ExamSessionState.ACTIVE },
+    });
+    await prisma.examAttempt.updateMany({
+      where: { examId: exam.id, submittedAt: null },
+      data: { startedAt: now },
+    });
+    const p = { examId: exam.id, startedAt: now.toISOString(), autoStarted: true };
+    broadcast(exam.id, 'exam_started', p);
+    broadcastToTeacher(exam.id, 'exam_started', p);
+    console.log(`[Sweep] Auto-started exam ${exam.id}`);
+  }
+
+  // 2) Auto-submit attempts whose deadline passed
+  const expired = await prisma.examAttempt.findMany({
+    where: {
+      submittedAt: null,
+      deadline: { lte: now },
+      exam: { autoSubmit: true },
+    },
+    select: { id: true, examId: true },
+  });
+  for (const a of expired) {
+    await prisma.examAttempt.update({
+      where: { id: a.id },
+      data: { submittedAt: now, autoSubmitted: true },
+    });
+    broadcast(a.examId, 'attempt_auto_submitted', { attemptId: a.id });
+    broadcastToTeacher(a.examId, 'attempt_auto_submitted', { attemptId: a.id });
+    console.log(`[Sweep] Auto-submitted attempt ${a.id}`);
+  }
+
+  // 3) Auto-close exams whose endDate passed
+  const toClose = await prisma.exam.findMany({
+    where: {
+      sessionState: ExamSessionState.ACTIVE,
+      endDate: { lte: now, not: null },
+    },
+    select: { id: true },
+  });
+  for (const exam of toClose) {
+    await prisma.exam.update({
+      where: { id: exam.id },
+      data: { sessionState: ExamSessionState.ENDED },
+    });
+    // Submit all remaining attempts
+    await prisma.examAttempt.updateMany({
+      where: { examId: exam.id, submittedAt: null },
+      data: { submittedAt: now, autoSubmitted: true },
+    });
+    const p = { examId: exam.id, endedAt: now.toISOString(), autoClosed: true };
+    broadcast(exam.id, 'exam_ended', p);
+    broadcastToTeacher(exam.id, 'exam_ended', p);
+    console.log(`[Sweep] Auto-closed exam ${exam.id}`);
+  }
+}
+
+export function startExpirySweeper() {
+  if (sweepTimer) return;
+  sweepTimer = setInterval(() => {
+    runSweep().catch(err => console.error('[Sweep] error:', err));
+  }, 60_000); // every 60s
+  console.log('[Sweep] Expiry sweeper started (60s interval).');
 }
