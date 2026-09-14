@@ -86,6 +86,25 @@ async function syncSectionsAndQuestions(examId: string, fullSections: any[], ran
 
       const isChoiceType = ["TRUE_FALSE", "MULTIPLE_SELECT", "MCQ", "CHECKBOX"].includes(qType);
 
+      let metadata: any = {};
+      if (q.metadata) {
+        metadata = { ...q.metadata };
+      }
+      if (q.hint) {
+        metadata.hint = q.hint;
+      }
+      if (qType === "MATCHING") {
+        const pairs = (q.pairs || []).map((p: any) => ({
+          L: p.left || '',
+          R: p.right || '',
+        }));
+        metadata.pairs = pairs;
+        metadata.correctPairs = pairs.map((p: any) => ({ leftId: p.L, rightId: p.R }));
+      } else if (qType === "FILL_IN_BLANK" && q.expectedText) {
+        metadata.expectedText = q.expectedText;
+        metadata.caseSensitive = !!q.caseSensitive;
+      }
+
       if (!qId || qId.startsWith('question-')) {
         const newQ = await prisma.question.create({
           data: {
@@ -96,11 +115,19 @@ async function syncSectionsAndQuestions(examId: string, fullSections: any[], ran
             difficulty: "MEDIUM",
             order: j,
             required: !!q.required,
-            description: q.description || ""
+            description: q.description || "",
+            metadata: metadata
           }
         });
         qId = newQ.id;
       } else {
+        const existing = await prisma.question.findUnique({
+          where: { id: qId },
+          select: { metadata: true },
+        });
+        const existingMetadata = (existing?.metadata as any) || {};
+        const mergedMetadata = { ...existingMetadata, ...metadata };
+
         await prisma.question.update({
           where: { id: qId },
           data: {
@@ -109,7 +136,8 @@ async function syncSectionsAndQuestions(examId: string, fullSections: any[], ran
             points: parseInt(q.points, 10) || 1,
             order: j,
             required: !!q.required,
-            description: q.description || ""
+            description: q.description || "",
+            metadata: mergedMetadata
           }
         });
       }
@@ -176,6 +204,12 @@ export class ExamService {
     const { startDate, startTime, timezone, fullSections, ...rest } = data;
     const combinedStartDate = combineDateAndTime(startDate, startTime, timezone || 'UTC');
 
+    const durationMin = Number(rest.duration ?? 0);
+    const lateMin = Number(rest.lateAllowanceMinutes ?? 0);
+    const derivedEndDate = combinedStartDate && durationMin > 0
+      ? new Date(combinedStartDate.getTime() + (durationMin + lateMin) * 60_000)
+      : undefined;
+
     const examData = {
       ownerId,
       status: 'DRAFT',
@@ -184,6 +218,7 @@ export class ExamService {
       uniqueCode: generateUniqueCode(),
       ...rest,
       startDate: combinedStartDate,
+      endDate: derivedEndDate ?? rest.endDate ?? null,
     };
     delete examData.startTime;
 
@@ -264,9 +299,17 @@ export class ExamService {
 
     const { startDate, startTime, fullSections, ...rest } = data;
     const combinedStartDate = combineDateAndTime(startDate, startTime, rest.timezone || exam.timezone || 'UTC');
+    
+    const durationMin = Number(rest.duration ?? exam?.duration ?? 0);
+    const lateMin = Number(rest.lateAllowanceMinutes ?? exam?.lateAllowanceMinutes ?? 0);
+    const derivedEndDate = combinedStartDate && durationMin > 0
+      ? new Date(combinedStartDate.getTime() + (durationMin + lateMin) * 60_000)
+      : undefined;
+
     const updateData = {
       ...rest,
       startDate: combinedStartDate,
+      endDate: derivedEndDate ?? rest.endDate ?? null,
     };
     delete updateData.startTime;
 
@@ -588,6 +631,16 @@ export class ExamService {
     });
     if (!exam) throw new Error('Exam not found');
 
+    const now0 = new Date();
+    const effectiveEnd = exam.endDate
+      ? exam.endDate
+      : (exam.startDate && exam.duration
+          ? new Date(exam.startDate.getTime() + (exam.duration + (exam.lateAllowanceMinutes ?? 0)) * 60_000)
+          : null);
+
+    if (exam.sessionState === 'ENDED') throw new Error('This exam has already ended.');
+    if (effectiveEnd && now0 >= effectiveEnd) throw new Error('This exam has already ended.');
+
     // Check late entry allowance
     if (exam.startDate && exam.lateAllowanceMinutes !== undefined) {
       const now = new Date();
@@ -627,6 +680,10 @@ export class ExamService {
           points: q.points,
           difficulty: q.difficulty,
           order: q.order,
+          metadata: {
+            pairs: (q.metadata as any)?.pairs,
+            hint: (q.metadata as any)?.hint,
+          },
           options: q.options.map((opt) => ({
             id: opt.id,
             text: opt.text,

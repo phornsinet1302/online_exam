@@ -178,6 +178,20 @@ export function LiveMonitoring() {
     return () => { es.close(); esRef.current = null; };
   }, [examId]);
 
+  // Optional: Belt & suspenders polling fallback
+  useEffect(() => {
+    if (!examId) return;
+    const id = setInterval(async () => {
+      try {
+        const data = await examsApi.getById(examId);
+        if (data.sessionState && data.sessionState !== sessionState) {
+          setSessionState(data.sessionState);
+        }
+      } catch {}
+    }, 30_000);
+    return () => clearInterval(id);
+  }, [examId, sessionState]);
+
   const handleKick = async (attemptId: string, name: string) => {
     if (!confirm(`Remove ${name} from the session?`)) return;
     try {
@@ -460,6 +474,9 @@ export function LiveMonitoring() {
                   {ending ? <Loader2 size={12} className="animate-spin"/> : <StopCircle size={12}/>}
                   {ending ? "Ending..." : "End exam for all"}
                 </button>
+              )}
+              {sessionState === "ENDED" && (
+                <div className="w-full text-center py-2.5 text-xs font-bold text-gray-500 bg-gray-50 rounded-xl" style={{ fontFamily: U }}>Session Ended (Read-only)</div>
               )}
               <button onClick={() => navigate("/dashboard/monitoring/logs")} className="w-full text-xs font-semibold py-2 rounded-xl border border-gray-200 text-gray-600 hover:bg-gray-50" style={{ fontFamily: U }}>View full logs →</button>
             </div>

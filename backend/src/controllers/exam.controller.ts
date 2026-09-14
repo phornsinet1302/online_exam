@@ -24,10 +24,12 @@ const examSchema = z.object({
   maxAttempts: z.number().int().positive().optional(),
   randomizeQuestions: z.boolean().optional(),
   showResults: z.boolean().optional(),
+  requireLateApproval: z.boolean().optional(),
   accessType: z.enum(['PUBLIC', 'PRIVATE', 'PASSWORD_PROTECTED']).optional(),
   password: z.string().optional(),
-  // status is handled separately
-}).refine((data) => {
+  fullSections: z.array(z.any()).optional(),
+  status: z.enum(['DRAFT', 'PUBLISHED', 'ARCHIVED']).optional(),
+}).passthrough().refine((data) => {
   // If accessType is PASSWORD_PROTECTED, password must be provided
   if (data.accessType === 'PASSWORD_PROTECTED' && !data.password) {
     return false;
@@ -37,11 +39,19 @@ const examSchema = z.object({
   message: 'Password is required when accessType is PASSWORD_PROTECTED',
   path: ['password'],
 });
+
 export const createExam = async (req: Request, res: Response) => {
   try {
     const ownerId = getOwnerId(req);
-    const validatedData = examSchema.parse(req.body);
-    const exam = await examService.createExam(ownerId, validatedData);
+    const data = examSchema.parse(req.body);
+    const exam = await examService.createExam(ownerId, data);
+    if (data.status === 'PUBLISHED') {
+      const result = await examService.publishExam(exam.id, ownerId);
+      if (result.exam.startDate && new Date(result.exam.startDate) > new Date()) {
+        scheduleAutoStart(result.exam.id, new Date(result.exam.startDate));
+      }
+      return res.status(201).json(result.exam);
+    }
     res.status(201).json(exam);
   } catch (error: any) {
     res.status(400).json({ message: error.message });

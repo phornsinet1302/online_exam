@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useRef, useEffect, useCallback } from "react";
+import { useState, useRef, useEffect, useCallback, useMemo } from "react";
 import { useNavigate } from "@/lib/hooks";
 import { QTLABELS, QTCOLORS } from "@/lib/mock-data";
 import { getExamState, autosaveAnswers, submitExam } from "@/lib/api/session";
@@ -234,6 +234,147 @@ function QuestionNavigator({questions,answers,flagged,currentIdx,onGoto,dark}:{
   );
 }
 
+// ─── Component Helpers ────────────────────────────────────────────────────────
+function MatchingQuestion({ q, answer, setAnswer, dark, FSC, TEXT, MUTED, BORDER, CARD, S, I, U }: any) {
+  const matchAns: Record<string, string> = answer || {};
+  const [activePrompt, setActivePrompt] = useState<string | null>(null);
+
+  // All right-side items (shuffled)
+  const allRightItems = useMemo(() => {
+    const items = (q.pairs || []).map((p: any) => p.R);
+    return items.sort(() => Math.random() - 0.5);
+  }, [q.pairs]);
+
+  const usedRightItems = Object.values(matchAns);
+  const availableRightItems = allRightItems.filter((r: string) => !usedRightItems.includes(r));
+
+  // If no pairs, show a message
+  if (!q.pairs || q.pairs.length === 0) {
+    return (
+      <div className="text-center py-8 text-gray-400" style={{ fontFamily: I }}>
+        <p>No matching pairs have been defined for this question.</p>
+      </div>
+    );
+  }
+
+  const handlePromptClick = (left: string) => {
+    setActivePrompt(left === activePrompt ? null : left);
+  };
+
+  const handleAvailableClick = (right: string) => {
+    if (activePrompt) {
+      setAnswer({ ...matchAns, [activePrompt]: right });
+      // Auto-select the next unmatched prompt
+      const unmatchedL = (q.pairs || []).map((p: any) => p.L).find((l: string) => l !== activePrompt && !matchAns[l]);
+      setActivePrompt(unmatchedL || null);
+    }
+  };
+
+  const handleRemoveMatch = (left: string, e: React.MouseEvent) => {
+    e.stopPropagation();
+    const newMatch = { ...matchAns };
+    delete newMatch[left];
+    setAnswer(newMatch);
+    if (activePrompt === null) setActivePrompt(left);
+  };
+
+  return (
+    <div className="space-y-6">
+      {/* Two columns: left prompts, right available matches */}
+      <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+        {/* Left column – prompts */}
+        <div className="space-y-3">
+          <p className="text-xs font-black uppercase tracking-wider" style={{ color: MUTED, fontFamily: U }}>
+            Terms
+          </p>
+          {(q.pairs || []).map((pair: any, idx: number) => {
+            const L = pair.L;
+            const matchedR = matchAns[L];
+            const isActive = activePrompt === L;
+
+            return (
+              <div
+                key={`${L}-${idx}`}
+                onClick={() => handlePromptClick(L)}
+                className={`flex items-center justify-between p-4 rounded-2xl border-2 cursor-pointer transition-all ${isActive ? "scale-[1.01]" : ""}`}
+                style={{
+                  background: isActive ? `${S}14` : CARD,
+                  borderColor: isActive ? S : (matchedR ? `${S}66` : BORDER),
+                }}
+              >
+                <span className={`font-semibold ${FSC}`} style={{ fontFamily: I, color: TEXT }}>
+                  {L}
+                </span>
+                {matchedR ? (
+                  <div
+                    className="flex items-center gap-2 px-3 py-1.5 rounded-xl text-sm"
+                    style={{ background: S, color: "white" }}
+                  >
+                    <span style={{ fontFamily: I }}>{matchedR}</span>
+                    <button
+                      onClick={(e) => handleRemoveMatch(L, e)}
+                      className="p-1 hover:bg-white/20 rounded-lg transition-colors"
+                    >
+                      <X size={14} />
+                    </button>
+                  </div>
+                ) : (
+                  <span className="text-sm" style={{ fontFamily: I, color: MUTED }}>
+                    {isActive ? "← Click a match below" : "Click to select"}
+                  </span>
+                )}
+              </div>
+            );
+          })}
+        </div>
+
+        {/* Right column – available matches */}
+        <div className="space-y-3">
+          <p className="text-xs font-black uppercase tracking-wider" style={{ color: MUTED, fontFamily: U }}>
+            Matches
+          </p>
+          {availableRightItems.length === 0 ? (
+            <div className="p-4 rounded-2xl border-2 border-dashed text-center" style={{ borderColor: BORDER }}>
+              <span className="text-sm" style={{ fontFamily: I, color: MUTED }}>
+                All matches are paired
+              </span>
+            </div>
+          ) : (
+            <div className="flex flex-wrap gap-2">
+              {availableRightItems.map((R: string, idx: number) => (
+                <button
+                  key={`${R}-${idx}`}
+                  onClick={() => handleAvailableClick(R)}
+                  disabled={!activePrompt}
+                  className={`px-4 py-2.5 rounded-xl text-sm font-semibold transition-all ${
+                    !activePrompt ? "opacity-50 cursor-not-allowed" : "hover:-translate-y-0.5 shadow-sm"
+                  }`}
+                  style={{
+                    background: CARD,
+                    borderColor: activePrompt ? S : BORDER,
+                    borderWidth: 2,
+                    color: TEXT,
+                    fontFamily: I,
+                  }}
+                >
+                  {R}
+                </button>
+              ))}
+            </div>
+          )}
+        </div>
+      </div>
+
+      {/* Help text */}
+      {activePrompt && (
+        <div className="text-xs text-center" style={{ color: MUTED, fontFamily: I }}>
+          Selected: <strong style={{ color: S }}>{activePrompt}</strong> — click a match to pair it.
+        </div>
+      )}
+    </div>
+  );
+}
+
 // ─── Main Component ──────────────────────────────────────────────────────────
 export function ExamTaking() {
   const navigate = useNavigate();
@@ -270,6 +411,11 @@ export function ExamTaking() {
   useEffect(() => {
     getExamState()
       .then((state) => {
+        if (state.timer?.remainingSeconds <= 0) {
+          navigate("/student/exam/auto-submit");
+          return;
+        }
+
         setExamData(state);
         setAttemptId(state.attemptId);
         setExam(state.snapshot || { title: "Exam", duration: 0 });
@@ -326,6 +472,19 @@ export function ExamTaking() {
       });
   }, []);
 
+  // Polling fallback to ensure client is synced if SSE fails or auto-submit happens
+  useEffect(() => {
+    if (!attemptId) return;
+    const id = setInterval(async () => {
+      try {
+        const s = await getExamState();
+        if (s.timer?.remainingSeconds !== undefined) setSecs(s.timer.remainingSeconds);
+        if (s.submitted) navigate("/student/exam/auto-submit");
+      } catch {}
+    }, 30_000);
+    return () => clearInterval(id);
+  }, [attemptId, navigate]);
+
   // Real-time SSE connection for exam taking
   useEffect(() => {
     if (!attemptId || !examData?.snapshot?.id) return;
@@ -377,11 +536,20 @@ export function ExamTaking() {
   }, [qIdx, secs]);
 
   // Timer countdown using server-provided remaining seconds
-  useEffect(()=>{
-    if (secs<=0 || examLoading) return;
-    const t = setInterval(()=>setSecs(s=>{ if(s<=1){clearInterval(t);navigate("/student/exam/auto-submit");return 0;} return s-1; }),1000);
-    return ()=>clearInterval(t);
-  },[examLoading, secs > 0]);
+  useEffect(() => {
+    if (secs <= 0 || examLoading) return;
+    const t = setInterval(() => {
+      setSecs(s => Math.max(0, s - 1));
+    }, 1000);
+    return () => clearInterval(t);
+  }, [examLoading, secs > 0]);
+
+  // Navigate when timer hits zero
+  useEffect(() => {
+    if (secs === 0 && !examLoading && attemptId) {
+      navigate("/student/exam/auto-submit");
+    }
+  }, [secs, examLoading, attemptId, navigate]);
 
   // Auto-save answers every 30 seconds
   useEffect(() => {
@@ -644,25 +812,21 @@ export function ExamTaking() {
       );
 
       case "matching": {
-        const matchAns:Record<string,string> = answer||{};
         return (
-          <div className="space-y-3">
-            <div className="grid grid-cols-2 gap-2 mb-1 px-1">
-              <p className="text-xs font-black uppercase tracking-wider" style={{color:MUTED,fontFamily:U}}>Function</p>
-              <p className="text-xs font-black uppercase tracking-wider" style={{color:MUTED,fontFamily:U}}>Derivative</p>
-            </div>
-            {q.pairs!.map(pair=>(
-              <div key={pair.L} className="grid grid-cols-2 gap-3 items-center">
-                <div className={`p-3.5 rounded-xl text-sm font-semibold ${FSC}`} style={{background:dark?"#334155":"#f9fafb",color:TEXT,fontFamily:I}}>{pair.L}</div>
-                <select value={matchAns[pair.L]||""} onChange={e=>setAnswer({...matchAns,[pair.L]:e.target.value})}
-                  className="p-3.5 rounded-xl border-2 text-sm focus:outline-none cursor-pointer transition-all"
-                  style={{background:CARD,borderColor:matchAns[pair.L]?S:BORDER,color:matchAns[pair.L]?TEXT:MUTED,fontFamily:I}}>
-                  <option value="">Select…</option>
-                  {q.pairs!.map(p=><option key={p.R} value={p.R}>{p.R}</option>)}
-                </select>
-              </div>
-            ))}
-          </div>
+          <MatchingQuestion 
+            q={q} 
+            answer={answer} 
+            setAnswer={setAnswer} 
+            dark={dark} 
+            FSC={FSC} 
+            TEXT={TEXT} 
+            MUTED={MUTED} 
+            BORDER={BORDER} 
+            CARD={CARD} 
+            S={S} 
+            I={I} 
+            U={U} 
+          />
         );
       }
 
