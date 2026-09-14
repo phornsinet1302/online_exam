@@ -204,6 +204,12 @@ export class ExamService {
     const { startDate, startTime, timezone, fullSections, ...rest } = data;
     const combinedStartDate = combineDateAndTime(startDate, startTime, timezone || 'UTC');
 
+    const durationMin = Number(rest.duration ?? 0);
+    const lateMin = Number(rest.lateAllowanceMinutes ?? 0);
+    const derivedEndDate = combinedStartDate && durationMin > 0
+      ? new Date(combinedStartDate.getTime() + (durationMin + lateMin) * 60_000)
+      : undefined;
+
     const examData = {
       ownerId,
       status: 'DRAFT',
@@ -212,6 +218,7 @@ export class ExamService {
       uniqueCode: generateUniqueCode(),
       ...rest,
       startDate: combinedStartDate,
+      endDate: derivedEndDate ?? rest.endDate ?? null,
     };
     delete examData.startTime;
 
@@ -292,9 +299,17 @@ export class ExamService {
 
     const { startDate, startTime, fullSections, ...rest } = data;
     const combinedStartDate = combineDateAndTime(startDate, startTime, rest.timezone || exam.timezone || 'UTC');
+    
+    const durationMin = Number(rest.duration ?? exam?.duration ?? 0);
+    const lateMin = Number(rest.lateAllowanceMinutes ?? exam?.lateAllowanceMinutes ?? 0);
+    const derivedEndDate = combinedStartDate && durationMin > 0
+      ? new Date(combinedStartDate.getTime() + (durationMin + lateMin) * 60_000)
+      : undefined;
+
     const updateData = {
       ...rest,
       startDate: combinedStartDate,
+      endDate: derivedEndDate ?? rest.endDate ?? null,
     };
     delete updateData.startTime;
 
@@ -615,6 +630,16 @@ export class ExamService {
       },
     });
     if (!exam) throw new Error('Exam not found');
+
+    const now0 = new Date();
+    const effectiveEnd = exam.endDate
+      ? exam.endDate
+      : (exam.startDate && exam.duration
+          ? new Date(exam.startDate.getTime() + (exam.duration + (exam.lateAllowanceMinutes ?? 0)) * 60_000)
+          : null);
+
+    if (exam.sessionState === 'ENDED') throw new Error('This exam has already ended.');
+    if (effectiveEnd && now0 >= effectiveEnd) throw new Error('This exam has already ended.');
 
     // Check late entry allowance
     if (exam.startDate && exam.lateAllowanceMinutes !== undefined) {

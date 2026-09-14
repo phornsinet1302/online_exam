@@ -16,6 +16,20 @@ export function isStudentOnline(attemptId: string) {
   return onlineStudents.has(attemptId) && onlineStudents.get(attemptId)!.size > 0;
 }
 
+// ─── Helpers ──────────────────────────────────────────────────────────────────
+// Compute the true end time. Prefers Exam.endDate; otherwise start + duration.
+function computeEndDate(exam: {
+  endDate: Date | null;
+  startDate: Date | null;
+  duration: number | null;
+  lateAllowanceMinutes?: number | null;
+}): Date | null {
+  if (exam.endDate) return exam.endDate;
+  if (!exam.startDate || !exam.duration) return null;
+  const extra = (exam.duration + (exam.lateAllowanceMinutes ?? 0)) * 60_000;
+  return new Date(exam.startDate.getTime() + extra);
+}
+
 // ─── Auto-start scheduler ─────────────────────────────────────────────────────
 // Keeps NodeJS timer handles so we can cancel them if needed
 const autoStartTimers = new Map<string, ReturnType<typeof setTimeout>>();
@@ -38,19 +52,25 @@ export function scheduleAutoStart(examId: string, startDate: Date) {
       const exam = await prisma.exam.findUnique({ where: { id: examId } });
       if (!exam || exam.sessionState !== ExamSessionState.WAITING) return;
 
+      const now = new Date();
+      const durationMin = exam.duration ?? 0;
+      const lateMin = exam.lateAllowanceMinutes ?? 0;
+      const newEndDate = durationMin > 0
+        ? new Date(now.getTime() + (durationMin + lateMin) * 60_000)
+        : exam.endDate;
+
       await prisma.exam.update({
         where: { id: examId },
-        data: { sessionState: ExamSessionState.ACTIVE },
+        data: { sessionState: ExamSessionState.ACTIVE, endDate: newEndDate },
       });
 
-      const now = new Date();
       await prisma.examAttempt.updateMany({
         where: { examId, submittedAt: null },
         data: { startedAt: now },
       });
 
-      const payload = { examId, startedAt: now.toISOString(), autoStarted: true };
-      broadcastToStudents(examId, 'exam_started', payload);
+      const payload = { examId, startedAt: now.toISOString(), endDate: newEndDate?.toISOString() ?? null, autoStarted: true };
+      broadcast(examId, 'exam_started', payload);
       broadcastToTeacher(examId, 'exam_started', payload);
       console.log(`[AutoStart] Exam ${examId} auto-started at scheduled time.`);
     } catch (err) {
@@ -210,6 +230,12 @@ export class SessionService {
     if (exam.status !== 'PUBLISHED') throw new Error('This exam is not currently available.');
 
     const now = new Date();
+    const derivedEndDate = exam.endDate || (exam.startDate && exam.duration ? new Date(exam.startDate.getTime() + (exam.duration + exam.lateAllowanceMinutes) * 60_000) : null);
+
+    if (exam.sessionState === 'ENDED' || (derivedEndDate && now >= derivedEndDate)) {
+      throw new Error('This exam has already concluded.');
+    }
+
     const lateDeadline = exam.startDate
       ? new Date(exam.startDate.getTime() + exam.lateAllowanceMinutes * 60_000)
       : null;
@@ -254,7 +280,11 @@ export class SessionService {
 
     if (!exam) throw new Error('Exam not found.');
     if (exam.status !== 'PUBLISHED') throw new Error('Exam not available.');
+
+    const now = new Date();
+    const effectiveEnd = computeEndDate(exam);
     if (exam.sessionState === 'ENDED') throw new Error('This exam has ended. Registration is closed.');
+    if (effectiveEnd && now >= effectiveEnd) throw new Error('This exam has already concluded.');
 
     // Build snapshot (no isCorrect exposed)
     const snapshot = {
@@ -418,10 +448,18 @@ export class SessionService {
     if (exam.ownerId !== ownerId) throw new Error('Access denied.');
 
     const now = new Date();
+    const durationMin = exam.duration ?? 0;
+    const lateMin = exam.lateAllowanceMinutes ?? 0;
+    const newEndDate = durationMin > 0
+      ? new Date(now.getTime() + (durationMin + lateMin) * 60_000)
+      : exam.endDate;
 
     await prisma.exam.update({
       where: { id: examId },
-      data: { sessionState: ExamSessionState.ACTIVE },
+      data: {
+        sessionState: ExamSessionState.ACTIVE,
+        endDate: newEndDate,
+      },
     });
 
     // Reset startedAt for all un-submitted attempts to the time the exam started
@@ -430,7 +468,11 @@ export class SessionService {
       data: { startedAt: now },
     });
 
-    const startPayload = { examId, startedAt: now.toISOString() };
+    const startPayload = {
+      examId,
+      startedAt: now.toISOString(),
+      endDate: newEndDate?.toISOString() ?? null,
+    };
     broadcast(examId, 'exam_started', startPayload);
     broadcastToTeacher(examId, 'exam_started', startPayload);
 
@@ -631,12 +673,18 @@ async function runSweep() {
       sessionState: ExamSessionState.WAITING,
       startDate: { lte: now },
     },
-    select: { id: true, startDate: true },
+    select: { id: true, startDate: true, duration: true, lateAllowanceMinutes: true, endDate: true },
   });
   for (const exam of toStart) {
+    const durationMin = exam.duration ?? 0;
+    const lateMin = exam.lateAllowanceMinutes ?? 0;
+    const newEndDate = durationMin > 0
+      ? new Date(now.getTime() + (durationMin + lateMin) * 60_000)
+      : exam.endDate;
+
     await prisma.exam.update({
       where: { id: exam.id },
-      data: { sessionState: ExamSessionState.ACTIVE },
+      data: { sessionState: ExamSessionState.ACTIVE, endDate: newEndDate },
     });
     await prisma.examAttempt.updateMany({
       where: { examId: exam.id, submittedAt: null },
@@ -667,14 +715,21 @@ async function runSweep() {
     console.log(`[Sweep] Auto-submitted attempt ${a.id}`);
   }
 
-  // 3) Auto-close exams whose endDate passed
-  const toClose = await prisma.exam.findMany({
-    where: {
-      sessionState: ExamSessionState.ACTIVE,
-      endDate: { lte: now, not: null },
-    },
-    select: { id: true },
+  // 3) Auto-close exams whose endDate passed OR whose derived end date passed (for legacy exams)
+  const activeExams = await prisma.exam.findMany({
+    where: { sessionState: ExamSessionState.ACTIVE },
+    select: { id: true, endDate: true, startDate: true, duration: true, lateAllowanceMinutes: true },
   });
+
+  const toClose = activeExams.filter(e => {
+    if (e.endDate) return e.endDate <= now;
+    if (e.startDate && e.duration) {
+      const derived = new Date(e.startDate.getTime() + (e.duration + e.lateAllowanceMinutes) * 60_000);
+      return derived <= now;
+    }
+    return false;
+  });
+
   for (const exam of toClose) {
     await prisma.exam.update({
       where: { id: exam.id },
@@ -696,6 +751,6 @@ export function startExpirySweeper() {
   if (sweepTimer) return;
   sweepTimer = setInterval(() => {
     runSweep().catch(err => console.error('[Sweep] error:', err));
-  }, 60_000); // every 60s
-  console.log('[Sweep] Expiry sweeper started (60s interval).');
+  }, 15_000); // every 15s
+  console.log('[Sweep] Expiry sweeper started (15s interval).');
 }

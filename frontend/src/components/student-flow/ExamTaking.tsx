@@ -287,14 +287,14 @@ function MatchingQuestion({ q, answer, setAnswer, dark, FSC, TEXT, MUTED, BORDER
           <p className="text-xs font-black uppercase tracking-wider" style={{ color: MUTED, fontFamily: U }}>
             Terms
           </p>
-          {(q.pairs || []).map((pair: any) => {
+          {(q.pairs || []).map((pair: any, idx: number) => {
             const L = pair.L;
             const matchedR = matchAns[L];
             const isActive = activePrompt === L;
 
             return (
               <div
-                key={L}
+                key={`${L}-${idx}`}
                 onClick={() => handlePromptClick(L)}
                 className={`flex items-center justify-between p-4 rounded-2xl border-2 cursor-pointer transition-all ${isActive ? "scale-[1.01]" : ""}`}
                 style={{
@@ -341,9 +341,9 @@ function MatchingQuestion({ q, answer, setAnswer, dark, FSC, TEXT, MUTED, BORDER
             </div>
           ) : (
             <div className="flex flex-wrap gap-2">
-              {availableRightItems.map((R: string) => (
+              {availableRightItems.map((R: string, idx: number) => (
                 <button
-                  key={R}
+                  key={`${R}-${idx}`}
                   onClick={() => handleAvailableClick(R)}
                   disabled={!activePrompt}
                   className={`px-4 py-2.5 rounded-xl text-sm font-semibold transition-all ${
@@ -411,6 +411,11 @@ export function ExamTaking() {
   useEffect(() => {
     getExamState()
       .then((state) => {
+        if (state.timer?.remainingSeconds <= 0) {
+          navigate("/student/exam/auto-submit");
+          return;
+        }
+
         setExamData(state);
         setAttemptId(state.attemptId);
         setExam(state.snapshot || { title: "Exam", duration: 0 });
