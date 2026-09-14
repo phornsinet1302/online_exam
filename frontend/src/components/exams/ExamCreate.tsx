@@ -274,9 +274,13 @@ export function ExamCreate() {
               let answer = baseQuestion.answer;
               if (qType === "fill" && q.metadata?.expectedText) {
                 answer = q.metadata.expectedText;
-              } else if (qType === "truefalse" && q.options) {
-                const correctOpt = q.options.find((o: any) => o.isCorrect);
-                if (correctOpt) answer = correctOpt.text;
+              } else if (qType === "truefalse") {
+                if (q.metadata?.expectedText) {
+                  answer = q.metadata.expectedText;
+                } else if (q.options) {
+                  const correctOpt = q.options.find((o: any) => o.isCorrect);
+                  if (correctOpt) answer = correctOpt.text;
+                }
               }
 
               return {

@@ -46,6 +46,7 @@ function gradeAnswer(key: GradingKeyQuestion, submitted: SubmittedAnswer): Grade
     QuestionType.ESSAY,
     QuestionType.MATH_FORMULA,
     QuestionType.FILE_UPLOAD,
+    QuestionType.FILL_IN_BLANK,
   ];
 
   if (subjective.includes(key.type)) {
@@ -53,12 +54,32 @@ function gradeAnswer(key: GradingKeyQuestion, submitted: SubmittedAnswer): Grade
   }
 
   switch (key.type) {
-    case QuestionType.MCQ:
-    case QuestionType.TRUE_FALSE: {
+    case QuestionType.MCQ: {
       // Single correct option – student submits exactly one optionId
       const selected = submitted.selectedOptionIds?.[0];
       const correct = key.correctOptionIds[0];
       const isCorrect = selected !== undefined && selected === correct;
+      return { score: isCorrect ? key.points : 0, status: GradingStatus.auto_graded };
+    }
+
+    case QuestionType.TRUE_FALSE: {
+      const rawSelected = submitted.selectedOptionIds?.[0];
+      // Fallback chain: metadata.expectedText → first correct option → boolean heuristics
+      let expected: string | undefined = key.expectedText;
+      if (!expected && key.correctOptionIds?.length === 1) {
+        expected = key.correctOptionIds[0];
+      }
+
+      const normalize = (v: any) =>
+        String(v ?? '').trim().toLowerCase() === 'true' ? 'true'
+        : String(v ?? '').trim().toLowerCase() === 'false' ? 'false'
+        : String(v ?? '').trim().toLowerCase();
+
+      if (rawSelected === undefined || expected === undefined) {
+        return { score: 0, status: GradingStatus.auto_graded };
+      }
+
+      const isCorrect = normalize(rawSelected) === normalize(expected);
       return { score: isCorrect ? key.points : 0, status: GradingStatus.auto_graded };
     }
 
@@ -69,16 +90,6 @@ function gradeAnswer(key: GradingKeyQuestion, submitted: SubmittedAnswer): Grade
       const correct = new Set(key.correctOptionIds);
       const isCorrect =
         selected.size === correct.size && [...correct].every((id) => selected.has(id));
-      return { score: isCorrect ? key.points : 0, status: GradingStatus.auto_graded };
-    }
-
-    case QuestionType.FILL_IN_BLANK: {
-      const studentText = submitted.textAnswer ?? '';
-      const expected = key.expectedText ?? '';
-      const cs = key.caseSensitive ?? false;
-      const isCorrect = cs
-        ? studentText.trim() === expected.trim()
-        : studentText.trim().toLowerCase() === expected.trim().toLowerCase();
       return { score: isCorrect ? key.points : 0, status: GradingStatus.auto_graded };
     }
 
@@ -103,6 +114,91 @@ function gradeAnswer(key: GradingKeyQuestion, submitted: SubmittedAnswer): Grade
 // ─────────────────────────────────────────────
 
 export class GradingService {
+  /**
+   * Helper to map raw autosaveData to SubmittedAnswer[] and run grading.
+   * Computes frontend response fields and persists the percentage score.
+   */
+  async submitAndGradeFromAutosave(attemptId: string) {
+    const attempt = await prisma.examAttempt.findUnique({
+      where: { id: attemptId },
+      include: { exam: { include: { sections: { include: { questions: true } } } } }
+    });
+    if (!attempt) throw new Error('Attempt not found');
+    if (attempt.submittedAt) throw new Error('Attempt already submitted');
+
+    const autosaveData = (attempt.autosaveData as Record<string, { answer: unknown }> | null) ?? {};
+    const submittedAnswers: SubmittedAnswer[] = [];
+    let maxPossible = 0;
+
+    for (const section of attempt.exam.sections) {
+      for (const question of section.questions) {
+        maxPossible += question.points ?? 1;
+        const saved = autosaveData[question.id];
+        const answer = saved?.answer;
+
+        const sub: SubmittedAnswer = { questionId: question.id };
+
+        if (answer !== undefined && answer !== null) {
+          if (question.type === 'MCQ' || question.type === 'TRUE_FALSE') {
+            sub.selectedOptionIds = [String(answer)];
+          } else if (question.type === 'CHECKBOX' || question.type === 'MULTIPLE_SELECT') {
+            sub.selectedOptionIds = Array.isArray(answer) ? answer.map(String) : [];
+          } else if (question.type === 'MATCHING') {
+            if (typeof answer === 'object') {
+              sub.matchingPairs = Object.entries(answer as Record<string, string>).map(([left, right]) => ({
+                leftId: String(left),
+                rightId: String(right)
+              }));
+            }
+          } else if (question.type === 'FILE_UPLOAD') {
+            sub.fileUrl = String(answer);
+          } else {
+            sub.textAnswer = String(answer);
+          }
+        }
+        submittedAnswers.push(sub);
+      }
+    }
+
+    const updated = await this.submitAndGrade(attemptId, submittedAnswers);
+
+    const gradedAnswers = updated.studentAnswers.map(a => ({
+      questionId: a.questionId,
+      score: a.score ?? 0,
+      maxScore: a.maxScore,
+      status: a.status
+    }));
+
+    // Auto-graded portion: sum of scores we currently have (both auto_graded and any graded)
+    const scoredSoFar = gradedAnswers.reduce((sum, a) => sum + a.score, 0);
+
+    const percentageScore = maxPossible > 0
+      ? parseFloat(((scoredSoFar / maxPossible) * 100).toFixed(2))
+      : 0;
+
+    const passed = attempt.exam.passingScore != null
+      ? percentageScore >= attempt.exam.passingScore
+      : null;
+
+    const finalUpdated = await prisma.examAttempt.update({
+      where: { id: attemptId },
+      data: { score: percentageScore }
+    });
+
+    return {
+      updated: finalUpdated,
+      exam: attempt.exam,
+      grading: {
+        totalScore: scoredSoFar,
+        maxPossible,
+        percentageScore,
+        passed,
+        status: updated.gradingStatus,
+        breakdown: gradedAnswers,
+      }
+    };
+  }
+
   /**
    * Save student answers and run auto-grading on submission.
    * Returns the updated attempt.
@@ -171,19 +267,31 @@ export class GradingService {
   }
 
   /**
-   * Fetch all student answers that need manual review for an exam.
+   * Fetch student answers for an exam, optionally filtered by status.
    */
-  async getPendingReviews(examId: string) {
-    return prisma.studentAnswer.findMany({
+  async getReviews(examId: string, filterAll: boolean = false) {
+    const answers = await prisma.studentAnswer.findMany({
       where: {
-        status: GradingStatus.needs_review,
         attempt: { examId },
+        ...(filterAll ? {} : { status: GradingStatus.needs_review }),
       },
       include: {
         attempt: { select: { id: true, studentId: true, submittedAt: true } },
       },
       orderBy: { createdAt: 'asc' },
     });
+
+    const questionIds = Array.from(new Set(answers.map((a) => a.questionId)));
+    const questions = await prisma.question.findMany({
+      where: { id: { in: questionIds } },
+      include: { options: true },
+    });
+    const qMap = new Map(questions.map((q) => [q.id, q]));
+
+    return answers.map((a) => ({
+      ...a,
+      question: qMap.get(a.questionId) || null,
+    }));
   }
 
   /**
@@ -309,16 +417,25 @@ export class GradingService {
    */
   private async _finalizeAttemptIfComplete(attemptId: string) {
     const answers = await prisma.studentAnswer.findMany({ where: { attemptId } });
+    if (answers.length === 0) return;
+
     const allDone = answers.every(
       (a) => a.status === GradingStatus.graded || a.status === GradingStatus.auto_graded
     );
 
-    if (allDone) {
-      const total = answers.reduce((sum, a) => sum + (a.score ?? 0), 0);
-      await prisma.examAttempt.update({
-        where: { id: attemptId },
-        data: { totalScore: total, gradingStatus: GradingStatus.graded },
-      });
-    }
+    const total = answers.reduce((sum, a) => sum + (a.score ?? 0), 0);
+    const maxPossible = answers.reduce((sum, a) => sum + (a.maxScore ?? 0), 0);
+    const percentage = maxPossible > 0
+      ? parseFloat(((total / maxPossible) * 100).toFixed(2))
+      : 0;
+
+    await prisma.examAttempt.update({
+      where: { id: attemptId },
+      data: {
+        score: percentage,
+        totalScore: total,
+        ...(allDone ? { gradingStatus: GradingStatus.graded } : {}),
+      },
+    });
   }
 }

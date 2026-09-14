@@ -59,13 +59,15 @@ export const submitAttempt = async (req: Request, res: Response) => {
 };
 
 /**
- * GET /api/exams/:examId/attempts?status=needs_review
- * Fetch student answers awaiting manual grading (teacher only).
+ * GET /api/exams/:examId/attempts/pending-review
+ * Fetch student answers for manual grading (teacher only).
+ * Query param ?all=true fetches all answers for overriding.
  */
 export const getPendingReviews = async (req: Request, res: Response) => {
   try {
     const { examId } = z.object({ examId: z.string() }).parse(req.params);
-    const pending = await gradingService.getPendingReviews(examId);
+    const filterAll = req.query.all === 'true';
+    const pending = await gradingService.getReviews(examId, filterAll);
     return res.status(200).json(pending);
   } catch (error: any) {
     return res.status(400).json({ error: error.message });

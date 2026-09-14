@@ -5,6 +5,7 @@ import { supabase } from '../config/supabase.js';
 import jwt from 'jsonwebtoken';
 import { v4 as uuidv4 } from 'uuid';
 import { broadcastToTeacher } from './session.service.js';
+import { GradingService, SubmittedAnswer } from './grading.service.js';
 
 const MATH_JWT_SECRET = process.env.JWT_SECRET || 'fallback-secret';
 const MATH_SESSION_TTL_MINUTES = 15;
@@ -292,139 +293,9 @@ export async function submitExam(attemptId: string) {
     }
   }
 
-  // ── Auto-grade objective questions ──────────────────────────────────────
-  const autosaveData =
-    (attempt.autosaveData as Record<
-      string,
-      { answer: unknown }
-    > | null) ?? {};
-
-  const OBJECTIVE_TYPES = new Set([
-    'MCQ',
-    'TRUE_FALSE',
-    'CHECKBOX',
-    'MULTIPLE_SELECT',
-    'MATCHING',
-    'FILL_IN_BLANK',
-  ]);
-
-  let totalScore = 0;
-  let maxPossible = 0;
-  const gradedAnswers: Array<{
-    questionId: string;
-    score: number;
-    maxScore: number;
-    status: 'auto_graded' | 'needs_review';
-  }> = [];
-
-  for (const section of exam.sections) {
-    for (const question of section.questions) {
-      const points = question.points ?? 1;
-      maxPossible += points;
-
-      const saved = autosaveData[question.id];
-      const isObjective = OBJECTIVE_TYPES.has(question.type);
-
-      if (!isObjective) {
-        // Essay / Short Answer — needs manual review
-        gradedAnswers.push({
-          questionId: question.id,
-          score: 0,
-          maxScore: points,
-          status: 'needs_review',
-        });
-        continue;
-      }
-
-      // Grade objective question
-      const correctOptionIds = question.options
-        .filter((o) => o.isCorrect)
-        .map((o) => o.id);
-
-      let score = 0;
-
-      if (saved?.answer !== undefined) {
-        const answer = saved.answer;
-
-        if (question.type === 'MCQ' || question.type === 'TRUE_FALSE') {
-          // Single answer — compare string IDs
-          if (answer === correctOptionIds[0]) {
-            score = points;
-          }
-        } else if (
-          question.type === 'CHECKBOX' ||
-          question.type === 'MULTIPLE_SELECT'
-        ) {
-          // Multi-select — must match exactly
-          const selectedIds: string[] = Array.isArray(answer)
-            ? (answer as string[])
-            : [];
-          const correctSet = new Set(correctOptionIds);
-          const selectedSet = new Set(selectedIds);
-          const allCorrect =
-            selectedIds.every((id) => correctSet.has(id)) &&
-            correctOptionIds.every((id) => selectedSet.has(id));
-          if (allCorrect) {
-            score = points;
-          }
-        } else if (question.type === 'FILL_IN_BLANK') {
-          // Case-insensitive text match against first correct option text
-          const correctText = question.options.find((o) => o.isCorrect)?.text ?? '';
-          if (
-            typeof answer === 'string' &&
-            answer.trim().toLowerCase() === correctText.trim().toLowerCase()
-          ) {
-            score = points;
-          }
-        } else if (question.type === 'MATCHING') {
-          // Matching: answer is expected as { [leftId]: rightId }
-          // Give partial credit: 1 point per correct pair / total pairs
-          if (typeof answer === 'object' && answer !== null) {
-            const pairs = answer as Record<string, string>;
-            const pairCount = correctOptionIds.length;
-            if (pairCount > 0) {
-              let correct = 0;
-              for (const opt of question.options.filter((o) => o.isCorrect)) {
-                // Each correct option's id is the right side; option.order maps to left
-                if (pairs[String(opt.order)] === opt.id) correct++;
-              }
-              score = (correct / pairCount) * points;
-            }
-          }
-        }
-      }
-
-      totalScore += score;
-      gradedAnswers.push({
-        questionId: question.id,
-        score,
-        maxScore: points,
-        status: 'auto_graded',
-      });
-    }
-  }
-
-  const percentageScore =
-    maxPossible > 0 ? (totalScore / maxPossible) * 100 : 0;
-  const passed =
-    exam.passingScore != null ? percentageScore >= exam.passingScore : null;
-
-  // Determine overall grading status
-  const hasUnreviewed = gradedAnswers.some((g) => g.status === 'needs_review');
-  const overallGradingStatus = hasUnreviewed ? 'needs_review' : 'auto_graded';
-
-  // ── Persist submission ───────────────────────────────────────────────────
-  const updated = await prisma.examAttempt.update({
-    where: { id: attemptId },
-    data: {
-      submittedAt: new Date(),
-      totalScore,
-      score: percentageScore,
-      gradingStatus: overallGradingStatus as any,
-      // answers field stores the final snapshot of answers for replay
-      answers: autosaveData as unknown as Prisma.InputJsonValue,
-    },
-  });
+  // ── Run full grading pipeline via GradingService ────────────────────────
+  const gradingService = new GradingService();
+  const { updated, grading } = await gradingService.submitAndGradeFromAutosave(attemptId);
 
   // Broadcast to teacher dashboard
   try {
@@ -437,14 +308,7 @@ export async function submitExam(attemptId: string) {
     message: 'Exam submitted successfully.',
     attemptId: updated.id,
     submittedAt: updated.submittedAt,
-    grading: {
-      totalScore,
-      maxPossible,
-      percentageScore: parseFloat(percentageScore.toFixed(2)),
-      passed,
-      status: overallGradingStatus,
-      breakdown: gradedAnswers,
-    },
+    grading,
     showResults: exam.showResults,
   };
 }
