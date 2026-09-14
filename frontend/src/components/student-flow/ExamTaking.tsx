@@ -1,8 +1,11 @@
 "use client";
 
-import { useState, useRef, useEffect } from "react";
+import { useState, useRef, useEffect, useCallback, useMemo } from "react";
 import { useNavigate } from "@/lib/hooks";
-import { MOCK_EXAMS, SESSION_QS, QTLABELS, QTCOLORS } from "@/lib/mock-data";
+import { QTLABELS, QTCOLORS } from "@/lib/mock-data";
+import { getExamState, autosaveAnswers, submitExam } from "@/lib/api/session";
+import { API_URL } from "@/lib/api/client";
+import { Loader2 as Spinner } from "lucide-react";
 import { 
   CheckCircle2, X, Clock, AlertTriangle, Lock, AlertOctagon, 
   Upload, QrCode, RefreshCw, BookMarked, ChevronLeft, ChevronRight, LayoutDashboard, Eye, Activity, Check, GraduationCap 
@@ -231,21 +234,166 @@ function QuestionNavigator({questions,answers,flagged,currentIdx,onGoto,dark}:{
   );
 }
 
+// ─── Component Helpers ────────────────────────────────────────────────────────
+function MatchingQuestion({ q, answer, setAnswer, dark, FSC, TEXT, MUTED, BORDER, CARD, S, I, U }: any) {
+  const matchAns: Record<string, string> = answer || {};
+  const [activePrompt, setActivePrompt] = useState<string | null>(null);
+
+  // All right-side items (shuffled)
+  const allRightItems = useMemo(() => {
+    const items = (q.pairs || []).map((p: any) => p.R);
+    return items.sort(() => Math.random() - 0.5);
+  }, [q.pairs]);
+
+  const usedRightItems = Object.values(matchAns);
+  const availableRightItems = allRightItems.filter((r: string) => !usedRightItems.includes(r));
+
+  // If no pairs, show a message
+  if (!q.pairs || q.pairs.length === 0) {
+    return (
+      <div className="text-center py-8 text-gray-400" style={{ fontFamily: I }}>
+        <p>No matching pairs have been defined for this question.</p>
+      </div>
+    );
+  }
+
+  const handlePromptClick = (left: string) => {
+    setActivePrompt(left === activePrompt ? null : left);
+  };
+
+  const handleAvailableClick = (right: string) => {
+    if (activePrompt) {
+      setAnswer({ ...matchAns, [activePrompt]: right });
+      // Auto-select the next unmatched prompt
+      const unmatchedL = (q.pairs || []).map((p: any) => p.L).find((l: string) => l !== activePrompt && !matchAns[l]);
+      setActivePrompt(unmatchedL || null);
+    }
+  };
+
+  const handleRemoveMatch = (left: string, e: React.MouseEvent) => {
+    e.stopPropagation();
+    const newMatch = { ...matchAns };
+    delete newMatch[left];
+    setAnswer(newMatch);
+    if (activePrompt === null) setActivePrompt(left);
+  };
+
+  return (
+    <div className="space-y-6">
+      {/* Two columns: left prompts, right available matches */}
+      <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+        {/* Left column – prompts */}
+        <div className="space-y-3">
+          <p className="text-xs font-black uppercase tracking-wider" style={{ color: MUTED, fontFamily: U }}>
+            Terms
+          </p>
+          {(q.pairs || []).map((pair: any, idx: number) => {
+            const L = pair.L;
+            const matchedR = matchAns[L];
+            const isActive = activePrompt === L;
+
+            return (
+              <div
+                key={`${L}-${idx}`}
+                onClick={() => handlePromptClick(L)}
+                className={`flex items-center justify-between p-4 rounded-2xl border-2 cursor-pointer transition-all ${isActive ? "scale-[1.01]" : ""}`}
+                style={{
+                  background: isActive ? `${S}14` : CARD,
+                  borderColor: isActive ? S : (matchedR ? `${S}66` : BORDER),
+                }}
+              >
+                <span className={`font-semibold ${FSC}`} style={{ fontFamily: I, color: TEXT }}>
+                  {L}
+                </span>
+                {matchedR ? (
+                  <div
+                    className="flex items-center gap-2 px-3 py-1.5 rounded-xl text-sm"
+                    style={{ background: S, color: "white" }}
+                  >
+                    <span style={{ fontFamily: I }}>{matchedR}</span>
+                    <button
+                      onClick={(e) => handleRemoveMatch(L, e)}
+                      className="p-1 hover:bg-white/20 rounded-lg transition-colors"
+                    >
+                      <X size={14} />
+                    </button>
+                  </div>
+                ) : (
+                  <span className="text-sm" style={{ fontFamily: I, color: MUTED }}>
+                    {isActive ? "← Click a match below" : "Click to select"}
+                  </span>
+                )}
+              </div>
+            );
+          })}
+        </div>
+
+        {/* Right column – available matches */}
+        <div className="space-y-3">
+          <p className="text-xs font-black uppercase tracking-wider" style={{ color: MUTED, fontFamily: U }}>
+            Matches
+          </p>
+          {availableRightItems.length === 0 ? (
+            <div className="p-4 rounded-2xl border-2 border-dashed text-center" style={{ borderColor: BORDER }}>
+              <span className="text-sm" style={{ fontFamily: I, color: MUTED }}>
+                All matches are paired
+              </span>
+            </div>
+          ) : (
+            <div className="flex flex-wrap gap-2">
+              {availableRightItems.map((R: string, idx: number) => (
+                <button
+                  key={`${R}-${idx}`}
+                  onClick={() => handleAvailableClick(R)}
+                  disabled={!activePrompt}
+                  className={`px-4 py-2.5 rounded-xl text-sm font-semibold transition-all ${
+                    !activePrompt ? "opacity-50 cursor-not-allowed" : "hover:-translate-y-0.5 shadow-sm"
+                  }`}
+                  style={{
+                    background: CARD,
+                    borderColor: activePrompt ? S : BORDER,
+                    borderWidth: 2,
+                    color: TEXT,
+                    fontFamily: I,
+                  }}
+                >
+                  {R}
+                </button>
+              ))}
+            </div>
+          )}
+        </div>
+      </div>
+
+      {/* Help text */}
+      {activePrompt && (
+        <div className="text-xs text-center" style={{ color: MUTED, fontFamily: I }}>
+          Selected: <strong style={{ color: S }}>{activePrompt}</strong> — click a match to pair it.
+        </div>
+      )}
+    </div>
+  );
+}
+
 // ─── Main Component ──────────────────────────────────────────────────────────
 export function ExamTaking() {
   const navigate = useNavigate();
   const raw  = typeof window !== "undefined" ? new URLSearchParams(window.location.search) : null;
-  const code = raw?.get("code") ?? "CALC-2026-XZ";
+  const code = raw?.get("code") ?? "";
   const qParam = parseInt(raw?.get("q")??"0")||0;
-  const exam = MOCK_EXAMS.find(e=>e.code.toUpperCase()===code.toUpperCase()) ?? {
-    ...MOCK_EXAMS[0], title:"Calculus Final Exam", duration:90,
-  };
+
+  // --- Data layer: fetch real exam state from backend ---
+  const [examData, setExamData] = useState<any>(null);
+  const [examLoading, setExamLoading] = useState(true);
+  const [attemptId, setAttemptId] = useState<string>("");
+  const [questions, setQuestions] = useState<SQ[]>([]);
+  const [exam, setExam] = useState<any>({ title: "Loading...", duration: 0 });
 
   const [qIdx, setQIdx]           = useState(qParam);
   const [answers, setAnswers]     = useState<Record<number,any>>({});
   const [flagged, setFlagged]     = useState<number[]>([]);
   const [navOpen, setNavOpen]     = useState(false);
-  const [secs, setSecs]           = useState(exam.duration*60);
+  const [secs, setSecs]           = useState(0);
   const [antiCheat, setAntiCheat] = useState<{event:string;count:number}|null>(null);
   const [connLost, setConnLost]   = useState(false);
   const [showAccess, setShowAccess] = useState(false);
@@ -257,18 +405,169 @@ export function ExamTaking() {
   const acCount = useRef(0);
   const lockdownEventActive = useRef(false);
   const examStateRef = useRef({ qIdx, secs });
-  const questions = SESSION_QS as SQ[];
-  const q = questions[Math.min(qIdx, questions.length-1)];
+  const autosaveTimerRef = useRef<number>(0);
+
+  // Fetch exam state from backend on mount
+  useEffect(() => {
+    getExamState()
+      .then((state) => {
+        if (state.timer?.remainingSeconds <= 0) {
+          navigate("/student/exam/auto-submit");
+          return;
+        }
+
+        setExamData(state);
+        setAttemptId(state.attemptId);
+        setExam(state.snapshot || { title: "Exam", duration: 0 });
+        setSecs(state.timer?.remainingSeconds ?? 0);
+
+        // Map snapshot sections/questions to the SQ format
+        const snapshot = state.snapshot;
+        if (snapshot?.sections) {
+          let qIndex = 0;
+          const mapped: SQ[] = snapshot.sections.flatMap((section: any) =>
+            section.questions.map((q: any) => {
+              qIndex++;
+              // Map backend question types to component types
+              const typeMap: Record<string,string> = {
+                MCQ: "mcq", MULTIPLE_SELECT: "checkbox", TRUE_FALSE: "truefalse",
+                SHORT_ANSWER: "short", ESSAY: "essay", FILL_IN_BLANK: "fill",
+                MATCHING: "matching", CHECKBOX: "checkbox", FILE_UPLOAD: "file",
+                MATH_FORMULA: "math",
+              };
+              return {
+                id: qIndex,
+                realId: q.id, // preserve original ID for API calls
+                type: typeMap[q.type] || q.type?.toLowerCase() || "short",
+                points: q.points || 1,
+                text: q.text || "",
+                options: q.options?.map((o: any) => o.text) || undefined,
+                optionIds: q.options?.map((o: any) => o.id) || undefined,
+                pairs: q.metadata?.pairs || undefined,
+                hint: q.metadata?.hint || undefined,
+              };
+            })
+          );
+          setQuestions(mapped);
+        }
+
+        // Restore autosaved answers if any
+        if (state.autosaveData && typeof state.autosaveData === "object") {
+          const restored: Record<number, any> = {};
+          // autosaveData is keyed by realQuestionId
+          // We'll restore after questions are set
+          setExamData((prev: any) => ({ ...prev, _restoredAnswers: state.autosaveData }));
+        }
+
+        // Restore review flags
+        if (state.reviewFlags?.length) {
+          // reviewFlags contains real question IDs — will map after questions load
+        }
+
+        setExamLoading(false);
+      })
+      .catch((err) => {
+        console.error("Failed to load exam state:", err);
+        navigate("/student/enter");
+      });
+  }, []);
+
+  // Polling fallback to ensure client is synced if SSE fails or auto-submit happens
+  useEffect(() => {
+    if (!attemptId) return;
+    const id = setInterval(async () => {
+      try {
+        const s = await getExamState();
+        if (s.timer?.remainingSeconds !== undefined) setSecs(s.timer.remainingSeconds);
+        if (s.submitted) navigate("/student/exam/auto-submit");
+      } catch {}
+    }, 30_000);
+    return () => clearInterval(id);
+  }, [attemptId, navigate]);
+
+  // Real-time SSE connection for exam taking
+  useEffect(() => {
+    if (!attemptId || !examData?.snapshot?.id) return;
+    const es = new EventSource(`${API_URL}/session/${examData.snapshot.id}/live?attemptId=${attemptId}`);
+    
+    es.addEventListener("student_kicked", (e) => {
+      try {
+        const payload = JSON.parse(e.data);
+        if (payload.attemptId === attemptId) {
+          alert("You have been removed from the exam.");
+          window.location.href = "/student/enter";
+        }
+      } catch {}
+    });
+
+    es.addEventListener("exam_ended", () => {
+      alert("The teacher has ended the exam. Submitting your answers...");
+      navigate("/student/exam/auto-submit");
+    });
+
+    es.addEventListener("session_state", (e) => {
+      try {
+        const state = JSON.parse(e.data);
+        if (state.timer && state.timer.remainingSeconds !== undefined) {
+          // Sync timer drift
+          setSecs(state.timer.remainingSeconds);
+        }
+      } catch {}
+    });
+
+    return () => es.close();
+  }, [attemptId, examData?.snapshot?.id]);
+
+  // Handle instant offline on tab close
+  useEffect(() => {
+    if (!attemptId) return;
+    const handleBeforeUnload = () => {
+      navigator.sendBeacon(`${API_URL}/student/leave`, JSON.stringify({ attemptId }));
+    };
+    window.addEventListener("beforeunload", handleBeforeUnload);
+    return () => window.removeEventListener("beforeunload", handleBeforeUnload);
+  }, [attemptId]);
+
+
+  const q = questions.length > 0 ? questions[Math.min(qIdx, questions.length-1)] : { id:0, type:"short", points:0, text:"Loading..." } as SQ;
 
   useEffect(()=>{
     examStateRef.current = { qIdx, secs };
   }, [qIdx, secs]);
 
-  useEffect(()=>{
-    if (secs<=0) return;
-    const t = setInterval(()=>setSecs(s=>{ if(s<=1){clearInterval(t);navigate("/student/exam/auto-submit");return 0;} return s-1; }),1000);
-    return ()=>clearInterval(t);
-  },[]);
+  // Timer countdown using server-provided remaining seconds
+  useEffect(() => {
+    if (secs <= 0 || examLoading) return;
+    const t = setInterval(() => {
+      setSecs(s => Math.max(0, s - 1));
+    }, 1000);
+    return () => clearInterval(t);
+  }, [examLoading, secs > 0]);
+
+  // Navigate when timer hits zero
+  useEffect(() => {
+    if (secs === 0 && !examLoading && attemptId) {
+      navigate("/student/exam/auto-submit");
+    }
+  }, [secs, examLoading, attemptId, navigate]);
+
+  // Auto-save answers every 30 seconds
+  useEffect(() => {
+    if (!attemptId || examLoading) return;
+    autosaveTimerRef.current = window.setInterval(() => {
+      const answersToSave: Record<string, { answer: unknown }> = {};
+      for (const [qIdx, ans] of Object.entries(answers)) {
+        const question = questions[Number(qIdx)];
+        if (question && (question as any).realId) {
+          answersToSave[(question as any).realId] = { answer: ans };
+        }
+      }
+      if (Object.keys(answersToSave).length > 0) {
+        autosaveAnswers(attemptId, answersToSave).catch(() => {});
+      }
+    }, 30000);
+    return () => window.clearInterval(autosaveTimerRef.current);
+  }, [attemptId, examLoading, answers, questions]);
 
   const recordExamViolation = (event: string, blockExam = false) => {
     acCount.current++;
@@ -322,7 +621,9 @@ export function ExamTaking() {
       }
     };
 
-    if (!document.fullscreenElement) setLockdownBlocked(true);
+    // Instead of instantly blocking if fullscreen was denied by the browser,
+    // we let the component render and show a "Click to Enter Fullscreen" prompt if needed.
+    
     document.addEventListener("visibilitychange",onVisibility);
     document.addEventListener("fullscreenchange",onFullscreen);
     document.addEventListener("contextmenu",onContextMenu);
@@ -333,7 +634,6 @@ export function ExamTaking() {
     document.addEventListener("dragstart",onDrag);
     document.addEventListener("drop",onDrag);
     document.addEventListener("keydown",onKeyDown,true);
-    window.addEventListener("blur",onBlur);
     return ()=>{
       document.removeEventListener("visibilitychange",onVisibility);
       document.removeEventListener("fullscreenchange",onFullscreen);
@@ -345,7 +645,6 @@ export function ExamTaking() {
       document.removeEventListener("dragstart",onDrag);
       document.removeEventListener("drop",onDrag);
       document.removeEventListener("keydown",onKeyDown,true);
-      window.removeEventListener("blur",onBlur);
     };
   },[]);
 
@@ -374,11 +673,64 @@ export function ExamTaking() {
     };
   }, [code]);
 
+  const [needsFullscreen, setNeedsFullscreen] = useState(false);
+  useEffect(() => {
+    const checkFs = () => {
+      if (!document.fullscreenElement) setNeedsFullscreen(true);
+      else setNeedsFullscreen(false);
+    };
+    checkFs();
+    document.addEventListener("fullscreenchange", checkFs);
+    return () => document.removeEventListener("fullscreenchange", checkFs);
+  }, []);
+
+  if (needsFullscreen && !lockdownBlocked && !examLoading) {
+    return (
+      <div className="min-h-screen bg-gray-900 flex items-center justify-center p-6 text-white text-center" style={{fontFamily:'"Outfit", sans-serif'}}>
+        <div className="max-w-md space-y-6">
+          <AlertOctagon className="w-24 h-24 mx-auto text-blue-500 animate-bounce" />
+          <h1 className="text-3xl font-black tracking-tight">Fullscreen Required</h1>
+          <p className="text-gray-300">Your browser prevented automatic fullscreen entry. You must enter fullscreen mode to take this exam.</p>
+          <button 
+            onClick={() => document.documentElement.requestFullscreen().catch(()=>alert("Please allow fullscreen to continue."))}
+            className="w-full py-4 font-bold rounded-xl shadow-lg transition-all text-white hover:opacity-90"
+            style={{background: S}}
+          >
+            Click here to Enter Fullscreen
+          </button>
+        </div>
+      </div>
+    );
+  }
+
   const setAnswer = (v:any) => setAnswers(prev=>({...prev,[q.id]:v}));
   const answer = answers[q.id];
   const isFlagged = flagged.includes(q.id);
   const toggleFlag = () => setFlagged(prev=>prev.includes(q.id)?prev.filter(x=>x!==q.id):[...prev,q.id]);
   const goTo = (i:number)=>{ setQIdx(i); setNavOpen(false); };
+
+  const goToReview = async () => {
+    // Save state to local storage for the review page
+    localStorage.setItem("exam_review_q", JSON.stringify(questions));
+    localStorage.setItem("exam_review_a", JSON.stringify(answers));
+    localStorage.setItem("exam_review_f", JSON.stringify(flagged));
+    localStorage.setItem("exam_review_title", exam.title);
+    if (attemptId) {
+      localStorage.setItem("exam_review_attempt", attemptId);
+      // Autosave right before navigating
+      const answersToSave: Record<string, { answer: unknown }> = {};
+      for (const [qI, ans] of Object.entries(answers)) {
+        const question = questions[Number(qI)];
+        if (question && (question as any).realId) {
+          answersToSave[(question as any).realId] = { answer: ans };
+        }
+      }
+      if (Object.keys(answersToSave).length > 0) {
+        await autosaveAnswers(attemptId, answersToSave).catch(() => {});
+      }
+    }
+    navigate(`/student/exam/review?code=${code}`);
+  };
 
   const pad=(n:number)=>String(n).padStart(2,"0");
   const hrs=Math.floor(secs/3600), min=Math.floor((secs%3600)/60), sec=secs%60;
@@ -460,25 +812,21 @@ export function ExamTaking() {
       );
 
       case "matching": {
-        const matchAns:Record<string,string> = answer||{};
         return (
-          <div className="space-y-3">
-            <div className="grid grid-cols-2 gap-2 mb-1 px-1">
-              <p className="text-xs font-black uppercase tracking-wider" style={{color:MUTED,fontFamily:U}}>Function</p>
-              <p className="text-xs font-black uppercase tracking-wider" style={{color:MUTED,fontFamily:U}}>Derivative</p>
-            </div>
-            {q.pairs!.map(pair=>(
-              <div key={pair.L} className="grid grid-cols-2 gap-3 items-center">
-                <div className={`p-3.5 rounded-xl text-sm font-semibold ${FSC}`} style={{background:dark?"#334155":"#f9fafb",color:TEXT,fontFamily:I}}>{pair.L}</div>
-                <select value={matchAns[pair.L]||""} onChange={e=>setAnswer({...matchAns,[pair.L]:e.target.value})}
-                  className="p-3.5 rounded-xl border-2 text-sm focus:outline-none cursor-pointer transition-all"
-                  style={{background:CARD,borderColor:matchAns[pair.L]?S:BORDER,color:matchAns[pair.L]?TEXT:MUTED,fontFamily:I}}>
-                  <option value="">Select…</option>
-                  {q.pairs!.map(p=><option key={p.R} value={p.R}>{p.R}</option>)}
-                </select>
-              </div>
-            ))}
-          </div>
+          <MatchingQuestion 
+            q={q} 
+            answer={answer} 
+            setAnswer={setAnswer} 
+            dark={dark} 
+            FSC={FSC} 
+            TEXT={TEXT} 
+            MUTED={MUTED} 
+            BORDER={BORDER} 
+            CARD={CARD} 
+            S={S} 
+            I={I} 
+            U={U} 
+          />
         );
       }
 
@@ -634,7 +982,7 @@ export function ExamTaking() {
             </div>
           )}
         </div>
-        <button onClick={()=>navigate(`/student/exam/review?code=${code}`)}
+        <button onClick={goToReview}
           className="flex items-center gap-1.5 text-white text-xs font-black px-4 py-2 rounded-xl hover:opacity-90 flex-shrink-0"
           style={{background:S,fontFamily:U}}>
           Submit
@@ -661,7 +1009,7 @@ export function ExamTaking() {
             style={{borderColor:isFlagged?"#fde68a":BORDER,background:isFlagged?"#fffbeb":CARD,color:isFlagged?"#b45309":MUTED,fontFamily:U}}>
             <BookMarked size={13}/>{isFlagged?"Unflag question":"Flag for review"}
           </button>
-          <button onClick={()=>navigate(`/student/exam/review?code=${code}`)}
+          <button onClick={goToReview}
             className="w-full py-2.5 rounded-xl text-white text-xs font-black hover:opacity-90"
             style={{background:S,fontFamily:U}}>
             Review &amp; Submit
@@ -674,7 +1022,7 @@ export function ExamTaking() {
           <div className="w-full rounded-t-3xl p-6 pb-8" style={{background:CARD}} onClick={e=>e.stopPropagation()}>
             <div className="w-10 h-1 rounded-full bg-gray-300 mx-auto mb-5"/>
             <QuestionNavigator questions={questions} answers={answers} flagged={flagged} currentIdx={qIdx} onGoto={goTo} dark={dark}/>
-            <button onClick={()=>navigate(`/student/exam/review?code=${code}`)}
+            <button onClick={goToReview}
               className="w-full mt-4 py-3.5 rounded-2xl text-white font-black text-sm hover:opacity-90" style={{background:S,fontFamily:U}}>
               Review &amp; Submit
             </button>

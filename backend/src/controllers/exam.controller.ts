@@ -3,6 +3,7 @@ import { Request, Response } from 'express';
 import { ExamService } from '../services/exam.service.js';
 import { ExamStatus } from '@prisma/client';
 import { z } from 'zod';
+import { scheduleAutoStart } from '../services/session.service.js';
 
 const examService = new ExamService();
 
@@ -23,10 +24,12 @@ const examSchema = z.object({
   maxAttempts: z.number().int().positive().optional(),
   randomizeQuestions: z.boolean().optional(),
   showResults: z.boolean().optional(),
+  requireLateApproval: z.boolean().optional(),
   accessType: z.enum(['PUBLIC', 'PRIVATE', 'PASSWORD_PROTECTED']).optional(),
   password: z.string().optional(),
-  // status is handled separately
-}).refine((data) => {
+  fullSections: z.array(z.any()).optional(),
+  status: z.enum(['DRAFT', 'PUBLISHED', 'ARCHIVED']).optional(),
+}).passthrough().refine((data) => {
   // If accessType is PASSWORD_PROTECTED, password must be provided
   if (data.accessType === 'PASSWORD_PROTECTED' && !data.password) {
     return false;
@@ -36,11 +39,19 @@ const examSchema = z.object({
   message: 'Password is required when accessType is PASSWORD_PROTECTED',
   path: ['password'],
 });
+
 export const createExam = async (req: Request, res: Response) => {
   try {
     const ownerId = getOwnerId(req);
-    const validatedData = examSchema.parse(req.body);
-    const exam = await examService.createExam(ownerId, validatedData);
+    const data = examSchema.parse(req.body);
+    const exam = await examService.createExam(ownerId, data);
+    if (data.status === 'PUBLISHED') {
+      const result = await examService.publishExam(exam.id, ownerId);
+      if (result.exam.startDate && new Date(result.exam.startDate) > new Date()) {
+        scheduleAutoStart(result.exam.id, new Date(result.exam.startDate));
+      }
+      return res.status(201).json(result.exam);
+    }
     res.status(201).json(exam);
   } catch (error: any) {
     res.status(400).json({ message: error.message });
@@ -79,6 +90,10 @@ export const updateExam = async (req: Request, res: Response) => {
     const ownerId = getOwnerId(req);
     const { id } = idSchema.parse(req.params);
     const exam = await examService.updateExam(id, ownerId, req.body);
+    // Re-schedule auto-start if this exam has a future startDate and is published
+    if (exam.startDate && exam.status === 'PUBLISHED') {
+      scheduleAutoStart(exam.id, new Date(exam.startDate));
+    }
     res.status(200).json(exam);
   } catch (error: any) {
     res.status(400).json({ message: error.message });
@@ -112,6 +127,11 @@ export const publishExam = async (req: Request, res: Response) => {
     const ownerId = getOwnerId(req);
     const { id } = idSchema.parse(req.params);
     const result = await examService.publishExam(id, ownerId);
+    // Schedule auto-start if exam has a future startDate
+    const exam = (result as any).exam || result;
+    if (exam.startDate && new Date(exam.startDate) > new Date()) {
+      scheduleAutoStart(exam.id, new Date(exam.startDate));
+    }
     res.status(200).json(result);
   } catch (error: any) {
     res.status(400).json({ message: error.message });

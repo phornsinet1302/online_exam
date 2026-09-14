@@ -1,2 +1,2 @@
 import { ExamEntry } from "@/components/student-flow/ExamEntry";
-export default function EnterPage({ searchParams }: any) { return <ExamEntry searchParams={searchParams} />; }
+export default async function EnterPage({ searchParams }: any) { return <ExamEntry searchParams={await searchParams} />; }

@@ -11,7 +11,9 @@
     "test": "echo \"Error: no test specified\" && exit 1",
     "test:openrouter": "tsx tests/scripts/test-openrouter.ts",
     "test:gen": "tsx tests/scripts/test-generation.ts",
-    "test:pdf": "tsx tests/scripts/test-pdf-extraction"
+    "test:pdf": "tsx tests/scripts/test-pdf-extraction",
+    "test:student-exam": "tsx tests/scripts/test-student-session.ts",
+    "test:grading": "tsx tests/scripts/test-grading.ts"
   },
   "keywords": [],
   "author": "",

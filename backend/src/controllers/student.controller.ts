@@ -111,3 +111,29 @@ export const submitExam = async (req: StudentRequest, res: Response) => {
     res.status(400).json({ message: error.message });
   }
 };
+
+import { SessionService } from '../services/session.service.js';
+const sessionService = new SessionService();
+
+export const refreshStudentToken = async (req: Request, res: Response) => {
+  try {
+    const { token } = req.body;
+    if (!token) return res.status(400).json({ message: 'Token required' });
+    const result = await sessionService.refreshStudentToken(token);
+    res.status(200).json(result);
+  } catch (error: any) {
+    res.status(401).json({ message: error.message });
+  }
+};
+
+export const leaveSession = async (req: Request, res: Response) => {
+  try {
+    const { attemptId } = req.body;
+    if (attemptId) {
+      await sessionService.handleStudentLeave(attemptId);
+    }
+    res.status(200).json({ success: true });
+  } catch (error: any) {
+    res.status(400).json({ message: error.message });
+  }
+};

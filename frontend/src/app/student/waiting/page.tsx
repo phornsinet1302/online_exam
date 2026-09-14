@@ -1,2 +1,2 @@
 import { ExamWaitingLobby } from "@/components/student-flow/ExamWaitingLobby";
-export default function WaitingPage({ searchParams }: any) { return <ExamWaitingLobby searchParams={searchParams} />; }
+export default function WaitingPage() { return <ExamWaitingLobby />; }

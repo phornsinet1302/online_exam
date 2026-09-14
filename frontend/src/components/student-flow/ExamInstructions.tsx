@@ -1,10 +1,12 @@
 "use client";
 
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { useNavigate } from "@/lib/hooks";
-import { MOCK_EXAMS, StudentSearchParams, getSearchValue } from "@/lib/mock-data";
-import { GraduationCap, Clock, FileText, CheckCircle2, EyeOff, Check, ArrowRight } from "lucide-react";
+import { useSearchParams } from "next/navigation";
+import { MOCK_EXAMS } from "@/lib/mock-data";
+import { GraduationCap, Clock, FileText, CheckCircle2, EyeOff, Check, ArrowRight, Loader2 } from "lucide-react";
 import { U, I, INK, CAMEL, CREAM } from "@/lib/tokens";
+import { joinByCode, registerStudent } from "@/lib/api/session";
 
 const S  = "#059669";
 const SL = "#ecfdf5";
@@ -58,24 +60,81 @@ function SVGInstructions() {
   );
 }
 
-export function ExamInstructions({ searchParams }: { searchParams?: StudentSearchParams } = {}) {
+export function ExamInstructions() {
   const navigate  = useNavigate();
-  const code = getSearchValue(searchParams, "code");
-  const studentName = getSearchValue(searchParams, "name");
-  const studentId = getSearchValue(searchParams, "studentId");
-  const studentEmail = getSearchValue(searchParams, "email");
-  const exam = MOCK_EXAMS.find(e=>e.code.toUpperCase()===code.toUpperCase()) ?? MOCK_EXAMS[0];
-  const [agreed, setAgreed] = useState(false);
+  const searchParams = useSearchParams();
+  const code = searchParams?.get("code") || "";
+  const studentName = searchParams?.get("name") || "";
+  const studentId = searchParams?.get("studentId") || "";
+  const studentEmail = searchParams?.get("email") || "";
   
-  const waitingParams = new URLSearchParams();
-  waitingParams.set("code", code || exam.code);
-  if (studentName) waitingParams.set("name", studentName);
-  if (studentId) waitingParams.set("studentId", studentId);
-  if (studentEmail) waitingParams.set("email", studentEmail);
+  const [exam, setExam] = useState<any>(null);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
+  const [agreed, setAgreed] = useState(false);
+  const [registering, setRegistering] = useState(false);
+
+  useEffect(() => {
+    if (!code) {
+      navigate("/student/enter");
+      return;
+    }
+    joinByCode(code)
+      .then(data => {
+        setExam(data);
+        setLoading(false);
+      })
+      .catch(err => {
+        setError(err.message || "Failed to load exam details");
+        setLoading(false);
+      });
+  }, [code, navigate]);
+  
+  const handleReady = async () => {
+    if (!exam) return;
+    setRegistering(true);
+    try {
+      const res = await registerStudent(exam.examId, studentName, studentId, studentEmail);
+      localStorage.setItem("student_token", res.token);
+      
+      const waitingParams = new URLSearchParams();
+      waitingParams.set("examId", exam.examId);
+      waitingParams.set("code", code);
+      navigate(`/student/waiting?${waitingParams.toString()}`);
+    } catch (err: any) {
+      alert(err.message || "Failed to join exam");
+      setRegistering(false);
+    }
+  };
+
+  if (loading) {
+    return (
+      <div className="min-h-screen flex flex-col" style={{background:CREAM}}>
+        <StudentHeader/>
+        <div className="flex-1 flex items-center justify-center">
+          <Loader2 className="animate-spin text-gray-400" size={32} />
+        </div>
+      </div>
+    );
+  }
+
+  if (error || !exam) {
+    return (
+      <div className="min-h-screen flex flex-col" style={{background:CREAM}}>
+        <StudentHeader/>
+        <div className="flex-1 flex flex-col items-center justify-center p-6 text-center">
+          <p className="text-xl font-black mb-4 text-red-500" style={{fontFamily:U}}>{error || "Exam not found"}</p>
+          <button onClick={()=>navigate("/student/enter")} className="px-6 py-3 rounded-2xl font-black text-white" style={{background:INK,fontFamily:U}}>
+            Try another code
+          </button>
+        </div>
+      </div>
+    );
+  }
 
   const chips = [
     {icon:Clock,    label:`${exam.duration} minutes`},
-    {icon:FileText, label:`${exam.questions || 12} questions`},
+    {icon:FileText, label:`${exam.totalQuestions || 12} questions`},
     {icon:CheckCircle2, label:"70% to pass"},
     {icon:EyeOff,   label:"Proctored"},
   ];
@@ -119,7 +178,7 @@ export function ExamInstructions({ searchParams }: { searchParams?: StudentSearc
                   {exam.subject}
                 </span>
                 <h1 className="text-2xl font-black mt-3 mb-1" style={{fontFamily:U,color:INK}}>{exam.title}</h1>
-                <p className="text-sm text-gray-400" style={{fontFamily:I}}>Exam code: <span className="font-semibold text-gray-600">{code||exam.code}</span></p>
+                <p className="text-sm text-gray-400" style={{fontFamily:I}}>Exam code: <span className="font-semibold text-gray-600">{code}</span></p>
                 {(studentName || studentId || studentEmail) && (
                   <div className="mt-4 rounded-2xl border border-gray-100 bg-gray-50 px-4 py-3">
                     <p className="text-xs font-black uppercase tracking-wider text-gray-400" style={{fontFamily:U}}>Student</p>
@@ -156,11 +215,11 @@ export function ExamInstructions({ searchParams }: { searchParams?: StudentSearc
               </label>
 
               <button
-                disabled={!agreed}
-                onClick={()=>navigate(`/student/waiting?${waitingParams.toString()}`)}
+                disabled={!agreed || registering}
+                onClick={handleReady}
                 className="w-full flex items-center justify-center gap-2 text-white font-black py-4 rounded-2xl text-base transition-all hover:opacity-90 disabled:opacity-40 disabled:cursor-not-allowed"
                 style={{background:S,fontFamily:U}}>
-                Ready — Join Waiting Room <ArrowRight size={18}/>
+                {registering ? <Loader2 size={18} className="animate-spin" /> : <>Ready — Join Waiting Room <ArrowRight size={18}/></>}
               </button>
               <p className="text-center text-xs text-gray-400 mt-3" style={{fontFamily:I}}>You will enter the exam once your teacher opens the session.</p>
             </div>

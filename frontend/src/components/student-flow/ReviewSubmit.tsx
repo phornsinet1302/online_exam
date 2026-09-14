@@ -1,9 +1,9 @@
 "use client";
 
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { useNavigate } from "@/lib/hooks";
-import { SESSION_QS } from "@/lib/mock-data";
-import { AlertTriangle, ArrowRight, GraduationCap } from "lucide-react";
+import { submitExam } from "@/lib/api/session";
+import { AlertTriangle, ArrowRight, GraduationCap, Loader2 } from "lucide-react";
 import { U, I, INK, CAMEL, CREAM } from "@/lib/tokens";
 
 const S  = "#059669";
@@ -25,13 +25,76 @@ function StudentHeader() {
 export function ReviewSubmit() {
   const navigate = useNavigate();
   const [showConfirm, setShowConfirm] = useState(false);
+  const [submitting, setSubmitting] = useState(false);
+  
+  const [questions, setQuestions] = useState<any[]>([]);
+  const [answers, setAnswers] = useState<Record<number,any>>({});
+  const [flagged, setFlagged] = useState<number[]>([]);
+  const [attemptId, setAttemptId] = useState<string>("");
+
   const raw  = typeof window !== "undefined" ? new URLSearchParams(window.location.search) : null;
   const code = raw?.get("code") ?? "";
-  
-  // Mock: first 9 answered, last 3 unanswered, Q4+Q5 flagged
-  const answeredIds  = [1,2,3,4,5,6,7,8,9];
-  const unansweredQs = SESSION_QS.filter(q=>!answeredIds.includes(q.id));
-  const flaggedQs    = SESSION_QS.filter(q=>[4,5].includes(q.id));
+
+  useEffect(() => {
+    try {
+      setQuestions(JSON.parse(localStorage.getItem("exam_review_q") || "[]"));
+      setAnswers(JSON.parse(localStorage.getItem("exam_review_a") || "{}"));
+      setFlagged(JSON.parse(localStorage.getItem("exam_review_f") || "[]"));
+      setAttemptId(localStorage.getItem("exam_review_attempt") || "");
+    } catch (e) {}
+  }, []);
+
+  const isAns = (q:any) => {
+    const a = answers[q.id];
+    if (a===undefined||a===null||a==="") return false;
+    if (Array.isArray(a)) return a.length>0;
+    if (typeof a==="object") return Object.keys(a).length>0;
+    return true;
+  };
+
+  const answeredIds  = questions.filter(isAns).map(q=>q.id);
+  const unansweredQs = questions.filter(q=>!answeredIds.includes(q.id));
+  const flaggedQs    = questions.filter(q=>flagged.includes(q.id));
+
+  const handleFinalSubmit = async () => {
+    if (!attemptId) return;
+    setSubmitting(true);
+    try {
+      const response = await submitExam(attemptId, {});
+      
+      // Save result for success and results pages
+      const resultData = {
+        ...response,
+        title: localStorage.getItem("exam_review_title") || "Exam",
+        answeredCount: answeredIds.length,
+        totalCount: questions.length,
+        date: new Date().toISOString()
+      };
+      
+      localStorage.setItem("student_last_result", JSON.stringify(resultData));
+      
+      // Append to history
+      try {
+        const history = JSON.parse(localStorage.getItem("student_exam_history") || "[]");
+        history.push(resultData);
+        localStorage.setItem("student_exam_history", JSON.stringify(history));
+      } catch (e) {}
+      
+      // Clear review state from local storage once submitted
+      localStorage.removeItem("exam_review_q");
+      localStorage.removeItem("exam_review_a");
+      localStorage.removeItem("exam_review_f");
+      localStorage.removeItem("exam_review_attempt");
+      localStorage.removeItem("exam_review_title");
+      
+      navigate("/student/exam/success");
+    } catch (error) {
+      console.error("Failed to submit exam:", error);
+      alert("Failed to submit exam. Please try again or ask your teacher for help.");
+      setSubmitting(false);
+      setShowConfirm(false);
+    }
+  };
 
   return (
     <div className="min-h-screen" style={{background:CREAM}}>
@@ -41,17 +104,30 @@ export function ReviewSubmit() {
         <div className="fixed inset-0 z-50 flex items-center justify-center px-4" style={{background:"rgba(0,0,0,0.62)",backdropFilter:"blur(8px)"}}>
           <div className="bg-white rounded-3xl w-full max-w-sm shadow-2xl p-8 text-center">
             <div className="w-16 h-16 rounded-3xl bg-amber-50 mx-auto mb-5 flex items-center justify-center">
-              <AlertTriangle size={28} className="text-amber-500"/>
+              {submitting ? (
+                <Loader2 size={28} className="text-amber-500 animate-spin"/>
+              ) : (
+                <AlertTriangle size={28} className="text-amber-500"/>
+              )}
             </div>
-            <h3 className="text-xl font-black mb-2" style={{fontFamily:U,color:INK}}>Submit exam?</h3>
-            <p className="text-sm text-gray-500 mb-6" style={{fontFamily:I}}>{unansweredQs.length>0?`You have ${unansweredQs.length} unanswered question(s). `:""}Once submitted, you cannot make changes.</p>
+            <h3 className="text-xl font-black mb-2" style={{fontFamily:U,color:INK}}>
+              {submitting ? "Submitting..." : "Submit exam?"}
+            </h3>
+            {!submitting && (
+              <p className="text-sm text-gray-500 mb-6" style={{fontFamily:I}}>{unansweredQs.length>0?`You have ${unansweredQs.length} unanswered question(s). `:""}Once submitted, you cannot make changes.</p>
+            )}
+            
             <div className="space-y-2">
-              <button onClick={()=>navigate("/student/exam/success")}
-                className="w-full py-3.5 rounded-2xl text-white font-black text-sm hover:opacity-90" style={{background:S,fontFamily:U}}>
-                Yes, submit now
+              <button 
+                onClick={handleFinalSubmit}
+                disabled={submitting}
+                className="w-full py-3.5 rounded-2xl text-white font-black text-sm hover:opacity-90 disabled:opacity-50" style={{background:S,fontFamily:U}}>
+                {submitting ? "Submitting..." : "Yes, submit now"}
               </button>
-              <button onClick={()=>setShowConfirm(false)}
-                className="w-full py-3 text-sm font-semibold text-gray-500 border border-gray-200 rounded-2xl hover:bg-gray-50" style={{fontFamily:U}}>
+              <button 
+                onClick={()=>setShowConfirm(false)}
+                disabled={submitting}
+                className="w-full py-3 text-sm font-semibold text-gray-500 border border-gray-200 rounded-2xl hover:bg-gray-50 disabled:opacity-50" style={{fontFamily:U}}>
                 Go back and review
               </button>
             </div>
@@ -81,7 +157,7 @@ export function ReviewSubmit() {
               <div key={q.id} className="flex items-center justify-between bg-white rounded-xl border border-red-100 px-4 py-3 mb-2">
                 <div className="flex items-center gap-3 min-w-0">
                   <span className="w-7 h-7 rounded-lg text-xs font-black flex items-center justify-center flex-shrink-0" style={{background:"#fff0f0",color:"#ef4444",fontFamily:U,display:"inline-flex"}}>Q{q.id}</span>
-                  <span className="text-sm text-gray-600 truncate" style={{fontFamily:I}}>{q.text.slice(0,48)}{q.text.length>48?"…":""}</span>
+                  <span className="text-sm text-gray-600 truncate" style={{fontFamily:I}}>{(q.text||"").slice(0,48)}{(q.text||"").length>48?"…":""}</span>
                 </div>
                 <button onClick={()=>navigate(`/student/exam?code=${code}&q=${q.id-1}`)}
                   className="text-xs font-black px-3 py-1.5 rounded-lg text-white flex-shrink-0 ml-2" style={{background:INK,fontFamily:U}}>
@@ -94,8 +170,8 @@ export function ReviewSubmit() {
         
         <div className="mb-8">
           <p className="text-xs font-black uppercase tracking-wider text-gray-400 mb-2.5" style={{fontFamily:U}}>All Questions</p>
-          {SESSION_QS.map(q=>{
-            const fl=flaggedQs.find(f=>f.id===q.id);
+          {questions.map(q=>{
+            const fl=flagged.includes(q.id);
             const ans=answeredIds.includes(q.id);
             return (
               <div key={q.id} className="flex items-center justify-between bg-white rounded-xl border border-gray-100 px-4 py-3 mb-2">
@@ -104,7 +180,7 @@ export function ReviewSubmit() {
                     style={{background:ans?`${S}18`:fl?"#fffbeb":"#f3f4f6",color:ans?S:fl?"#d97706":"#9ca3af",fontFamily:U,display:"inline-flex"}}>
                     Q{q.id}
                   </span>
-                  <span className="text-sm text-gray-600 truncate" style={{fontFamily:I}}>{q.text.slice(0,52)}{q.text.length>52?"…":""}</span>
+                  <span className="text-sm text-gray-600 truncate" style={{fontFamily:I}}>{(q.text||"").slice(0,52)}{(q.text||"").length>52?"…":""}</span>
                 </div>
                 <div className="flex items-center gap-2 flex-shrink-0">
                   {fl&&<span className="text-[10px] text-amber-500" style={{fontFamily:U}}>⚑</span>}
