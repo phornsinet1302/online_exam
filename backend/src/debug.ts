@@ -1,0 +1,1 @@
+import { PrismaClient } from "@prisma/client"; const prisma = new PrismaClient(); async function run() { const latestAttempt = await prisma.examAttempt.findFirst({ orderBy: { startedAt: "desc" }, include: { studentAnswers: true } }); console.log(JSON.stringify(latestAttempt, null, 2)); await prisma.$disconnect(); } run().catch(console.error);

@@ -16,7 +16,7 @@ const S  = "#059669";
 const SL = "#ecfdf5";
 const SM = "#6ee7b7";
 
-interface SQ { id:number; type:string; points:number; text:string; options?:string[]; pairs?:{L:string;R:string}[]; hint?:string; }
+interface SQ { id:number; type:string; points:number; text:string; options?:string[]; optionIds?:string[]; pairs?:{L:string;R:string}[]; hint?:string; realId?:string; }
 
 // ─── Helpers ─────────────────────────────────────────────────────────────────
 function AntiCheatModal({ event, count, onClose }:{event:string;count:number;onClose:()=>void}) {
@@ -556,8 +556,8 @@ export function ExamTaking() {
     if (!attemptId || examLoading) return;
     autosaveTimerRef.current = window.setInterval(() => {
       const answersToSave: Record<string, { answer: unknown }> = {};
-      for (const [qIdx, ans] of Object.entries(answers)) {
-        const question = questions[Number(qIdx)];
+      for (const [qId, ans] of Object.entries(answers)) {
+        const question = questions.find(q => q.id === Number(qId));
         if (question && (question as any).realId) {
           answersToSave[(question as any).realId] = { answer: ans };
         }
@@ -719,8 +719,8 @@ export function ExamTaking() {
       localStorage.setItem("exam_review_attempt", attemptId);
       // Autosave right before navigating
       const answersToSave: Record<string, { answer: unknown }> = {};
-      for (const [qI, ans] of Object.entries(answers)) {
-        const question = questions[Number(qI)];
+      for (const [qId, ans] of Object.entries(answers)) {
+        const question = questions.find(q => q.id === Number(qId));
         if (question && (question as any).realId) {
           answersToSave[(question as any).realId] = { answer: ans };
         }
@@ -754,17 +754,20 @@ export function ExamTaking() {
     switch(q.type){
       case "mcq": return (
         <div className="space-y-3">
-          {q.options!.map((opt,i)=>(
-            <button key={i} onClick={()=>setAnswer(i)}
-              className={`w-full flex items-center gap-4 p-4 rounded-2xl border-2 text-left transition-all hover:scale-[1.01]`}
-              style={{background:answer===i?`${S}14`:CARD,borderColor:answer===i?S:BORDER}}>
-              <div className="w-6 h-6 rounded-full border-2 flex items-center justify-center flex-shrink-0 transition-all"
-                style={{borderColor:answer===i?S:BORDER,background:answer===i?S:undefined}}>
-                {answer===i&&<div className="w-2.5 h-2.5 rounded-full bg-white"/>}
-              </div>
-              <span className={FSC} style={{fontFamily:I,color:TEXT}}>{opt}</span>
-            </button>
-          ))}
+          {q.options!.map((opt,i)=>{
+            const optId = q.optionIds![i];
+            return (
+              <button key={i} onClick={()=>setAnswer(optId)}
+                className={`w-full flex items-center gap-4 p-4 rounded-2xl border-2 text-left transition-all hover:scale-[1.01]`}
+                style={{background:answer===optId?`${S}14`:CARD,borderColor:answer===optId?S:BORDER}}>
+                <div className="w-6 h-6 rounded-full border-2 flex items-center justify-center flex-shrink-0 transition-all"
+                  style={{borderColor:answer===optId?S:BORDER,background:answer===optId?S:undefined}}>
+                  {answer===optId&&<div className="w-2.5 h-2.5 rounded-full bg-white"/>}
+                </div>
+                <span className={FSC} style={{fontFamily:I,color:TEXT}}>{opt}</span>
+              </button>
+            )
+          })}
         </div>
       );
 
@@ -831,13 +834,14 @@ export function ExamTaking() {
       }
 
       case "checkbox": {
-        const cbAns:number[] = answer||[];
+        const cbAns:string[] = answer||[];
         return (
           <div className="space-y-3">
             {q.options!.map((opt,i)=>{
-              const checked=cbAns.includes(i);
+              const optId = q.optionIds![i];
+              const checked=cbAns.includes(optId);
               return (
-                <button key={i} onClick={()=>setAnswer(checked?cbAns.filter(x=>x!==i):[...cbAns,i])}
+                <button key={i} onClick={()=>setAnswer(checked?cbAns.filter(x=>x!==optId):[...cbAns,optId])}
                   className={`w-full flex items-center gap-4 p-4 rounded-2xl border-2 text-left transition-all hover:scale-[1.01] ${FSC}`}
                   style={{background:checked?`${S}14`:CARD,borderColor:checked?S:BORDER}}>
                   <div className="w-5 h-5 rounded border-2 flex items-center justify-center flex-shrink-0 transition-all"

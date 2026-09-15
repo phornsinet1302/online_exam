@@ -35,5 +35,11 @@ export interface DashboardAnalytics {
 export const reportsApi = {
   getAnalytics: async (): Promise<DashboardAnalytics> => {
     return fetchApi<DashboardAnalytics>("/reports/analytics");
+  },
+  getScores: async (examId?: string) => {
+    return fetchApi<any>(`/reports/scores${examId ? `?examId=${examId}` : ''}`);
+  },
+  getQuestions: async (examId?: string) => {
+    return fetchApi<any>(`/reports/questions${examId ? `?examId=${examId}` : ''}`);
   }
 };

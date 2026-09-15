@@ -100,9 +100,11 @@ async function syncSectionsAndQuestions(examId: string, fullSections: any[], ran
         }));
         metadata.pairs = pairs;
         metadata.correctPairs = pairs.map((p: any) => ({ leftId: p.L, rightId: p.R }));
-      } else if (qType === "FILL_IN_BLANK" && q.expectedText) {
-        metadata.expectedText = q.expectedText;
+      } else if (qType === "FILL_IN_BLANK") {
+        metadata.expectedText = q.answer || q.expectedText;
         metadata.caseSensitive = !!q.caseSensitive;
+      } else if (qType === "TRUE_FALSE") {
+        metadata.expectedText = q.answer; // Contains "True" or "False"
       }
 
       if (!qId || qId.startsWith('question-')) {

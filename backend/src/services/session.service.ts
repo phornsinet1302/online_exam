@@ -1,6 +1,8 @@
 // src/services/session.service.ts
 import prisma from '../config/database.js';
 import jwt from 'jsonwebtoken';
+import { v4 as uuidv4 } from 'uuid';
+import { GradingService } from './grading.service.js';
 import { ExamSessionState } from '@prisma/client';
 
 // ─── SSE client registry ──────────────────────────────────────────────────────
@@ -492,11 +494,27 @@ export class SessionService {
       data: { sessionState: ExamSessionState.ENDED },
     });
 
-    // Auto-submit all remaining attempts
-    await prisma.examAttempt.updateMany({
+    // Auto-submit all remaining attempts via GradingService
+    const remaining = await prisma.examAttempt.findMany({
       where: { examId, submittedAt: null },
-      data: { submittedAt: new Date(), autoSubmitted: true },
+      select: { id: true },
     });
+    const gradingService = new GradingService();
+    for (const a of remaining) {
+      await prisma.examAttempt.update({
+        where: { id: a.id },
+        data: { autoSubmitted: true },
+      });
+      try {
+        await gradingService.submitAndGradeFromAutosave(a.id);
+      } catch (err) {
+        console.error(`[endSession] Failed to auto-grade attempt ${a.id}:`, err);
+        await prisma.examAttempt.update({
+          where: { id: a.id },
+          data: { submittedAt: new Date() },
+        });
+      }
+    }
 
     const endPayload = { examId, endedAt: new Date().toISOString() };
     broadcast(examId, 'exam_ended', endPayload);
@@ -705,11 +723,21 @@ async function runSweep() {
     },
     select: { id: true, examId: true },
   });
+  const gradingService = new GradingService();
   for (const a of expired) {
     await prisma.examAttempt.update({
       where: { id: a.id },
-      data: { submittedAt: now, autoSubmitted: true },
+      data: { autoSubmitted: true },
     });
+    try {
+      await gradingService.submitAndGradeFromAutosave(a.id);
+    } catch (err) {
+      console.error(`[Sweep] Failed to auto-grade attempt ${a.id}:`, err);
+      await prisma.examAttempt.update({
+        where: { id: a.id },
+        data: { submittedAt: now },
+      });
+    }
     broadcast(a.examId, 'attempt_auto_submitted', { attemptId: a.id });
     broadcastToTeacher(a.examId, 'attempt_auto_submitted', { attemptId: a.id });
     console.log(`[Sweep] Auto-submitted attempt ${a.id}`);
@@ -735,11 +763,26 @@ async function runSweep() {
       where: { id: exam.id },
       data: { sessionState: ExamSessionState.ENDED },
     });
-    // Submit all remaining attempts
-    await prisma.examAttempt.updateMany({
+    // Submit all remaining attempts via GradingService
+    const remaining = await prisma.examAttempt.findMany({
       where: { examId: exam.id, submittedAt: null },
-      data: { submittedAt: now, autoSubmitted: true },
+      select: { id: true }
     });
+    for (const a of remaining) {
+      await prisma.examAttempt.update({
+        where: { id: a.id },
+        data: { autoSubmitted: true },
+      });
+      try {
+        await gradingService.submitAndGradeFromAutosave(a.id);
+      } catch (err) {
+        console.error(`[Sweep] Failed to auto-grade attempt ${a.id} on close:`, err);
+        await prisma.examAttempt.update({
+          where: { id: a.id },
+          data: { submittedAt: now },
+        });
+      }
+    }
     const p = { examId: exam.id, endedAt: now.toISOString(), autoClosed: true };
     broadcast(exam.id, 'exam_ended', p);
     broadcastToTeacher(exam.id, 'exam_ended', p);
