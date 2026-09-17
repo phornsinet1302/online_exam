@@ -13,6 +13,12 @@ model User {
   name            String
   email           String         @unique
   avatarUrl       String?
+  phone           String?
+  institution     String?
+  department      String?
+  bio             String?
+  notificationPrefs Json?        @map("notification_prefs")
+  privacyPrefs      Json?        @map("privacy_prefs")
   createdAt       DateTime       @default(now())
   updatedAt       DateTime       @updatedAt
   role            String         @default("teacher")
@@ -20,6 +26,28 @@ model User {
   collaborations  Collaborator[] @relation("collaborations")
   invitationsSent Collaborator[] @relation("invitations_sent")
   reports         Report[]
+  notifications   Notification[]
+}
+
+model Notification {
+  id        String           @id @default(cuid())
+  userId    String           @map("user_id") // matches User.supabaseId, same convention as Exam.ownerId
+  user      User             @relation(fields: [userId], references: [supabaseId], onDelete: Cascade)
+  type      NotificationType
+  title     String
+  body      String
+  read      Boolean          @default(false)
+  createdAt DateTime         @default(now())
+
+  @@index([userId, read])
+  @@index([userId, type])
+}
+
+enum NotificationType {
+  exam
+  alert
+  grade
+  system
 }
 
 model Exam {
@@ -58,6 +86,7 @@ model Exam {
   collaborators        Collaborator[]
   reports              Report[]
   antiCheatRules       ExamAntiCheatRule[]
+  inviteLinks          CollaboratorInviteLink[]
 
   @@map("exams")
 }
@@ -205,6 +234,23 @@ model Collaborator {
 
   @@unique([examId, userId])
   @@map("collaborators")
+}
+
+/// Shareable, expiring invite link for joining an exam as a collaborator/invigilator
+/// without needing to know the invitee's email up front. Signed JWT + DB record,
+/// same pattern as MathUploadSession.
+model CollaboratorInviteLink {
+  id        String           @id @default(cuid())
+  examId    String           @map("exam_id")
+  exam      Exam             @relation(fields: [examId], references: [id], onDelete: Cascade)
+  role      CollaboratorRole
+  token     String           @unique
+  createdBy String           @map("created_by") // inviter's supabaseId
+  expiresAt DateTime         @map("expires_at")
+  createdAt DateTime         @default(now())
+
+  @@index([examId, role])
+  @@map("collaborator_invite_links")
 }
 
 // ═══════════════════════════════════════════════════════════════════════════════

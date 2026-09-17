@@ -4,6 +4,11 @@ import {
   register,
   login,
   getMe,
+  updateProfile,
+  updateAvatar,
+  updateNotificationPrefs,
+  updatePrivacyPrefs,
+  changePassword,
   forgotPassword,
   resetPassword,
   refreshToken,
@@ -11,6 +16,7 @@ import {
   googleAuth,
 } from '../controllers/auth.controller.js';
 import { authMiddleware } from '../middleware/auth.middleware.js';
+import { uploadAvatar } from '../middleware/upload.middleware.js';
 
 const router = Router();
 
@@ -343,6 +349,155 @@ router.post('/logout', logout);
  *                   type: string
  */
 router.get('/me', authMiddleware, getMe);
+
+/**
+ * @openapi
+ * /api/auth/me:
+ *   patch:
+ *     tags:
+ *       - Authentication
+ *     summary: Update the current user's editable profile fields
+ *     description: Updates name, phone, institution, department, and/or bio. Email is not editable here — it's the Supabase login identity.
+ *     security: [{ bearerAuth: [] }]
+ *     requestBody:
+ *       content:
+ *         application/json:
+ *           schema:
+ *             type: object
+ *             properties:
+ *               name: { type: string }
+ *               phone: { type: string }
+ *               institution: { type: string }
+ *               department: { type: string }
+ *               bio: { type: string }
+ *     responses:
+ *       200:
+ *         description: Profile updated successfully
+ *       401:
+ *         description: Unauthorised – missing or invalid token.
+ */
+router.patch('/me', authMiddleware, updateProfile);
+
+/**
+ * @openapi
+ * /api/auth/me/notifications:
+ *   patch:
+ *     tags:
+ *       - Authentication
+ *     summary: Update the current user's notification preference toggles
+ *     description: Merges the given toggles onto whatever is already stored (or the defaults), so a partial update doesn't reset the others.
+ *     security: [{ bearerAuth: [] }]
+ *     requestBody:
+ *       content:
+ *         application/json:
+ *           schema:
+ *             type: object
+ *             properties:
+ *               examAlerts: { type: boolean }
+ *               flagAlerts: { type: boolean }
+ *               gradeReady: { type: boolean }
+ *               weeklyReport: { type: boolean }
+ *               systemUpdates: { type: boolean }
+ *               studentJoins: { type: boolean }
+ *     responses:
+ *       200:
+ *         description: Preferences updated successfully
+ *       401:
+ *         description: Unauthorised – missing or invalid token.
+ */
+router.patch('/me/notifications', authMiddleware, updateNotificationPrefs);
+
+/**
+ * @openapi
+ * /api/auth/me/privacy:
+ *   patch:
+ *     tags:
+ *       - Authentication
+ *     summary: Update the current user's privacy preference toggles
+ *     description: Merges the given toggles onto whatever is already stored (or the defaults), so a partial update doesn't reset the others.
+ *     security: [{ bearerAuth: [] }]
+ *     requestBody:
+ *       content:
+ *         application/json:
+ *           schema:
+ *             type: object
+ *             properties:
+ *               shareUsageData: { type: boolean }
+ *               showInDirectory: { type: boolean }
+ *               allowResearch: { type: boolean }
+ *     responses:
+ *       200:
+ *         description: Preferences updated successfully
+ *       401:
+ *         description: Unauthorised – missing or invalid token.
+ */
+router.patch('/me/privacy', authMiddleware, updatePrivacyPrefs);
+
+/**
+ * @openapi
+ * /api/auth/me/avatar:
+ *   post:
+ *     tags:
+ *       - Authentication
+ *     summary: Upload or replace the current user's profile photo
+ *     security: [{ bearerAuth: [] }]
+ *     requestBody:
+ *       required: true
+ *       content:
+ *         multipart/form-data:
+ *           schema:
+ *             type: object
+ *             required: [file]
+ *             properties:
+ *               file:
+ *                 type: string
+ *                 format: binary
+ *                 description: JPG, PNG, or WEBP image, up to 3MB
+ *     responses:
+ *       200:
+ *         description: Profile photo updated successfully
+ *       400:
+ *         description: Invalid file, or no file provided
+ *       401:
+ *         description: Unauthorised – missing or invalid token.
+ */
+router.post('/me/avatar', authMiddleware, uploadAvatar, updateAvatar);
+
+/**
+ * @openapi
+ * /api/auth/me/password:
+ *   post:
+ *     tags:
+ *       - Authentication
+ *     summary: Change the current user's password
+ *     description: Verifies the current password by re-authenticating with Supabase, then updates it to the new password via the admin API.
+ *     security: [{ bearerAuth: [] }]
+ *     requestBody:
+ *       required: true
+ *       content:
+ *         application/json:
+ *           schema:
+ *             type: object
+ *             required:
+ *               - currentPassword
+ *               - newPassword
+ *             properties:
+ *               currentPassword:
+ *                 type: string
+ *                 format: password
+ *               newPassword:
+ *                 type: string
+ *                 format: password
+ *                 minLength: 8
+ *     responses:
+ *       200:
+ *         description: Password updated successfully.
+ *       400:
+ *         description: Current password incorrect, or new password invalid.
+ *       401:
+ *         description: Unauthorised – missing or invalid token.
+ */
+router.post('/me/password', authMiddleware, changePassword);
 
 /**
  * @openapi

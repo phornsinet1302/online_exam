@@ -1,6 +1,11 @@
 // backend/src/services/collaboration.service.ts
 import prisma from '../config/database.js';
 import { CollaboratorRole, InviteStatus } from '@prisma/client';
+import jwt from 'jsonwebtoken';
+import { v4 as uuidv4 } from 'uuid';
+
+const INVITE_JWT_SECRET = process.env.JWT_SECRET || 'fallback-secret';
+const INVITE_LINK_TTL_DAYS = 7;
 
 // Permission matrix based on SRS 3.10
 const PERMISSIONS: Record<string, Record<string, boolean>> = {
@@ -164,6 +169,66 @@ export class CollaborationService {
       where: { id: collaboratorId },
       data: { status: 'DECLINED' },
     });
+  }
+
+  // ── Get or create a shareable invite link for an exam+role ─────────────
+  async getOrCreateInviteLink(examId: string, requesterId: string, role: CollaboratorRole) {
+    const exam = await prisma.exam.findUnique({ where: { id: examId } });
+    if (!exam) throw new Error('Exam not found');
+    if (exam.ownerId !== requesterId) throw new Error('Only the exam owner can create invite links');
+
+    const now = new Date();
+    const existing = await prisma.collaboratorInviteLink.findFirst({
+      where: { examId, role, expiresAt: { gt: now } },
+      orderBy: { createdAt: 'desc' },
+    });
+    if (existing) return existing;
+
+    const expiresAt = new Date(Date.now() + INVITE_LINK_TTL_DAYS * 24 * 60 * 60 * 1000);
+    const token = jwt.sign(
+      { type: 'collaborator-invite-link', examId, role, jti: uuidv4() },
+      INVITE_JWT_SECRET,
+      { expiresIn: `${INVITE_LINK_TTL_DAYS}d` }
+    );
+
+    return prisma.collaboratorInviteLink.create({
+      data: { examId, role, token, createdBy: requesterId, expiresAt },
+    });
+  }
+
+  // ── Accept a shareable invite link ──────────────────────────────────────
+  async acceptInviteLink(token: string, acceptingUserId: string) {
+    let payload: { type: string; examId: string; role: CollaboratorRole };
+    try {
+      payload = jwt.verify(token, INVITE_JWT_SECRET) as typeof payload;
+    } catch {
+      throw new Error('This invite link is invalid or has expired.');
+    }
+    if (payload.type !== 'collaborator-invite-link') {
+      throw new Error('This invite link is invalid.');
+    }
+
+    const link = await prisma.collaboratorInviteLink.findUnique({ where: { token } });
+    if (!link) throw new Error('This invite link was not found or has been revoked.');
+    if (new Date() > link.expiresAt) throw new Error('This invite link has expired.');
+
+    const exam = await prisma.exam.findUnique({ where: { id: link.examId } });
+    if (!exam) throw new Error('This exam no longer exists.');
+    if (exam.ownerId === acceptingUserId) throw new Error('You already own this exam.');
+
+    const collaborator = await prisma.collaborator.upsert({
+      where: { examId_userId: { examId: link.examId, userId: acceptingUserId } },
+      update: { role: link.role, status: 'ACCEPTED' },
+      create: {
+        examId: link.examId,
+        userId: acceptingUserId,
+        role: link.role,
+        status: 'ACCEPTED',
+        invitedBy: link.createdBy,
+      },
+    });
+
+    return { collaborator, examId: exam.id, examTitle: exam.title, role: link.role };
   }
 
   // ── Get collaborations for the current user ────────────────────────────
