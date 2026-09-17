@@ -8,7 +8,7 @@ import {
   LayoutDashboard, FileText, Monitor, BarChart2,
 } from "lucide-react";
 import { U, I, INK, CAMEL, CREAM } from "@/lib/tokens";
-import { useNavigate } from "@/lib/hooks";
+import { useNavigate, useUnreadNotificationCount } from "@/lib/hooks";
 import { useAuth } from "@/components/providers/AuthProvider";
 
 // ─── Layout constants ─────────────────────────────────────────────────────────
@@ -52,7 +52,7 @@ const SECTION_TABS: Record<string, DashboardTabItem[]> = {
   ],
   settings: [
     { id: "settings",      label: "Account",       path: "/dashboard/settings" },
-    { id: "notifications", label: "Notifications", path: "/dashboard/notifications", badge: 4 },
+    { id: "notifications", label: "Notifications", path: "/dashboard/notifications" },
     { id: "collab-invite", label: "Invite",        path: "/dashboard/collaboration" },
     { id: "collab-manage", label: "Roles",         path: "/dashboard/collaboration/manage" },
   ],
@@ -99,7 +99,11 @@ export function DashboardSidebar({ active }: { active: string }) {
       </nav>
       <div className="px-4 py-4 border-t" style={{ borderColor: "rgba(255,255,255,0.07)" }}>
         <div className="flex items-center gap-3 px-2 py-2 rounded-xl hover:bg-white/5 transition-all cursor-pointer">
-          <div className="w-9 h-9 rounded-full flex items-center justify-center text-white text-sm font-bold flex-shrink-0" style={{ background: CAMEL, fontFamily: U }}>{initials}</div>
+          {user?.avatarUrl ? (
+            <img src={user.avatarUrl} alt={name} className="w-9 h-9 rounded-full object-cover flex-shrink-0"/>
+          ) : (
+            <div className="w-9 h-9 rounded-full flex items-center justify-center text-white text-sm font-bold flex-shrink-0" style={{ background: CAMEL, fontFamily: U }}>{initials}</div>
+          )}
           <div className="flex-1 min-w-0">
             <p className="text-sm font-semibold text-white truncate" style={{ fontFamily: U }}>{name}</p>
             <p className="text-xs text-gray-500 truncate" style={{ fontFamily: I }}>{user?.email || "Teacher"}</p>
@@ -117,6 +121,7 @@ export function DashboardSidebar({ active }: { active: string }) {
 // ─── Section Tabs ─────────────────────────────────────────────────────────────
 export function DashboardSectionTabs({ active }: { active: string }) {
   const navigate = useNavigate();
+  const unread = useUnreadNotificationCount();
   const section = getTeacherSection(active);
   const tabs = SECTION_TABS[section as keyof typeof SECTION_TABS];
   return (
@@ -125,12 +130,13 @@ export function DashboardSectionTabs({ active }: { active: string }) {
         <div className="flex w-max min-w-full gap-1 rounded-xl border border-gray-100 bg-gray-50 p-1">
           {tabs.map(({ id, label, path, badge }) => {
             const isActive = active === id || (active === "exams-create" && id === "exams-create");
+            const shownBadge = id === "notifications" ? unread : badge;
             return (
               <button key={id} onClick={() => navigate(path)}
                 className={`dashboard-tab flex items-center gap-2 whitespace-nowrap rounded-lg px-3 py-2 text-xs font-semibold transition-all duration-200 ease-out active:scale-[0.98] ${isActive ? "dashboard-tab-active bg-white text-gray-950 shadow-sm" : "text-gray-500 hover:bg-white/60 hover:text-gray-800"}`}
                 style={{ fontFamily: U }}>
                 {label}
-                {badge ? <span className="rounded-full px-1.5 py-0.5 text-[9px] font-bold text-white" style={{ background: "#ef4444" }}>{badge}</span> : null}
+                {shownBadge ? <span className="rounded-full px-1.5 py-0.5 text-[9px] font-bold text-white" style={{ background: "#ef4444" }}>{shownBadge}</span> : null}
               </button>
             );
           })}
@@ -144,6 +150,7 @@ export function DashboardSectionTabs({ active }: { active: string }) {
 export function DashboardHeader({ title, subtitle, actions }: { title: string; subtitle?: string; actions?: React.ReactNode }) {
   const navigate = useNavigate();
   const { user } = useAuth();
+  const unread = useUnreadNotificationCount();
   const name = user?.name || "Teacher";
   const initials = name ? name.split(" ").map((n: string) => n[0]).join("").toUpperCase().substring(0, 2) : "T";
   return (
@@ -160,9 +167,13 @@ export function DashboardHeader({ title, subtitle, actions }: { title: string; s
         </div>
         <button onClick={() => navigate("/dashboard/notifications")} className="relative w-9 h-9 rounded-xl bg-gray-50 border border-gray-200 flex items-center justify-center text-gray-500 hover:border-gray-300 transition-all">
           <Bell size={16}/>
-          <span className="absolute -top-1 -right-1 w-4 h-4 rounded-full flex items-center justify-center text-[9px] font-bold text-white" style={{ background: "#ef4444" }}>4</span>
+          {unread > 0 && <span className="absolute -top-1 -right-1 w-4 h-4 rounded-full flex items-center justify-center text-[9px] font-bold text-white" style={{ background: "#ef4444" }}>{unread > 9 ? "9+" : unread}</span>}
         </button>
-        <div className="w-9 h-9 rounded-xl flex items-center justify-center text-white text-sm font-bold cursor-pointer" style={{ background: CAMEL, fontFamily: U }}>{initials}</div>
+        {user?.avatarUrl ? (
+          <img src={user.avatarUrl} alt={name} className="w-9 h-9 rounded-xl object-cover cursor-pointer"/>
+        ) : (
+          <div className="w-9 h-9 rounded-xl flex items-center justify-center text-white text-sm font-bold cursor-pointer" style={{ background: CAMEL, fontFamily: U }}>{initials}</div>
+        )}
       </div>
     </header>
   );

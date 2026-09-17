@@ -1,9 +1,9 @@
 import multer from 'multer';
 
-// 500KB for Development, 1MB for Production (AI material uploads)
-const MAX_FILE_SIZE = process.env.NODE_ENV === 'production' 
-  ? 1 * 1024 * 1024 
-  : 500 * 1024;
+// 10MB for AI material uploads — real syllabus/learning-material PDFs
+// routinely exceed the old 500KB (dev) / 1MB (prod) limits, which rejected
+// essentially any legitimate document.
+const MAX_FILE_SIZE = 10 * 1024 * 1024;
 
 export const uploadPDF = multer({
   storage: multer.memoryStorage(),
@@ -39,6 +39,30 @@ export const uploadMathFile = multer({
       cb(null, true);
     } else {
       cb(new Error('Only JPG, PNG, and PDF files are allowed for math uploads'));
+    }
+  },
+}).single('file');
+
+// ─── Profile Avatar Upload ────────────────────────────────────────────────
+// Accepts JPG, PNG, or WEBP up to 3 MB for a user's profile picture
+const AVATAR_MAX_SIZE = 3 * 1024 * 1024; // 3 MB
+
+const ALLOWED_AVATAR_MIME_TYPES = new Set([
+  'image/jpeg',
+  'image/png',
+  'image/webp',
+]);
+
+export const uploadAvatar = multer({
+  storage: multer.memoryStorage(),
+  limits: {
+    fileSize: AVATAR_MAX_SIZE,
+  },
+  fileFilter: (req, file, cb) => {
+    if (ALLOWED_AVATAR_MIME_TYPES.has(file.mimetype)) {
+      cb(null, true);
+    } else {
+      cb(new Error('Only JPG, PNG, and WEBP images are allowed for profile photos'));
     }
   },
 }).single('file');

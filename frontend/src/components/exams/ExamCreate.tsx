@@ -464,7 +464,10 @@ export function ExamCreate() {
 
     } catch (error) {
       console.error("AI Generation failed:", error);
-      alert("Failed to generate questions. Please ensure you have uploaded a valid PDF and filled out subject details.");
+      const message = error instanceof Error && error.message
+        ? error.message
+        : "Failed to generate questions. Please ensure you have uploaded a valid PDF and filled out subject details.";
+      alert(message);
     } finally {
       setAiGenerating(false);
     }
@@ -904,7 +907,15 @@ export function ExamCreate() {
               <div className="mt-5 grid gap-4 xl:grid-cols-2">
                 <div>
                   <label className="text-xs font-bold text-gray-500 uppercase tracking-wider mb-1.5 block" style={{ fontFamily: U }}>Material</label>
-                  <input ref={aiFileRef} type="file" accept=".pdf" className="hidden" onChange={e => setAiFile(e.target.files?.[0] || null)} />
+                  <input ref={aiFileRef} type="file" accept=".pdf" className="hidden" onChange={e => {
+                    const file = e.target.files?.[0] || null;
+                    if (file && file.size > 10 * 1024 * 1024) {
+                      alert("That file is too large. Please upload a PDF up to 10MB.");
+                      e.target.value = "";
+                      return;
+                    }
+                    setAiFile(file);
+                  }} />
                   {aiFile ? (
                     <div className="flex items-center gap-3 rounded-xl border border-gray-200 bg-gray-50 px-4 py-3">
                       <FileText size={16} style={{ color: CAMEL }} />

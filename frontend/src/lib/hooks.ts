@@ -1,6 +1,8 @@
 "use client";
 
+import { useEffect, useState } from "react";
 import { useRouter, usePathname } from "next/navigation";
+import { notificationsApi } from "@/lib/api/notifications";
 
 /** Thin wrapper so components can navigate without importing next/navigation directly */
 export function useNavigate() {
@@ -51,4 +53,24 @@ export function authHeaders(): HeadersInit {
     "Content-Type": "application/json",
     ...(token ? { Authorization: `Bearer ${token}` } : {}),
   };
+}
+
+/** Number of unread notifications for the logged-in teacher, for the header/sidebar bell badges */
+export function useUnreadNotificationCount(): number {
+  const [count, setCount] = useState(0);
+
+  useEffect(() => {
+    let cancelled = false;
+    notificationsApi
+      .list("all")
+      .then((notifs) => {
+        if (!cancelled) setCount(notifs.filter((n) => !n.read).length);
+      })
+      .catch(() => {});
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
+  return count;
 }
