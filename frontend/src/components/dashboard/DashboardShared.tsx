@@ -39,7 +39,6 @@ const SECTION_TABS: Record<string, DashboardTabItem[]> = {
   ],
   monitoring: [
     { id: "monitoring", label: "Live Monitor",  path: "/dashboard/monitoring" },
-    { id: "rules",      label: "Rules",         path: "/dashboard/monitoring/rules" },
     { id: "logs",       label: "Security Logs", path: "/dashboard/monitoring/logs" },
   ],
   reports: [

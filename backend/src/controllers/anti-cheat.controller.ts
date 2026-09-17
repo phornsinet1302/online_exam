@@ -190,6 +190,42 @@ export const getViolationLogs = async (req: Request, res: Response) => {
 
 /**
  * @openapi
+ * /api/violations:
+ *   get:
+ *     tags: [Anti-Cheat]
+ *     summary: Get all violation logs for all exams owned by the teacher
+ *     security: [{ bearerAuth: [] }]
+ */
+export const getAllViolationLogs = async (req: Request, res: Response) => {
+  try {
+    const ownerId = getTeacherId(req);
+    const q = z.object({
+      severity:   z.string().optional(),
+      eventType:  z.string().optional(),
+      resolved:   z.enum(['true', 'false']).optional(),
+      attemptId:  z.string().optional(),
+      examId:     z.string().optional(),
+      page:       z.coerce.number().int().min(1).default(1),
+      pageSize:   z.coerce.number().int().min(1).max(200).default(50),
+    }).parse(req.query);
+
+    const result = await svc.getAllViolationLogs(ownerId, {
+      severity:  q.severity,
+      eventType: q.eventType,
+      resolved:  q.resolved !== undefined ? q.resolved === 'true' : undefined,
+      attemptId: q.attemptId,
+      examId:    q.examId,
+      page:      q.page,
+      pageSize:  q.pageSize,
+    });
+    return res.json(result);
+  } catch (err: any) {
+    return res.status(400).json({ error: err.message });
+  }
+};
+
+/**
+ * @openapi
  * /api/exams/{examId}/violations/export:
  *   get:
  *     tags: [Anti-Cheat]

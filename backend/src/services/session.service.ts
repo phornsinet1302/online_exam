@@ -296,28 +296,51 @@ export class SessionService {
       subject: exam.subject,
       duration: exam.duration,
       passingScore: exam.passingScore,
-      sections: exam.sections.map((section) => ({
-        id: section.id,
-        title: section.title,
-        randomization: section.randomization,
-        shuffleAnswers: section.shuffleAnswers,
-        questions: section.questions.map((q) => ({
-          id: q.id,
-          type: q.type,
-          text: q.text,
-          points: q.points,
-          order: q.order,
-          metadata: {
-            pairs: (q.metadata as any)?.pairs,
-            hint: (q.metadata as any)?.hint,
-          },
-          options: q.options.map((opt) => ({
+      sections: exam.sections.map((section) => {
+        const questions = section.questions.map((q) => {
+          const options = q.options.map((opt) => ({
             id: opt.id,
             text: opt.text,
             order: opt.order,
-          })),
-        })),
-      })),
+          }));
+
+          // Optional: shuffle options if section.shuffleAnswers is true
+          if (section.shuffleAnswers) {
+            for (let i = options.length - 1; i > 0; i--) {
+              const j = Math.floor(Math.random() * (i + 1));
+              [options[i], options[j]] = [options[j], options[i]];
+            }
+          }
+
+          return {
+            id: q.id,
+            type: q.type,
+            text: q.text,
+            points: q.points,
+            order: q.order,
+            metadata: {
+              pairs: (q.metadata as any)?.pairs,
+              hint: (q.metadata as any)?.hint,
+            },
+            options,
+          };
+        });
+
+        if (exam.randomizeQuestions || section.randomization) {
+          for (let i = questions.length - 1; i > 0; i--) {
+            const j = Math.floor(Math.random() * (i + 1));
+            [questions[i], questions[j]] = [questions[j], questions[i]];
+          }
+        }
+
+        return {
+          id: section.id,
+          title: section.title,
+          randomization: section.randomization,
+          shuffleAnswers: section.shuffleAnswers,
+          questions,
+        };
+      }),
     };
 
     // Build private grading key

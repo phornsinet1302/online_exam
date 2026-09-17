@@ -66,3 +66,10 @@ export async function approveLateEntry(examId: string, attemptId: string) {
 export async function rejectLateEntry(examId: string, attemptId: string) {
   return fetchApi<any>(`/session/${examId}/reject/${attemptId}`, { method: "POST" });
 }
+
+export async function reportViolation(attemptId: string, payload: { eventType: string; count?: number; action?: string; detail?: string; batchCount?: number }) {
+  return fetchApi<any>(`/attempts/${attemptId}/violations`, {
+    method: "POST",
+    body: JSON.stringify(payload),
+  });
+}

@@ -3,7 +3,7 @@
 import { useState, useRef, useEffect, useCallback, useMemo } from "react";
 import { useNavigate } from "@/lib/hooks";
 import { QTLABELS, QTCOLORS } from "@/lib/mock-data";
-import { getExamState, autosaveAnswers, submitExam } from "@/lib/api/session";
+import { getExamState, autosaveAnswers, submitExam, reportViolation } from "@/lib/api/session";
 import { API_URL } from "@/lib/api/client";
 import { Loader2 as Spinner } from "lucide-react";
 import { 
@@ -569,19 +569,23 @@ export function ExamTaking() {
     return () => window.clearInterval(autosaveTimerRef.current);
   }, [attemptId, examLoading, answers, questions]);
 
-  const recordExamViolation = (event: string, blockExam = false) => {
-    acCount.current++;
-    setAntiCheat({event,count:acCount.current});
-    if (blockExam) {
-      lockdownEventActive.current = true;
-      setLockdownBlocked(true);
-    }
-  };
+  const handleViolation = useCallback((eventType: string, detail: string) => {
+    if (!examData?.rules || !attemptId) return;
+    const rule = examData.rules.find((r: any) => r.eventType === eventType);
+    if (!rule || !rule.enabled) return;
 
-  const recordLockdownIssue = (event: string) => {
-    if (!lockdownEventActive.current) recordExamViolation(event, true);
-    else setLockdownBlocked(true);
-  };
+    reportViolation(attemptId, { eventType, detail }).then((res) => {
+      if (res.actionTaken === 'auto_submitted') {
+        navigate("/student/exam/auto-submit");
+      } else if (res.actionTaken === 'blocked') {
+        lockdownEventActive.current = true;
+        setLockdownBlocked(true);
+      } else if (res.actionTaken === 'flagged' || res.actionTaken === 'warned') {
+        acCount.current++;
+        setAntiCheat({ event: detail, count: acCount.current });
+      }
+    }).catch(console.error);
+  }, [examData?.rules, attemptId, navigate]);
 
   const resumeFullscreen = async () => {
     try {
@@ -596,34 +600,63 @@ export function ExamTaking() {
   };
 
   useEffect(()=>{
-    const onVisibility=()=>{ if(document.hidden) recordLockdownIssue("Tab switch detected — stay in the locked exam screen."); };
-    const onFullscreen=()=>{ if(!document.fullscreenElement) recordLockdownIssue("Fullscreen exited — return to lockdown mode."); };
-    const onBlur=()=>recordLockdownIssue("Window focus lost — do not switch apps during the exam.");
-    const blockAttempt = (event: Event, message: string) => {
+    const onVisibility = () => { 
+      setIsBlurred(document.hidden);
+      if (document.hidden) handleViolation("tab_switch", "Tab switch detected — stay in the locked exam screen."); 
+    };
+    const onFullscreen = () => { if (!document.fullscreenElement && requireFsRef.current) handleViolation("fullscreen_exit", "Fullscreen exited — return to lockdown mode."); };
+    const onBlur = () => {
+      setIsBlurred(true);
+      handleViolation("window_blur", "Window focus lost — do not switch apps during the exam.");
+    };
+    const onFocus = () => {
+      setIsBlurred(false);
+    };
+    const onMouseLeave = (e: MouseEvent) => {
+      if (e.clientY <= 0 || e.clientX <= 0 || (e.clientX >= window.innerWidth || e.clientY >= window.innerHeight)) {
+        handleViolation("mouse_leave", "Mouse left the exam window.");
+      }
+    };
+    
+    const blockAttempt = (event: Event, eventType: string, message: string) => {
       event.preventDefault();
       event.stopPropagation();
-      recordExamViolation(message);
+      handleViolation(eventType, message);
     };
-    const onContextMenu=(e:MouseEvent)=>blockAttempt(e, "Right-click blocked during the exam.");
-    const onCopy=(e:ClipboardEvent)=>blockAttempt(e, "Copy attempt blocked during the exam.");
-    const onCut=(e:ClipboardEvent)=>blockAttempt(e, "Cut attempt blocked during the exam.");
-    const onPaste=(e:ClipboardEvent)=>blockAttempt(e, "Paste attempt blocked during the exam.");
-    const onSelect=(e:Event)=>blockAttempt(e, "Text selection blocked during the exam.");
-    const onDrag=(e:DragEvent)=>blockAttempt(e, "Drag or drop attempt blocked during the exam.");
-    const onKeyDown=(e:KeyboardEvent)=>{
+    
+    const onContextMenu = (e: MouseEvent) => blockAttempt(e, "right_click", "Right-click blocked during the exam.");
+    const onCopy = (e: ClipboardEvent) => {
+      e.clipboardData?.clearData(); // Try to clear clipboard
+      blockAttempt(e, "copy", "Copy attempt blocked during the exam.");
+    };
+    const onCut = (e: ClipboardEvent) => blockAttempt(e, "copy", "Cut attempt blocked during the exam.");
+    const onPaste = (e: ClipboardEvent) => blockAttempt(e, "paste", "Paste attempt blocked during the exam.");
+    const onSelect = (e: Event) => blockAttempt(e, "copy", "Text selection blocked during the exam.");
+    const onDrag = (e: DragEvent) => blockAttempt(e, "copy", "Drag or drop attempt blocked during the exam.");
+    
+    const onKeyDown = (e: KeyboardEvent) => {
       const key = e.key.toLowerCase();
       const meta = e.ctrlKey || e.metaKey;
       const blockedCombo = meta && ["a","c","f","l","n","p","r","s","t","u","v","w","x"].includes(key);
-      const blockedDevTools = (meta && e.shiftKey && ["c","i","j"].includes(key)) || key==="f12";
+      const blockedDevTools = (meta && e.shiftKey && ["c","i","j"].includes(key)) || key === "f12";
       const blockedNavigation = e.altKey && ["arrowleft","arrowright","tab"].includes(key);
-      if (blockedCombo || blockedDevTools || blockedNavigation || key==="printscreen") {
-        blockAttempt(e, `Keyboard shortcut blocked: ${e.key}`);
+      
+      if (blockedDevTools) {
+        blockAttempt(e, "devtools", `Developer tools shortcut blocked: ${e.key}`);
+      } else if (key === "printscreen") {
+        blockAttempt(e, "print_screen", "Print screen key pressed");
+      } else if (blockedCombo || blockedNavigation) {
+        blockAttempt(e, "keyboard_shortcut", `Keyboard shortcut blocked: ${e.key}`);
       }
     };
 
-    // Instead of instantly blocking if fullscreen was denied by the browser,
-    // we let the component render and show a "Click to Enter Fullscreen" prompt if needed.
-    
+    const onKeyUp = (e: KeyboardEvent) => {
+      // PrintScreen often only fires on keyup, especially on Windows
+      if (e.key.toLowerCase() === "printscreen" || e.code === "PrintScreen") {
+        blockAttempt(e, "print_screen", "Print screen key pressed");
+      }
+    };
+
     document.addEventListener("visibilitychange",onVisibility);
     document.addEventListener("fullscreenchange",onFullscreen);
     document.addEventListener("contextmenu",onContextMenu);
@@ -634,6 +667,14 @@ export function ExamTaking() {
     document.addEventListener("dragstart",onDrag);
     document.addEventListener("drop",onDrag);
     document.addEventListener("keydown",onKeyDown,true);
+    document.addEventListener("keyup",onKeyUp,true);
+    document.addEventListener("mouseleave",onMouseLeave);
+    window.addEventListener("blur",onBlur);
+    window.addEventListener("focus",onFocus);
+    
+    // Also intercept clipboard via focus trick (helps prevent Snipping tool)
+    navigator.clipboard?.writeText("").catch(()=>{}); 
+
     return ()=>{
       document.removeEventListener("visibilitychange",onVisibility);
       document.removeEventListener("fullscreenchange",onFullscreen);
@@ -645,8 +686,12 @@ export function ExamTaking() {
       document.removeEventListener("dragstart",onDrag);
       document.removeEventListener("drop",onDrag);
       document.removeEventListener("keydown",onKeyDown,true);
+      document.removeEventListener("keyup",onKeyUp,true);
+      document.removeEventListener("mouseleave",onMouseLeave);
+      window.removeEventListener("blur",onBlur);
+      window.removeEventListener("focus",onFocus);
     };
-  },[]);
+  }, [handleViolation]);
 
   useEffect(()=>{
     let active = true;
@@ -673,7 +718,13 @@ export function ExamTaking() {
     };
   }, [code]);
 
+  const requireFs = examData?.rules?.find((r: any) => r.eventType === "fullscreen_exit")?.enabled ?? true;
+  const requireFsRef = useRef(requireFs);
+  useEffect(() => { requireFsRef.current = requireFs; }, [requireFs]);
+
   const [needsFullscreen, setNeedsFullscreen] = useState(false);
+  const [isBlurred, setIsBlurred] = useState(false); // To obscure content on blur
+
   useEffect(() => {
     const checkFs = () => {
       if (!document.fullscreenElement) setNeedsFullscreen(true);
@@ -684,7 +735,7 @@ export function ExamTaking() {
     return () => document.removeEventListener("fullscreenchange", checkFs);
   }, []);
 
-  if (needsFullscreen && !lockdownBlocked && !examLoading) {
+  if (requireFs && needsFullscreen && !lockdownBlocked && !examLoading) {
     return (
       <div className="min-h-screen bg-gray-900 flex items-center justify-center p-6 text-white text-center" style={{fontFamily:'"Outfit", sans-serif'}}>
         <div className="max-w-md space-y-6">
@@ -913,7 +964,7 @@ export function ExamTaking() {
 
   return (
     <div
-      className="min-h-screen flex flex-col select-none"
+      className={`min-h-screen flex flex-col select-none transition-all duration-300 ${isBlurred ? "blur-xl grayscale pointer-events-none select-none opacity-50" : ""}`}
       style={{background:BG,userSelect:"none",WebkitUserSelect:"none"}}
       onCopy={e=>e.preventDefault()}
       onCut={e=>e.preventDefault()}
@@ -921,6 +972,17 @@ export function ExamTaking() {
       onContextMenu={e=>e.preventDefault()}
       onDragStart={e=>e.preventDefault()}
     >
+      {isBlurred && (
+        <div className="fixed inset-0 z-[100] flex flex-col items-center justify-center bg-black/60 backdrop-blur-2xl">
+          <div className="bg-white rounded-3xl p-10 max-w-md text-center shadow-2xl">
+            <AlertOctagon size={48} className="mx-auto text-red-500 mb-6 animate-pulse" />
+            <h2 className="text-2xl font-black text-gray-900 mb-2" style={{fontFamily:U}}>Exam Paused</h2>
+            <p className="text-gray-500 font-medium" style={{fontFamily:I}}>
+              Please return focus to the exam window. Leaving the exam window is a violation of the anti-cheat policy.
+            </p>
+          </div>
+        </div>
+      )}
       {lockdownBlocked&&<LockdownOverlay onResume={resumeFullscreen}/>}
       {antiCheat&&<AntiCheatModal event={antiCheat.event} count={antiCheat.count} onClose={()=>setAntiCheat(null)}/>}
       {connLost&&<ConnectionLostOverlay onRetry={()=>setConnLost(false)}/>}

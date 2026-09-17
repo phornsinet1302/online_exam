@@ -7,6 +7,7 @@ import {
   reportViolation,
   flushOfflineQueue,
   getViolationLogs,
+  getAllViolationLogs,
   exportViolationsCsv,
   getLiveStudentSummary,
   resolveViolation,
@@ -25,6 +26,7 @@ router.post('/attempts/:attemptId/violations/offline-flush', flushOfflineQueue);
 
 // ── Teacher: read violations ──────────────────────────────────────────────────
 router.get( '/exams/:examId/violations',              authMiddleware, getViolationLogs);
+router.get( '/violations',                            authMiddleware, getAllViolationLogs);
 router.get( '/exams/:examId/violations/export',       authMiddleware, exportViolationsCsv);
 router.get( '/exams/:examId/violations/live-summary', authMiddleware, getLiveStudentSummary);
 router.patch('/violations/:id/resolve',               authMiddleware, resolveViolation);

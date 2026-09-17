@@ -206,7 +206,6 @@ export function ExamCreate() {
   const [timezone, setTimezone] = useState(() => typeof window !== "undefined" ? Intl.DateTimeFormat().resolvedOptions().timeZone || "Europe/London" : "Europe/London");
   const [passingScore, setPassingScore] = useState("50");
   const [maxAttempts, setMaxAttempts] = useState("1");
-  const [privacy, setPrivacy] = useState("public");
   const [randomize, setRandomize] = useState(true);
   const [showResults, setShowResults] = useState(true);
   const [requireLateApproval, setRequireLateApproval] = useState(false);
@@ -243,8 +242,6 @@ export function ExamCreate() {
         if (exam.timezone) setTimezone(exam.timezone);
         setPassingScore(String(exam.passingScore || 50));
         if (exam.maxAttempts) setMaxAttempts(String(exam.maxAttempts));
-        if ((exam as any).accessType === "PUBLIC") setPrivacy("public");
-        else if ((exam as any).accessType === "PRIVATE") setPrivacy("private");
 
         if (exam.requireLateApproval !== undefined) setRequireLateApproval(exam.requireLateApproval);
 
@@ -609,7 +606,7 @@ export function ExamCreate() {
         formattedStartTime = `${h.toString().padStart(2, "0")}:${min} ${ampm}`;
       }
 
-      const accessType = privacy === "public" ? "PUBLIC" : (privacy === "private" ? "PRIVATE" : "PASSWORD_PROTECTED");
+      const accessType = "PUBLIC";
 
       const examData = {
         title: title || "Untitled Exam",
@@ -636,7 +633,7 @@ export function ExamCreate() {
       setSaved(true);
 
       if (redirect) {
-        navigate("/dashboard/exams");
+        navigate(`/dashboard/exams/${exam.id}?tab=rules`);
       } else if (!isEdit) {
         navigate(`/dashboard/exams/${exam.id}/edit`, { replace: true });
       }
@@ -868,20 +865,6 @@ export function ExamCreate() {
             </div>
           </div>
 
-          {/* Privacy */}
-          <div className="bg-white rounded-2xl border border-gray-100 p-6">
-            <h3 className="text-sm font-black mb-5" style={{ fontFamily: U, color: INK }}>Access & Privacy</h3>
-            <div className="space-y-2">
-              {[{ id: "public", label: "Public", desc: "Anyone with the link or code can join" }, { id: "private", label: "Private", desc: "Only invited students can access" }, { id: "password", label: "Password protected", desc: "Students enter a password to access" }].map(opt => (
-                <label key={opt.id} onClick={() => setPrivacy(opt.id)} className={`flex items-center gap-4 p-4 rounded-xl border-2 cursor-pointer transition-all ${privacy === opt.id ? "border-gray-800" : "border-gray-100 hover:border-gray-200"}`}>
-                  <div className={`w-4 h-4 rounded-full border-2 flex items-center justify-center flex-shrink-0 ${privacy === opt.id ? "border-gray-800" : "border-gray-300"}`}>
-                    {privacy === opt.id && <div className="w-2 h-2 rounded-full" style={{ background: INK }} />}
-                  </div>
-                  <div><p className="text-sm font-bold text-gray-800" style={{ fontFamily: U }}>{opt.label}</p><p className="text-xs text-gray-400 mt-0.5" style={{ fontFamily: I }}>{opt.desc}</p></div>
-                </label>
-              ))}
-            </div>
-          </div>
 
           {/* AI Assist */}
           <div className="bg-white rounded-2xl border border-gray-100 p-6 xl:col-span-2">

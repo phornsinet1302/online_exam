@@ -2,6 +2,7 @@
 
 import { useState, useEffect, useMemo } from "react";
 import { useNavigate } from "@/lib/hooks";
+import { useSearchParams, useRouter, usePathname } from "next/navigation";
 import { DashboardLayout } from "@/components/dashboard/DashboardShared";
 import { PenLine, Download, Users, ClipboardCheck, AlertTriangle, Award, TrendingUp, X, Check, RefreshCw } from "lucide-react";
 import { U, I, INK, CAMEL } from "@/lib/tokens";
@@ -58,6 +59,9 @@ function GradeExportModal({ onClose }: { onClose:()=>void }) {
 
 export function GradingResults() {
   const navigate = useNavigate();
+  const searchParams = useSearchParams();
+  const router = useRouter();
+  const pathname = usePathname();
   const [exams, setExams] = useState<Exam[]>([]);
   const [examId, setExamId] = useState("");
   const [showExport, setShowExport] = useState(false);
@@ -73,10 +77,25 @@ export function GradingResults() {
       const published = data.filter(e => e.status !== "draft");
       setExams(published);
       if (published.length > 0) {
-        setExamId(published[0].id);
+        const urlExamId = searchParams.get("examId");
+        const savedExamId = typeof window !== "undefined" ? localStorage.getItem("lastSelectedExamId") : null;
+        const targetId = urlExamId || savedExamId;
+        const valid = targetId && published.some(e => e.id === targetId);
+        setExamId(valid ? (targetId as string) : published[0].id);
       }
     });
-  }, []);
+  }, [searchParams]);
+
+  useEffect(() => {
+    if (!examId) return;
+    if (typeof window !== "undefined") {
+      localStorage.setItem("lastSelectedExamId", examId);
+    }
+    if (searchParams.get("examId") === examId) return;
+    const params = new URLSearchParams(searchParams.toString());
+    params.set("examId", examId);
+    router.replace(`${pathname}?${params.toString()}`, { scroll: false });
+  }, [examId, searchParams, router, pathname]);
 
   useEffect(() => {
     if (!examId) return;
@@ -110,7 +129,7 @@ export function GradingResults() {
   return (
     <DashboardLayout active="grading" title="Auto-Grading Results" subtitle="Review and export scores"
       actions={<>
-        <button onClick={()=>navigate("/dashboard/grading/manual")} className="flex items-center gap-1.5 text-xs font-semibold px-3 py-2 rounded-xl border border-gray-200 text-gray-600 hover:bg-gray-50" style={{ fontFamily:U }}><PenLine size={13}/>Manual grade</button>
+        <button onClick={()=>navigate(`/dashboard/grading/manual?examId=${examId}`)} className="flex items-center gap-1.5 text-xs font-semibold px-3 py-2 rounded-xl border border-gray-200 text-gray-600 hover:bg-gray-50" style={{ fontFamily:U }}><PenLine size={13}/>Manual grade</button>
         <button onClick={()=>setShowExport(true)} className="flex items-center gap-2 text-white text-xs font-bold px-4 py-2 rounded-xl hover:opacity-90" style={{ background:INK, fontFamily:U }}><Download size={13}/>Export</button>
       </>}>
       {showExport&&<GradeExportModal onClose={()=>setShowExport(false)}/>}
@@ -175,7 +194,7 @@ export function GradingResults() {
                       <td className="px-5 py-3.5"><span className={`text-sm font-black ${gradeColor(getLetterGrade(r.averageScore))}`} style={{ fontFamily:U }}>{getLetterGrade(r.averageScore)}</span></td>
                       <td className="px-5 py-3.5"><span className={`text-[11px] font-semibold px-2.5 py-1 rounded-full bg-green-50 text-green-700`} style={{ fontFamily:U }}>Submitted</span></td>
                       <td className="px-5 py-3.5">
-                        <button onClick={()=>navigate("/dashboard/grading/manual")} className="text-xs font-semibold px-3 py-1.5 rounded-lg border border-gray-200 text-gray-600 hover:bg-gray-50 whitespace-nowrap" style={{ fontFamily:U }}>
+                        <button onClick={()=>navigate(`/dashboard/grading/manual?examId=${examId}`)} className="text-xs font-semibold px-3 py-1.5 rounded-lg border border-gray-200 text-gray-600 hover:bg-gray-50 whitespace-nowrap" style={{ fontFamily:U }}>
                           View
                         </button>
                       </td>

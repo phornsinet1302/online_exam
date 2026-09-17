@@ -9,6 +9,7 @@ import { examsApi } from "@/lib/api/exams";
 import { startExamSession, endExamSession } from "@/lib/api/session";
 import { API_URL } from "@/lib/api/client";
 import { U, I, INK, CAMEL } from "@/lib/tokens";
+import { AntiCheatRuleEditor } from "@/components/monitoring/AntiCheatRuleEditor";
 
 const S = "#059669";
 const SL = "#ecfdf5";
@@ -68,6 +69,17 @@ function LiveSessionPanel({ examId, sessionState, onSessionChange }: {
       try {
         const { attemptId } = JSON.parse(e.data);
         setWaitingStudents(prev => prev.filter(s => s.attemptId !== attemptId));
+      } catch { }
+    });
+
+    es.addEventListener("violation", (e) => {
+      try {
+        const payload = JSON.parse(e.data);
+        setWaitingStudents(prev => prev.map(s => 
+          s.attemptId === payload.attemptId 
+            ? { ...s, violations: [...(s.violations || []), payload] } 
+            : s
+        ));
       } catch { }
     });
 
@@ -201,13 +213,18 @@ function LiveSessionPanel({ examId, sessionState, onSessionChange }: {
                 const color = avatarColors[idx % avatarColors.length];
                 return (
                   <div key={student.attemptId}
-                    className="flex flex-col items-center rounded-2xl border border-gray-100 bg-gray-50 p-4 text-center">
+                    className="flex flex-col items-center rounded-2xl border border-gray-100 bg-gray-50 p-4 text-center relative">
                     <div className="relative mb-3">
                       <div className="w-12 h-12 rounded-full flex items-center justify-center text-sm font-black text-white"
                         style={{ background: color, fontFamily: U }}>{initials}</div>
                       <span className="absolute bottom-0 right-0 w-3 h-3 rounded-full border-2 border-white"
                         style={{ background: S }} />
                     </div>
+                    {(student.violations && student.violations.length > 0) ? (
+                      <span className="absolute -top-2 -right-2 bg-red-500 text-white text-[10px] font-bold px-1.5 py-0.5 rounded-full border-2 border-white shadow-sm z-10" title="Violations detected">
+                        {student.violations.length}
+                      </span>
+                    ) : null}
                     <p className="text-xs font-black truncate w-full" style={{ fontFamily: U, color: INK }}>{name}</p>
                     <p className="text-[10px] text-gray-400 truncate w-full mt-0.5" style={{ fontFamily: I }}>
                       {info.studentId || info.email || "—"}
@@ -259,7 +276,7 @@ export function ExamDetail() {
     if (typeof window !== "undefined") {
       const urlParams = new URLSearchParams(window.location.search);
       const initialTab = urlParams.get("tab");
-      if (initialTab && ["session", "overview", "sharing", "settings", "preview"].includes(initialTab)) {
+      if (initialTab && ["session", "overview", "sharing", "rules", "preview"].includes(initialTab)) {
         setTab(initialTab);
       }
     }
@@ -295,7 +312,7 @@ export function ExamDetail() {
     }
   };
 
-  const tabs = ["session", "overview", "sharing", "settings", "preview"];
+  const tabs = ["session", "overview", "sharing", "rules", "preview"];
 
   const sessionStateLabel: Record<string, string> = {
     WAITING: "Waiting",
@@ -446,29 +463,11 @@ export function ExamDetail() {
         </div>
       )}
 
-      {/* Settings tab */}
-      {tab === "settings" && (
-        <div className="max-w-lg">
-          <div className="bg-white rounded-2xl border border-gray-100 p-6 space-y-1">
-            <h3 className="text-sm font-black mb-5" style={{ fontFamily: U, color: INK }}>Exam Settings</h3>
-            {[{ l: "Enable live proctoring", d: "Face detection and tab monitoring", on: proctoring, set: setProctoring }, { l: "Randomize questions", d: "Different order for each student", on: shuffleQ, set: setShuffleQ }].map(({ l, d, on, set }) => (
-              <div key={l} className="flex items-center justify-between py-4 border-b border-gray-50 last:border-0">
-                <div><p className="text-sm font-semibold text-gray-700" style={{ fontFamily: U }}>{l}</p><p className="text-xs text-gray-400 mt-0.5" style={{ fontFamily: I }}>{d}</p></div>
-                <Toggle on={on} onChange={() => set((s: boolean) => !s)} />
-              </div>
-            ))}
-            <div className="pt-4">
-              <p className="text-sm font-semibold text-gray-700 mb-3" style={{ fontFamily: U }}>Privacy</p>
-              <div className="flex gap-2">
-                {["public", "private", "password"].map(p => (
-                  <button key={p} onClick={() => setPrivacy(p)} className={`flex-1 text-xs font-semibold py-2 rounded-lg border capitalize transition-all ${privacy === p ? "text-white border-transparent" : "border-gray-200 text-gray-500"}`} style={{ background: privacy === p ? INK : undefined, fontFamily: U }}>{p}</button>
-                ))}
-              </div>
-            </div>
-          </div>
-          <div className="mt-4 flex gap-3">
-            <button className="text-sm font-bold text-white px-6 py-2.5 rounded-xl hover:opacity-90" style={{ background: INK, fontFamily: U }}>Save settings</button>
-          </div>
+
+      {/* Rules tab */}
+      {tab === "rules" && (
+        <div className="max-w-3xl">
+          <AntiCheatRuleEditor examId={exam.id} />
         </div>
       )}
 

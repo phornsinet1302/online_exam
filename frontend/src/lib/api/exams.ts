@@ -61,5 +61,16 @@ export const examsApi = {
 
   archive: async (id: string): Promise<Exam> => {
     return fetchApi<Exam>(`/exams/${id}/archive`, { method: "POST" });
+  },
+
+  getAntiCheatRules: async (id: string): Promise<any[]> => {
+    return fetchApi<any[]>(`/exams/${id}/anti-cheat/rules`, { method: "GET" });
+  },
+
+  updateAntiCheatRules: async (id: string, rules: any[]): Promise<any[]> => {
+    return fetchApi<any[]>(`/exams/${id}/anti-cheat/rules`, {
+      method: "PUT",
+      body: JSON.stringify({ rules }),
+    });
   }
 };
