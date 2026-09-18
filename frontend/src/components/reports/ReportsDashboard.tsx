@@ -1,10 +1,11 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { useNavigate } from "@/lib/hooks";
 import { DashboardLayout } from "@/components/dashboard/DashboardShared";
 import { Download, X, RefreshCw, FileText, Users, TrendingUp, ShieldAlert, Award, UserCheck, ShieldCheck, FileBarChart, ChevronRight } from "lucide-react";
 import { U, I, INK, CAMEL } from "@/lib/tokens";
+import { reportsApi, DashboardAnalytics, AntiCheatingSummary } from "@/lib/api/reports";
 
 function ReportExportModal({ title, onClose }: { title:string; onClose:()=>void }) {
   const [fmt, setFmt] = useState("pdf");
@@ -44,6 +45,23 @@ const REPORT_CARDS = [
 export function ReportsDashboard() {
   const navigate = useNavigate();
   const [showExport, setShowExport] = useState(false);
+  const [analytics, setAnalytics] = useState<DashboardAnalytics | null>(null);
+  const [antiCheat, setAntiCheat] = useState<AntiCheatingSummary | null>(null);
+  const [loading, setLoading] = useState(true);
+
+  useEffect(() => {
+    Promise.all([reportsApi.getAnalytics(), reportsApi.getAntiCheating()])
+      .then(([a, ac]) => { setAnalytics(a); setAntiCheat(ac.summary); })
+      .catch(console.error)
+      .finally(() => setLoading(false));
+  }, []);
+
+  const stats = [
+    { l:"Total Exams",    v: loading ? "…" : String(analytics?.primaryStats.totalExams ?? 0),        icon:FileText,   bg:"#F0EDE8" },
+    { l:"Students tested",v: loading ? "…" : String(analytics?.primaryStats.activeStudents ?? 0),    icon:Users,      bg:"#eff6ff" },
+    { l:"Avg pass rate",  v: loading ? "…" : `${analytics?.primaryStats.passRate ?? 0}%`,             icon:TrendingUp, bg:"#f0fdf4" },
+    { l:"Flags logged",   v: loading ? "…" : String(antiCheat?.totalFlags ?? 0),                      icon:ShieldAlert,bg:"#fff0f0" },
+  ];
 
   return (
     <DashboardLayout active="reports" title="Reports" subtitle="Insights across all your exams"
@@ -51,12 +69,7 @@ export function ReportsDashboard() {
       {showExport&&<ReportExportModal title="All Reports" onClose={()=>setShowExport(false)}/>}
 
       <div className="grid grid-cols-2 lg:grid-cols-4 gap-3 mb-8">
-        {[
-          { l:"Total Exams",    v:"6",    icon:FileText,   bg:"#F0EDE8" },
-          { l:"Students tested",v:"103",  icon:Users,      bg:"#eff6ff" },
-          { l:"Avg pass rate",  v:"79%",  icon:TrendingUp, bg:"#f0fdf4" },
-          { l:"Flags logged",   v:"8",    icon:ShieldAlert,bg:"#fff0f0" },
-        ].map(({l,v,icon:Icon,bg})=>(
+        {stats.map(({l,v,icon:Icon,bg})=>(
           <div key={l} className="bg-white rounded-xl border border-gray-100 p-4 flex items-center gap-3">
             <div className="w-9 h-9 rounded-xl flex items-center justify-center flex-shrink-0" style={{ background:bg }}><Icon size={17} style={{ color:INK }}/></div>
             <div><p className="text-xl font-black leading-none" style={{ fontFamily:U, color:INK }}>{v}</p><p className="text-[10px] text-gray-400 mt-0.5" style={{ fontFamily:I }}>{l}</p></div>

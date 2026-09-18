@@ -914,6 +914,7 @@ function Footer() {
 export function LandingPage() {
   const [showCode, setShowCode] = useState(false);
   const [authMode, setAuthMode] = useState<null | "login" | "register">(null);
+
   return (
     <div className="min-h-screen" style={{ background: CREAM }}>
       {showCode && <EnterCodeModal onClose={() => setShowCode(false)}/>}

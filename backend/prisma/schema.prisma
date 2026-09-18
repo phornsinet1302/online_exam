@@ -79,6 +79,12 @@ model Exam {
   autoSubmit           Boolean          @default(true)
   showCountdown        Boolean          @default(true)
   requireLateApproval  Boolean          @default(false)
+  // Session requirements (SRS 3.10 anti-cheat) — persisted here, but not yet
+  // enforced anywhere in the student exam-taking flow. See RulesConfig.tsx.
+  requireCamera          Boolean        @default(false)
+  lockFullscreen         Boolean        @default(false)
+  browserLockdown        Boolean        @default(false)
+  screenshotIntervalSec  Int            @default(30)
   attempts             ExamAttempt[]
   owner                User             @relation(fields: [ownerId], references: [supabaseId])
   materials            Material[]
@@ -87,8 +93,25 @@ model Exam {
   reports              Report[]
   antiCheatRules       ExamAntiCheatRule[]
   inviteLinks          CollaboratorInviteLink[]
+  enrolledStudents     EnrolledStudent[]
 
   @@map("exams")
+}
+
+/// A teacher-uploaded roster of who is expected to take an exam, so
+/// attendance can distinguish "didn't join" from "was never invited".
+/// Matched against ExamAttempt.studentId (which is the student's email)
+/// since exams have no login/account requirement for students.
+model EnrolledStudent {
+  id        String   @id @default(cuid())
+  examId    String   @map("exam_id")
+  exam      Exam     @relation(fields: [examId], references: [id], onDelete: Cascade)
+  email     String
+  name      String?
+  createdAt DateTime @default(now())
+
+  @@unique([examId, email])
+  @@map("enrolled_students")
 }
 
 model ExamAttempt {

@@ -1,9 +1,10 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { DashboardLayout } from "@/components/dashboard/DashboardShared";
-import { Download, X, RefreshCw } from "lucide-react";
+import { Download, X, RefreshCw, AlertTriangle, Users } from "lucide-react";
 import { U, I, INK, CAMEL } from "@/lib/tokens";
+import { reportsApi, AttendanceSummary, AttendanceExamRow } from "@/lib/api/reports";
 
 function ReportExportModal({ title, onClose }: { title:string; onClose:()=>void }) {
   const [fmt, setFmt] = useState("pdf");
@@ -33,23 +34,52 @@ function ReportExportModal({ title, onClose }: { title:string; onClose:()=>void 
   );
 }
 
-const ATTEND_DATA = [
-  { exam:"Calculus Final Exam",      date:"Jul 10",  enrolled:36, joined:34, absent:2,  submitted:32, lateStart:3  },
-  { exam:"Biology Mid-term",         date:"Jul 13",  enrolled:30, joined:28, absent:2,  submitted:28, lateStart:1  },
-  { exam:"English Comprehension",    date:"Jul 15",  enrolled:30, joined:0,  absent:30, submitted:0,  lateStart:0  },
-  { exam:"Physics Quiz",             date:"Jul 8",   enrolled:24, joined:22, absent:2,  submitted:22, lateStart:2  },
-  { exam:"History Essay Assessment", date:"Jun 20",  enrolled:22, joined:19, absent:3,  submitted:19, lateStart:0  },
-];
+function formatDate(iso: string | null) {
+  if (!iso) return "—";
+  return new Date(iso).toLocaleDateString("en-US", { month: "short", day: "numeric" });
+}
 
 export function AttendanceReport() {
   const [showExport, setShowExport] = useState(false);
+  const [summary, setSummary] = useState<AttendanceSummary | null>(null);
+  const [exams, setExams] = useState<AttendanceExamRow[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState("");
+
+  const load = () => {
+    setLoading(true);
+    setError("");
+    reportsApi.getAttendance()
+      .then(({ summary, exams }) => { setSummary(summary); setExams(exams); })
+      .catch((e) => setError(e instanceof Error && e.message ? e.message : "Failed to load attendance data. Please try again."))
+      .finally(() => setLoading(false));
+  };
+
+  useEffect(() => { load(); }, []);
+
+  const hasRoster = summary?.totalEnrolled != null;
+  const notSubmitted = summary ? summary.totalJoined - summary.totalSubmitted : 0;
+  const statCards = hasRoster
+    ? [
+        { l:"Total enrolled",   v: loading ? "…" : String(summary?.totalEnrolled ?? 0), bg:"#F0EDE8" },
+        { l:"Avg attendance",   v: loading ? "…" : `${summary?.avgAttendance ?? 0}%`,    bg:"#f0fdf4" },
+        { l:"Total absent",     v: loading ? "…" : String(summary?.totalAbsent ?? 0),    bg:"#fff0f0" },
+        { l:"Submission rate",  v: loading ? "…" : `${summary?.submissionRate ?? 0}%`,   bg:"#eff6ff" },
+      ]
+    : [
+        { l:"Total joined",     v: loading ? "…" : String(summary?.totalJoined ?? 0),   bg:"#F0EDE8" },
+        { l:"Avg attendance",   v: loading ? "…" : `${summary?.avgAttendance ?? 0}%`,    bg:"#f0fdf4" },
+        { l:"Not submitted",    v: loading ? "…" : String(notSubmitted),                 bg:"#fff0f0" },
+        { l:"Submission rate",  v: loading ? "…" : `${summary?.submissionRate ?? 0}%`,   bg:"#eff6ff" },
+      ];
+
   return (
     <DashboardLayout active="reports-attend" title="Attendance Report" subtitle="Participation and submission rates by exam"
       actions={<button onClick={()=>setShowExport(true)} className="flex items-center gap-2 text-white text-xs font-bold px-4 py-2 rounded-xl hover:opacity-90" style={{ background:INK, fontFamily:U }}><Download size={13}/>Export</button>}>
       {showExport&&<ReportExportModal title="Attendance Report" onClose={()=>setShowExport(false)}/>}
 
-      <div className="grid grid-cols-4 gap-3 mb-5">
-        {[{l:"Total enrolled",v:"142",bg:"#F0EDE8"},{l:"Avg attendance",v:"82%",bg:"#f0fdf4"},{l:"Total absent",v:"39",bg:"#fff0f0"},{l:"Submission rate",v:"89%",bg:"#eff6ff"}].map(({l,v,bg})=>(
+      <div className="grid grid-cols-4 gap-3 mb-3">
+        {statCards.map(({l,v,bg})=>(
           <div key={l} className="bg-white rounded-xl border border-gray-100 p-4">
             <p className="text-xl font-black" style={{ fontFamily:U, color:INK }}>{v}</p>
             <p className="text-[10px] text-gray-400 mt-0.5" style={{ fontFamily:I }}>{l}</p>
@@ -57,33 +87,55 @@ export function AttendanceReport() {
         ))}
       </div>
 
-      <div className="bg-white rounded-2xl border border-gray-100 overflow-hidden">
-        <table className="w-full text-sm">
-          <thead><tr className="border-b border-gray-100">{["Exam","Date","Enrolled","Joined","Absent","Submitted","Late Start","Attendance"].map(h=><th key={h} className="text-left px-5 py-3 text-xs font-semibold text-gray-400 uppercase tracking-wider whitespace-nowrap" style={{ fontFamily:U }}>{h}</th>)}</tr></thead>
-          <tbody>
-            {ATTEND_DATA.map(r=>{
-              const pct = r.enrolled>0?Math.round(r.joined/r.enrolled*100):0;
-              return (
-                <tr key={r.exam} className="border-b border-gray-50 last:border-0 hover:bg-gray-50/40 transition-colors">
-                  <td className="px-5 py-3.5 font-semibold text-gray-800 whitespace-nowrap max-w-[200px] truncate" style={{ fontFamily:U }}>{r.exam}</td>
-                  <td className="px-5 py-3.5 text-gray-500 text-xs whitespace-nowrap" style={{ fontFamily:I }}>{r.date}</td>
-                  <td className="px-5 py-3.5 text-gray-700" style={{ fontFamily:I }}>{r.enrolled}</td>
-                  <td className="px-5 py-3.5 text-green-600 font-semibold" style={{ fontFamily:U }}>{r.joined}</td>
-                  <td className="px-5 py-3.5 text-red-500 font-semibold" style={{ fontFamily:U }}>{r.absent}</td>
-                  <td className="px-5 py-3.5 text-gray-700" style={{ fontFamily:I }}>{r.submitted}</td>
-                  <td className="px-5 py-3.5 text-gray-700" style={{ fontFamily:I }}>{r.lateStart}</td>
-                  <td className="px-5 py-3.5">
-                    <div className="flex items-center gap-2">
-                      <div className="h-1.5 w-16 bg-gray-100 rounded-full overflow-hidden"><div className="h-full rounded-full" style={{ width:`${pct}%`, background:pct>=80?"#22c55e":pct>=60?"#f59e0b":"#ef4444" }}/></div>
-                      <span className="text-xs font-black" style={{ fontFamily:U, color:pct>=80?"#16a34a":pct>=60?"#d97706":"#ef4444" }}>{pct}%</span>
-                    </div>
-                  </td>
-                </tr>
-              );
-            })}
-          </tbody>
-        </table>
-      </div>
+      <p className="text-xs text-gray-400 mb-5" style={{ fontFamily:I, minHeight: 16 }}>
+        {!loading && !hasRoster && <>Upload an expected-student roster from an exam&apos;s <strong>Roster</strong> tab to see real enrolled / absent counts here.</>}
+      </p>
+
+      {error ? (
+        <div className="bg-white rounded-2xl border border-red-100 py-16 flex flex-col items-center gap-3">
+          <AlertTriangle size={32} className="text-red-300"/>
+          <p className="text-sm text-red-500 text-center max-w-xs" style={{ fontFamily:U }}>{error}</p>
+          <button onClick={load} className="text-xs font-bold px-4 py-2 rounded-xl text-white" style={{ background:INK, fontFamily:U }}>Try again</button>
+        </div>
+      ) : loading ? (
+        <div className="bg-white rounded-2xl border border-gray-100 py-16 flex flex-col items-center gap-3">
+          <RefreshCw size={24} className="text-gray-300 animate-spin"/>
+          <p className="text-sm text-gray-400" style={{ fontFamily:U }}>Loading attendance…</p>
+        </div>
+      ) : exams.length === 0 ? (
+        <div className="bg-white rounded-2xl border border-gray-100 py-16 flex flex-col items-center gap-3">
+          <Users size={32} className="text-gray-200"/>
+          <p className="text-sm text-gray-400" style={{ fontFamily:U }}>No exam activity yet</p>
+        </div>
+      ) : (
+        <div className="bg-white rounded-2xl border border-gray-100 overflow-x-auto">
+          <table className="w-full text-sm">
+            <thead><tr className="border-b border-gray-100">{["Exam","Date","Enrolled","Joined","Absent","Submitted","Late Start","Attendance"].map(h=><th key={h} className="text-left px-5 py-3 text-xs font-semibold text-gray-400 uppercase tracking-wider whitespace-nowrap" style={{ fontFamily:U }}>{h}</th>)}</tr></thead>
+            <tbody>
+              {exams.map(r=>{
+                const pct = r.attendanceRate;
+                return (
+                  <tr key={r.examId} className="border-b border-gray-50 last:border-0 hover:bg-gray-50/40 transition-colors">
+                    <td className="px-5 py-3.5 font-semibold text-gray-800 whitespace-nowrap max-w-[200px] truncate" style={{ fontFamily:U }}>{r.examTitle}</td>
+                    <td className="px-5 py-3.5 text-gray-500 text-xs whitespace-nowrap" style={{ fontFamily:I }}>{formatDate(r.date)}</td>
+                    <td className="px-5 py-3.5 text-gray-700" style={{ fontFamily:I }}>{r.enrolled ?? "—"}</td>
+                    <td className="px-5 py-3.5 text-green-600 font-semibold" style={{ fontFamily:U }}>{r.joined}</td>
+                    <td className="px-5 py-3.5 text-red-500 font-semibold" style={{ fontFamily:U }}>{r.absent ?? "—"}</td>
+                    <td className="px-5 py-3.5 text-gray-700" style={{ fontFamily:I }}>{r.submitted}</td>
+                    <td className="px-5 py-3.5 text-gray-700" style={{ fontFamily:I }}>{r.lateStart}</td>
+                    <td className="px-5 py-3.5">
+                      <div className="flex items-center gap-2">
+                        <div className="h-1.5 w-16 bg-gray-100 rounded-full overflow-hidden"><div className="h-full rounded-full" style={{ width:`${pct}%`, background:pct>=80?"#22c55e":pct>=60?"#f59e0b":"#ef4444" }}/></div>
+                        <span className="text-xs font-black" style={{ fontFamily:U, color:pct>=80?"#16a34a":pct>=60?"#d97706":"#ef4444" }}>{pct}%</span>
+                      </div>
+                    </td>
+                  </tr>
+                );
+              })}
+            </tbody>
+          </table>
+        </div>
+      )}
     </DashboardLayout>
   );
 }

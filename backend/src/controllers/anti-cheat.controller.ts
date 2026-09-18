@@ -165,6 +165,7 @@ export const flushOfflineQueue = async (req: Request, res: Response) => {
 export const getViolationLogs = async (req: Request, res: Response) => {
   try {
     const { examId } = z.object({ examId: z.string() }).parse(req.params);
+    const ownerId = getTeacherId(req);
     const q = z.object({
       severity:   z.string().optional(),
       eventType:  z.string().optional(),
@@ -174,7 +175,7 @@ export const getViolationLogs = async (req: Request, res: Response) => {
       pageSize:   z.coerce.number().int().min(1).max(200).default(50),
     }).parse(req.query);
 
-    const result = await svc.getViolationLogs(examId, {
+    const result = await svc.getViolationLogs(examId, ownerId, {
       severity:  q.severity,
       eventType: q.eventType,
       resolved:  q.resolved !== undefined ? q.resolved === 'true' : undefined,
@@ -183,6 +184,74 @@ export const getViolationLogs = async (req: Request, res: Response) => {
       pageSize:  q.pageSize,
     });
     return res.json(result);
+  } catch (err: any) {
+    const status = err.message === 'Exam not found.' ? 404 : err.message === 'Access denied.' ? 403 : 400;
+    return res.status(status).json({ error: err.message });
+  }
+};
+
+/**
+ * @openapi
+ * /api/violations:
+ *   get:
+ *     tags: [Anti-Cheat]
+ *     summary: Violation logs across all of the teacher's exams (Security Logs page)
+ *     security: [{ bearerAuth: [] }]
+ */
+export const getMyViolations = async (req: Request, res: Response) => {
+  try {
+    const ownerId = getTeacherId(req);
+    const q = z.object({
+      examId:     z.string().optional(),
+      severity:   z.string().optional(),
+      eventType:  z.string().optional(),
+      resolved:   z.enum(['true', 'false']).optional(),
+      page:       z.coerce.number().int().min(1).default(1),
+      pageSize:   z.coerce.number().int().min(1).max(500).default(200),
+    }).parse(req.query);
+
+    const result = await svc.getViolationLogsForOwner(ownerId, {
+      examId:    q.examId,
+      severity:  q.severity,
+      eventType: q.eventType,
+      resolved:  q.resolved !== undefined ? q.resolved === 'true' : undefined,
+      page:      q.page,
+      pageSize:  q.pageSize,
+    });
+    return res.json(result);
+  } catch (err: any) {
+    const status = err.message === 'Exam not found.' ? 404 : 400;
+    return res.status(status).json({ error: err.message });
+  }
+};
+
+/**
+ * @openapi
+ * /api/violations/export:
+ *   get:
+ *     tags: [Anti-Cheat]
+ *     summary: Export violation logs across all of the teacher's exams as CSV
+ *     security: [{ bearerAuth: [] }]
+ */
+export const exportMyViolationsCsv = async (req: Request, res: Response) => {
+  try {
+    const ownerId = getTeacherId(req);
+    const q = z.object({
+      examId:    z.string().optional(),
+      severity:  z.string().optional(),
+      eventType: z.string().optional(),
+      resolved:  z.enum(['true', 'false']).optional(),
+    }).parse(req.query);
+
+    const csv = await svc.exportCsvForOwner(ownerId, {
+      examId:    q.examId,
+      severity:  q.severity,
+      eventType: q.eventType,
+      resolved:  q.resolved !== undefined ? q.resolved === 'true' : undefined,
+    });
+    res.setHeader('Content-Type', 'text/csv');
+    res.setHeader('Content-Disposition', 'attachment; filename="security-logs.csv"');
+    return res.send(csv);
   } catch (err: any) {
     return res.status(400).json({ error: err.message });
   }
@@ -199,12 +268,14 @@ export const getViolationLogs = async (req: Request, res: Response) => {
 export const exportViolationsCsv = async (req: Request, res: Response) => {
   try {
     const { examId } = z.object({ examId: z.string() }).parse(req.params);
-    const csv = await svc.exportCsv(examId);
+    const ownerId = getTeacherId(req);
+    const csv = await svc.exportCsv(examId, ownerId);
     res.setHeader('Content-Type', 'text/csv');
     res.setHeader('Content-Disposition', `attachment; filename="violations-${examId}.csv"`);
     return res.send(csv);
   } catch (err: any) {
-    return res.status(400).json({ error: err.message });
+    const status = err.message === 'Exam not found.' ? 404 : err.message === 'Access denied.' ? 403 : 400;
+    return res.status(status).json({ error: err.message });
   }
 };
 
@@ -219,10 +290,12 @@ export const exportViolationsCsv = async (req: Request, res: Response) => {
 export const getLiveStudentSummary = async (req: Request, res: Response) => {
   try {
     const { examId } = z.object({ examId: z.string() }).parse(req.params);
-    const summary = await svc.getLiveStudentSummary(examId);
+    const ownerId = getTeacherId(req);
+    const summary = await svc.getLiveStudentSummary(examId, ownerId);
     return res.json(summary);
   } catch (err: any) {
-    return res.status(400).json({ error: err.message });
+    const status = err.message === 'Exam not found.' ? 404 : err.message === 'Access denied.' ? 403 : 400;
+    return res.status(status).json({ error: err.message });
   }
 };
 
@@ -241,6 +314,7 @@ export const resolveViolation = async (req: Request, res: Response) => {
     const resolved = await svc.resolveViolation(id, ownerId);
     return res.json(resolved);
   } catch (err: any) {
-    return res.status(400).json({ error: err.message });
+    const status = err.message === 'Violation log not found.' ? 404 : err.message === 'Access denied.' ? 403 : 400;
+    return res.status(status).json({ error: err.message });
   }
 };

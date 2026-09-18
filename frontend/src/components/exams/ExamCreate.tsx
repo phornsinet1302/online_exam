@@ -393,17 +393,24 @@ export function ExamCreate() {
     try {
       let currentExamId = id;
       let currentSectionId = activeSection.id;
+      const wasNewExam = !currentExamId;
+      // Sections added in this session only exist client-side until saved —
+      // the backend generates real ids for them (see syncSectionsAndQuestions,
+      // which treats any "section-*" id as new). Generating into one of these
+      // straight away would 404 with "Section not found".
+      const sectionUnsaved = !currentSectionId || currentSectionId.startsWith("section-");
 
-      // If exam hasn't been saved yet, auto-save as draft
-      if (!currentExamId) {
+      // If the exam — or just the active section — hasn't been persisted
+      // yet, auto-save as a draft first so we have a real section id.
+      if (wasNewExam || sectionUnsaved) {
         const savedExam = await handleSave("draft", false);
         if (!savedExam) throw new Error("Failed to auto-save exam draft");
         currentExamId = savedExam.id;
 
-        // When exam is created, we need to fetch the newly created section ID
-        // The backend creates sections in order, so let's get the sections for this exam
+        // Sections are (re)created on save, so fetch the exam back to learn
+        // this section's real, persisted id. Match by position — same
+        // approach already relied on below for the newly-created-exam case.
         const examDetails = await examsApi.getById(currentExamId);
-        // Find the matching section by order (index) or title
         const activeSectionIndex = sections.findIndex(s => s.id === activeSection.id);
         if (examDetails.sections && examDetails.sections[activeSectionIndex]) {
           currentSectionId = examDetails.sections[activeSectionIndex].id;
@@ -411,8 +418,14 @@ export function ExamCreate() {
           currentSectionId = examDetails.sections[0].id;
         }
 
+        // Swap the placeholder id for the real one in local state too, so a
+        // later manual Save updates this section instead of re-creating it.
+        setSections(prev => prev.map(section =>
+          section.id === activeSection.id ? { ...section, id: currentSectionId } : section
+        ));
+
         // Update URL without a full page reload so user can keep editing
-        navigate(`/dashboard/exams/${currentExamId}/edit`);
+        if (wasNewExam) navigate(`/dashboard/exams/${currentExamId}/edit`);
       }
 
       // Prepare FormData
@@ -449,10 +462,10 @@ export function ExamCreate() {
         };
       });
 
-      // Update local state
+      // Update local state — match on currentSectionId, since the section's
+      // local id may have just been swapped for its real, persisted one above.
       setSections(prev => prev.map(section => {
-        if (section.id === activeSection.id) {
-          // If we had a temporary section ID, we might need to map it, but for UI state we just append
+        if (section.id === currentSectionId) {
           return { ...section, questions: [...section.questions, ...generatedQuestions] };
         }
         return section;

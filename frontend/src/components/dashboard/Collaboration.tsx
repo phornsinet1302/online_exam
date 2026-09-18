@@ -6,7 +6,7 @@ import { U, I, INK, CAMEL, CREAM } from "@/lib/tokens";
 import { useNavigate } from "@/lib/hooks";
 import { DashboardLayout } from "@/components/dashboard/DashboardShared";
 import { examsApi, Exam } from "@/lib/api/exams";
-import { collaborationApi, CollaboratorRole } from "@/lib/api/collaboration";
+import { collaborationApi, Collaborator, CollaboratorRole } from "@/lib/api/collaboration";
 
 // "Owner" isn't a selectable role here — ownership is tied to who created the
 // exam (Exam.ownerId) and can't be granted through a collaborator invite.
@@ -63,14 +63,14 @@ export function InviteCollaborators() {
     setSending(true);
     setSendError("");
     try {
-      await collaborationApi.invite(examId, { email: email.trim(), role });
-      setSent(p => [...p, `${email.trim()} (${role === "COLLABORATOR" ? "Collaborator" : "Invigilator"})`]);
+      const result = await collaborationApi.invite(examId, { email: email.trim(), role });
+      const roleLabel = role === "COLLABORATOR" ? "Collaborator" : "Invigilator";
+      setSent(p => [...p, result.isNewAccount
+        ? `${email.trim()} (${roleLabel}) — wasn't on exam.ai yet, created their account and emailed them to set it up`
+        : `${email.trim()} (${roleLabel})`]);
       setEmail("");
     } catch (error) {
-      const message = error instanceof Error && error.message ? error.message : "Failed to send invite. Please try again.";
-      setSendError(message.includes("not found with that email")
-        ? "That email isn't registered on exam.ai yet. They'll need to create an account first — or you can share the invite link below instead."
-        : message);
+      setSendError(error instanceof Error && error.message ? error.message : "Failed to send invite. Please try again.");
     } finally {
       setSending(false);
     }

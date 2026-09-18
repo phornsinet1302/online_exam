@@ -1,15 +1,30 @@
 "use client";
 
-import React, { useState, useEffect } from "react";
+import React, { useState, useEffect, useRef } from "react";
 import { usePathname } from "next/navigation";
 import {
   GraduationCap, Search, Bell, ChevronDown, ChevronUp,
-  LogOut, Check, Copy, Settings,
+  LogOut, Check, X, Copy, Settings,
   LayoutDashboard, FileText, Monitor, BarChart2,
 } from "lucide-react";
 import { U, I, INK, CAMEL, CREAM } from "@/lib/tokens";
 import { useNavigate, useUnreadNotificationCount } from "@/lib/hooks";
 import { useAuth } from "@/components/providers/AuthProvider";
+import { notificationsApi, Notification } from "@/lib/api/notifications";
+import { collaborationApi, Collaborator } from "@/lib/api/collaboration";
+
+function timeAgo(iso: string) {
+  const diffMs = Date.now() - new Date(iso).getTime();
+  const min = Math.floor(diffMs / 60000);
+  if (min < 1) return "Just now";
+  if (min < 60) return `${min} min ago`;
+  const hr = Math.floor(min / 60);
+  if (hr < 24) return `${hr} hr${hr > 1 ? "s" : ""} ago`;
+  const day = Math.floor(hr / 24);
+  if (day === 1) return "Yesterday";
+  if (day < 7) return `${day} days ago`;
+  return new Date(iso).toLocaleDateString();
+}
 
 // ─── Layout constants ─────────────────────────────────────────────────────────
 export const SIDEBAR_W = 240;
@@ -71,6 +86,7 @@ export function getTeacherSection(active: string) {
 export function DashboardSidebar({ active }: { active: string }) {
   const navigate = useNavigate();
   const { user, logout } = useAuth();
+  const unread = useUnreadNotificationCount();
   const section = getTeacherSection(active);
   const name = user?.name || "Teacher";
   const initials = name ? name.split(" ").map((n: string) => n[0]).join("").toUpperCase().substring(0, 2) : "T";
@@ -91,7 +107,7 @@ export function DashboardSidebar({ active }: { active: string }) {
               style={{ fontFamily: I, background: isActive ? `${CAMEL}22` : undefined }}>
               <Icon size={17} style={{ color: isActive ? CAMEL : undefined }}/>
               <span className="flex-1 text-left">{label}</span>
-              {id === "settings" && <span className="text-[10px] font-bold px-1.5 py-0.5 rounded-full" style={{ background: "#ef4444", color: "white", fontFamily: U }}>4</span>}
+              {id === "settings" && unread > 0 && <span className="text-[10px] font-bold px-1.5 py-0.5 rounded-full" style={{ background: "#ef4444", color: "white", fontFamily: U }}>{unread > 9 ? "9+" : unread}</span>}
               {isActive && <div className="w-1 h-4 rounded-full flex-shrink-0" style={{ background: CAMEL }}/>}
             </button>
           );
@@ -146,11 +162,124 @@ export function DashboardSectionTabs({ active }: { active: string }) {
   );
 }
 
+// ─── Notification bell (dropdown) ──────────────────────────────────────────────
+function NotificationBell() {
+  const navigate = useNavigate();
+  const [open, setOpen] = useState(false);
+  const [notifs, setNotifs] = useState<Notification[]>([]);
+  const [invites, setInvites] = useState<Collaborator[]>([]);
+  const [respondingId, setRespondingId] = useState<string | null>(null);
+  const boxRef = useRef<HTMLDivElement>(null);
+
+  const refresh = () => {
+    notificationsApi.list("all").then(setNotifs).catch(() => {});
+    collaborationApi.mine().then(rows => setInvites(rows.filter(r => r.status === "PENDING"))).catch(() => {});
+  };
+
+  useEffect(() => { refresh(); }, []);
+
+  useEffect(() => {
+    if (!open) return;
+    function onClickOutside(e: MouseEvent) {
+      if (boxRef.current && !boxRef.current.contains(e.target as Node)) setOpen(false);
+    }
+    document.addEventListener("mousedown", onClickOutside);
+    return () => document.removeEventListener("mousedown", onClickOutside);
+  }, [open]);
+
+  const toggle = () => {
+    setOpen(o => {
+      if (!o) refresh();
+      return !o;
+    });
+  };
+
+  const markRead = async (id: string) => {
+    setNotifs(p => p.map(n => n.id === id ? { ...n, read: true } : n));
+    try { await notificationsApi.markRead(id); } catch { /* optimistic; ignore */ }
+  };
+
+  const respond = async (id: string, accept: boolean) => {
+    setRespondingId(id);
+    try {
+      await (accept ? collaborationApi.accept(id) : collaborationApi.decline(id));
+      setInvites(p => p.filter(i => i.id !== id));
+    } catch (error) {
+      alert(error instanceof Error && error.message ? error.message : "Failed to respond to invitation. Please try again.");
+    } finally {
+      setRespondingId(null);
+    }
+  };
+
+  const unread = notifs.filter(n => !n.read).length;
+  const badge = unread + invites.length;
+  const items = notifs.slice(0, 6);
+
+  return (
+    <div className="relative" ref={boxRef}>
+      <button onClick={toggle} className="relative w-9 h-9 rounded-xl bg-gray-50 border border-gray-200 flex items-center justify-center text-gray-500 hover:border-gray-300 transition-all">
+        <Bell size={16}/>
+        {badge > 0 && <span className="absolute -top-1 -right-1 w-4 h-4 rounded-full flex items-center justify-center text-[9px] font-bold text-white" style={{ background: "#ef4444" }}>{badge > 9 ? "9+" : badge}</span>}
+      </button>
+      {open && (
+        <div className="absolute right-0 top-11 w-[340px] bg-white rounded-2xl border border-gray-100 shadow-xl z-50 overflow-hidden">
+          <div className="flex items-center justify-between px-4 py-3 border-b border-gray-100">
+            <p className="text-sm font-black" style={{ fontFamily: U, color: INK }}>Notifications</p>
+            <button onClick={() => { setOpen(false); navigate("/dashboard/notifications"); }} className="text-[11px] font-semibold hover:underline" style={{ color: CAMEL, fontFamily: U }}>View all</button>
+          </div>
+          <div className="max-h-[420px] overflow-y-auto">
+            {invites.length > 0 && (
+              <div className="p-3 space-y-2 border-b border-gray-100">
+                <p className="text-[10px] font-black uppercase tracking-wider text-gray-400 px-1" style={{ fontFamily: U }}>Invitations</p>
+                {invites.map(inv => {
+                  const roleLabel = inv.role === "COLLABORATOR" ? "Collaborator" : "Invigilator";
+                  const responding = respondingId === inv.id;
+                  return (
+                    <div key={inv.id} className="bg-gray-50 rounded-xl p-3">
+                      <p className="text-xs font-bold text-gray-800" style={{ fontFamily: U }}>{inv.inviter?.name || inv.inviter?.email || "Someone"} invited you</p>
+                      <p className="text-[11px] text-gray-500 mt-0.5" style={{ fontFamily: I }}>As {roleLabel} on &quot;{inv.exam?.title || "an exam"}&quot;</p>
+                      <div className="flex gap-2 mt-2.5">
+                        <button onClick={() => respond(inv.id, true)} disabled={responding}
+                          className="flex-1 flex items-center justify-center gap-1 text-[11px] font-bold text-white rounded-lg py-1.5 disabled:opacity-50" style={{ background: INK, fontFamily: U }}>
+                          <Check size={11}/>Accept
+                        </button>
+                        <button onClick={() => respond(inv.id, false)} disabled={responding}
+                          className="flex-1 flex items-center justify-center gap-1 text-[11px] font-bold text-gray-500 border border-gray-200 rounded-lg py-1.5 hover:bg-gray-100 disabled:opacity-50" style={{ fontFamily: U }}>
+                          <X size={11}/>Reject
+                        </button>
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
+            )}
+            {items.map(n => (
+              <div key={n.id} onClick={() => !n.read && markRead(n.id)}
+                className={`px-4 py-3 border-b border-gray-50 last:border-0 cursor-pointer hover:bg-gray-50 transition-colors ${!n.read ? "bg-blue-50/30" : ""}`}>
+                <div className="flex items-start justify-between gap-2">
+                  <p className={`text-xs font-bold leading-snug ${!n.read ? "text-gray-900" : "text-gray-600"}`} style={{ fontFamily: U }}>{n.title}</p>
+                  {!n.read && <div className="w-1.5 h-1.5 rounded-full flex-shrink-0 mt-1" style={{ background: "#2563EB" }}/>}
+                </div>
+                <p className="text-[11px] text-gray-500 mt-0.5 leading-relaxed" style={{ fontFamily: I }}>{n.body}</p>
+                <p className="text-[10px] text-gray-400 mt-1" style={{ fontFamily: I }}>{timeAgo(n.createdAt)}</p>
+              </div>
+            ))}
+            {items.length === 0 && invites.length === 0 && (
+              <div className="py-14 flex flex-col items-center">
+                <Bell size={24} className="text-gray-200 mb-2"/>
+                <p className="text-xs font-semibold text-gray-400" style={{ fontFamily: U }}>All clear</p>
+              </div>
+            )}
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
 // ─── Header ───────────────────────────────────────────────────────────────────
 export function DashboardHeader({ title, subtitle, actions }: { title: string; subtitle?: string; actions?: React.ReactNode }) {
-  const navigate = useNavigate();
   const { user } = useAuth();
-  const unread = useUnreadNotificationCount();
   const name = user?.name || "Teacher";
   const initials = name ? name.split(" ").map((n: string) => n[0]).join("").toUpperCase().substring(0, 2) : "T";
   return (
@@ -165,10 +294,7 @@ export function DashboardHeader({ title, subtitle, actions }: { title: string; s
           <Search size={15} className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400"/>
           <input placeholder="Search…" className="pl-9 pr-4 py-2 text-sm bg-gray-50 border border-gray-200 rounded-xl focus:outline-none focus:border-gray-300 w-40" style={{ fontFamily: I }}/>
         </div>
-        <button onClick={() => navigate("/dashboard/notifications")} className="relative w-9 h-9 rounded-xl bg-gray-50 border border-gray-200 flex items-center justify-center text-gray-500 hover:border-gray-300 transition-all">
-          <Bell size={16}/>
-          {unread > 0 && <span className="absolute -top-1 -right-1 w-4 h-4 rounded-full flex items-center justify-center text-[9px] font-bold text-white" style={{ background: "#ef4444" }}>{unread > 9 ? "9+" : unread}</span>}
-        </button>
+        <NotificationBell/>
         {user?.avatarUrl ? (
           <img src={user.avatarUrl} alt={name} className="w-9 h-9 rounded-xl object-cover cursor-pointer"/>
         ) : (

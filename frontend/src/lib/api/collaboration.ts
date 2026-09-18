@@ -12,6 +12,10 @@ export interface Collaborator {
   invitedBy: string;
   createdAt: string;
   user?: { name: string; email: string; avatarUrl?: string | null; supabaseId: string };
+  // Present on /collaborations/mine, which includes these for display —
+  // absent on the per-exam list() endpoint.
+  exam?: { id: string; title: string; subject?: string | null; status: string; ownerId: string };
+  inviter?: { name: string; email: string };
 }
 
 export interface InviteLink {
@@ -27,9 +31,21 @@ export interface AcceptLinkResult {
   role: CollaboratorRole;
 }
 
+export interface InviteResult {
+  status: "INVITED";
+  collaborator: Collaborator;
+  // true when the invited email had no exam.ai account yet — Supabase just
+  // created one for them and emailed them to set it up.
+  isNewAccount: boolean;
+}
+
 export const collaborationApi = {
-  invite: async (examId: string, data: { email: string; role: CollaboratorRole }): Promise<Collaborator> => {
-    return fetchApi<Collaborator>(`/exams/${examId}/collaborators`, {
+  // If the invited email isn't registered yet, the backend creates their
+  // account via Supabase's invite flow and adds them as a Collaborator right
+  // away — the response tells you which happened so the UI can word the
+  // confirmation accordingly.
+  invite: async (examId: string, data: { email: string; role: CollaboratorRole }): Promise<InviteResult> => {
+    return fetchApi<InviteResult>(`/exams/${examId}/collaborators`, {
       method: "POST",
       body: JSON.stringify(data),
     });
@@ -63,5 +79,13 @@ export const collaborationApi = {
 
   mine: async (): Promise<Collaborator[]> => {
     return fetchApi<Collaborator[]>("/collaborations/mine", { method: "GET" });
+  },
+
+  accept: async (id: string): Promise<Collaborator> => {
+    return fetchApi<Collaborator>(`/collaborations/${id}/accept`, { method: "POST" });
+  },
+
+  decline: async (id: string): Promise<Collaborator> => {
+    return fetchApi<Collaborator>(`/collaborations/${id}/decline`, { method: "POST" });
   },
 };

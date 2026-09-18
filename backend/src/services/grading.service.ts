@@ -251,14 +251,35 @@ export class GradingService {
       ? GradingStatus.needs_review
       : GradingStatus.auto_graded;
 
+    // Percentage score, consistent with _finalizeAttemptIfComplete() (used
+    // after manual grading) and submitAndGradeFromAutosave() — both of those
+    // already normalize to 0–100 via `score`, so this path needs to as well
+    // rather than leaving `score` unset and only populating raw-point
+    // `totalScore`. Left null while manual grading is still pending, same as
+    // totalScore, since the true total isn't known yet.
+    const maxPossible = gradingKey.reduce((sum, k) => sum + k.points, 0);
+    const percentageScore = hasPending
+      ? null
+      : maxPossible > 0
+        ? parseFloat(((autoTotal / maxPossible) * 100).toFixed(2))
+        : 0;
+
+    // The registrant's name/roll number lives in `answers.studentInfo` until
+    // now — submission below overwrites `answers` with the raw answer list,
+    // which would otherwise erase it. Carry it over into `snapshot` (never
+    // touched again after creation) so reports can still show a real name.
+    const studentInfo = (attempt.answers as any)?.studentInfo;
+
     // 4. Update attempt
     const updated = await prisma.examAttempt.update({
       where: { id: attemptId },
       data: {
         submittedAt: new Date(),
         totalScore: hasPending ? null : autoTotal, // null until all manual grades are in
+        score: percentageScore,
         gradingStatus: overallStatus,
         answers: submittedAnswers as any, // keep legacy field populated
+        ...(studentInfo ? { snapshot: { ...(attempt.snapshot as any), studentInfo } } : {}),
       },
       include: { studentAnswers: true },
     });
