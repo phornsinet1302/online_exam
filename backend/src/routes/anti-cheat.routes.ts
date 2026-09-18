@@ -10,6 +10,8 @@ import {
   exportViolationsCsv,
   getLiveStudentSummary,
   resolveViolation,
+  getMyViolations,
+  exportMyViolationsCsv,
 } from '../controllers/anti-cheat.controller.js';
 
 const router = Router();
@@ -28,5 +30,9 @@ router.get( '/exams/:examId/violations',              authMiddleware, getViolati
 router.get( '/exams/:examId/violations/export',       authMiddleware, exportViolationsCsv);
 router.get( '/exams/:examId/violations/live-summary', authMiddleware, getLiveStudentSummary);
 router.patch('/violations/:id/resolve',               authMiddleware, resolveViolation);
+
+// ── Teacher: violations across all owned exams (Security Logs page) ────────────
+router.get( '/violations',        authMiddleware, getMyViolations);
+router.get( '/violations/export', authMiddleware, exportMyViolationsCsv);
 
 export default router;

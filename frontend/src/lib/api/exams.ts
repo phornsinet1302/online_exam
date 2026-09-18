@@ -22,6 +22,12 @@ export interface Exam {
   studentsCount?: number;
   sections?: any[];
   requireLateApproval?: boolean;
+  // Session requirements (anti-cheat) — persisted, not yet enforced by the
+  // student exam-taking flow.
+  requireCamera?: boolean;
+  lockFullscreen?: boolean;
+  browserLockdown?: boolean;
+  screenshotIntervalSec?: number;
 }
 
 export const examsApi = {

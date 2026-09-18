@@ -17,6 +17,7 @@ import studentRoutes from './routes/student.routes.js';
 import multer from 'multer';
 import antiCheatRoutes from './routes/anti-cheat.routes.js';
 import notificationRoutes from './routes/notification.routes.js';
+import rosterRoutes from './routes/roster.routes.js';
 
 const app = express();
 
@@ -58,6 +59,7 @@ app.use('/api', antiCheatRoutes);
 app.use('/api', collaborationRoutes);
 app.use('/api', reportRoutes);
 app.use('/api', notificationRoutes);
+app.use('/api', rosterRoutes);
 
 
 // Global error handler

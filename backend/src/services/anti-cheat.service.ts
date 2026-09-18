@@ -76,6 +76,13 @@ const DEFAULT_RULES: Omit<RuleInput, never>[] = [
 
 export class AntiCheatService {
 
+  // ── Ownership guard ───────────────────────────────────────────────────────
+  private async assertExamOwner(examId: string, ownerId: string) {
+    const exam = await prisma.exam.findUnique({ where: { id: examId }, select: { ownerId: true } });
+    if (!exam) throw new Error('Exam not found.');
+    if (exam.ownerId !== ownerId) throw new Error('Access denied.');
+  }
+
   // ── Rules ──────────────────────────────────────────────────────────────────
 
   /**
@@ -254,6 +261,7 @@ export class AntiCheatService {
    */
   async getViolationLogs(
     examId: string,
+    ownerId: string,
     filters: {
       severity?:  string;
       eventType?: string;
@@ -263,6 +271,8 @@ export class AntiCheatService {
       pageSize?:  number;
     } = {},
   ) {
+    await this.assertExamOwner(examId, ownerId);
+
     const { severity, eventType, resolved, attemptId, page = 1, pageSize = 50 } = filters;
     const where: Record<string, any> = { examId };
     if (severity)  where.severity  = severity;
@@ -316,7 +326,9 @@ export class AntiCheatService {
   /**
    * Get per-student summary for a live exam (used by LiveMonitoring).
    */
-  async getLiveStudentSummary(examId: string) {
+  async getLiveStudentSummary(examId: string, ownerId: string) {
+    await this.assertExamOwner(examId, ownerId);
+
     const attempts = await prisma.examAttempt.findMany({
       where: { examId },
       select: {
@@ -356,8 +368,12 @@ export class AntiCheatService {
    * Mark a violation as resolved by a teacher.
    */
   async resolveViolation(violationId: string, resolvedBy: string) {
-    const log = await prisma.violationLog.findUnique({ where: { id: violationId } });
+    const log = await prisma.violationLog.findUnique({
+      where: { id: violationId },
+      include: { attempt: { select: { exam: { select: { ownerId: true } } } } },
+    });
     if (!log) throw new Error('Violation log not found.');
+    if (log.attempt.exam.ownerId !== resolvedBy) throw new Error('Access denied.');
 
     return prisma.violationLog.update({
       where: { id: violationId },
@@ -398,13 +414,108 @@ export class AntiCheatService {
   /**
    * Generate CSV string from violation logs.
    */
-  async exportCsv(examId: string): Promise<string> {
-    const { logs } = await this.getViolationLogs(examId, { pageSize: 10000 });
+  async exportCsv(examId: string, ownerId: string): Promise<string> {
+    const { logs } = await this.getViolationLogs(examId, ownerId, { pageSize: 10000 });
     const header = ['Timestamp','Student','Email','Event','Severity','Action Taken','Count','Resolved','Details'];
     const rows   = logs.map(l => [
       new Date(l.createdAt).toISOString(),
       l.studentName,
       l.studentEmail,
+      l.eventType,
+      l.severity,
+      l.actionTaken ?? '',
+      String(l.occurrenceCount),
+      l.resolved ? 'Yes' : 'No',
+      l.detail ?? '',
+    ].map(v => `"${String(v).replace(/"/g, '""')}"`).join(','));
+    return [header.join(','), ...rows].join('\r\n');
+  }
+
+  // ── Cross-exam violation logs (teacher's Security Logs page) ────────────────
+
+  /**
+   * Violation logs across every exam the teacher owns, optionally narrowed
+   * to one exam. Also returns the teacher's exam list so the UI can offer a
+   * full "filter by exam" dropdown even for exams with zero violations.
+   */
+  async getViolationLogsForOwner(
+    ownerId: string,
+    filters: {
+      examId?:    string;
+      severity?:  string;
+      eventType?: string;
+      resolved?:  boolean;
+      page?:      number;
+      pageSize?:  number;
+    } = {},
+  ) {
+    const { examId, severity, eventType, resolved, page = 1, pageSize = 200 } = filters;
+
+    const exams = await prisma.exam.findMany({
+      where: { ownerId },
+      select: { id: true, title: true },
+      orderBy: { title: 'asc' },
+    });
+    if (examId && !exams.some(e => e.id === examId)) throw new Error('Exam not found.');
+
+    const examTitleById = new Map(exams.map(e => [e.id, e.title]));
+    const where: Record<string, any> = { examId: examId ? examId : { in: exams.map(e => e.id) } };
+    if (severity)  where.severity  = severity;
+    if (eventType) where.eventType = eventType;
+    if (resolved !== undefined) where.resolved = resolved;
+
+    const [total, logs] = await prisma.$transaction([
+      prisma.violationLog.count({ where }),
+      prisma.violationLog.findMany({
+        where,
+        orderBy: { createdAt: 'desc' },
+        skip:    (page - 1) * pageSize,
+        take:    pageSize,
+        include: {
+          attempt: {
+            select: { studentId: true, answers: true },
+          },
+        },
+      }),
+    ]);
+
+    const enriched = logs.map(log => {
+      const answers = log.attempt.answers as Record<string, any> | null;
+      const info    = answers?.studentInfo as Record<string, any> | undefined;
+      return {
+        id:              log.id,
+        attemptId:       log.attemptId,
+        examId:          log.examId,
+        examTitle:       examTitleById.get(log.examId) ?? 'Unknown exam',
+        eventType:       log.eventType,
+        detail:          log.detail,
+        severity:        log.severity,
+        actionTaken:     log.actionTaken,
+        occurrenceCount: log.occurrenceCount,
+        resolved:        log.resolved,
+        resolvedBy:      log.resolvedBy,
+        resolvedAt:      log.resolvedAt,
+        createdAt:       log.createdAt,
+        studentId:       log.attempt.studentId,
+        studentName:     info?.name    ?? 'Unknown',
+        studentEmail:    info?.email   ?? '',
+      };
+    });
+
+    return { total, page, pageSize, logs: enriched, exams };
+  }
+
+  async exportCsvForOwner(
+    ownerId: string,
+    filters: { examId?: string; severity?: string; eventType?: string; resolved?: boolean } = {},
+  ): Promise<string> {
+    const { logs } = await this.getViolationLogsForOwner(ownerId, { ...filters, pageSize: 10000 });
+    const header = ['Timestamp','Student','Email','Exam','Event','Severity','Action Taken','Count','Resolved','Details'];
+    const rows   = logs.map(l => [
+      new Date(l.createdAt).toISOString(),
+      l.studentName,
+      l.studentEmail,
+      l.examTitle,
       l.eventType,
       l.severity,
       l.actionTaken ?? '',

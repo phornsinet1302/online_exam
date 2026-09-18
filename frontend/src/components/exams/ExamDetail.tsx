@@ -3,10 +3,11 @@
 import { useState, useEffect, useRef } from "react";
 import { useParams, useNavigate } from "@/lib/hooks";
 import { DashboardLayout, StatusBadge, CopyField, Toggle } from "@/components/dashboard/DashboardShared";
-import { Pencil, ChevronRight, Download, Clock, Users, Play, StopCircle, Wifi, WifiOff, Loader2 } from "lucide-react";
+import { Pencil, ChevronRight, Download, Clock, Users, Play, StopCircle, Wifi, WifiOff, Loader2, UserX, ClipboardList, AlertTriangle } from "lucide-react";
 import { QRCodeCanvas } from "qrcode.react";
 import { examsApi } from "@/lib/api/exams";
 import { startExamSession, endExamSession } from "@/lib/api/session";
+import { rosterApi, RosterEntry } from "@/lib/api/roster";
 import { API_URL } from "@/lib/api/client";
 import { U, I, INK, CAMEL } from "@/lib/tokens";
 
@@ -233,6 +234,127 @@ function LiveSessionPanel({ examId, sessionState, onSessionChange }: {
   );
 }
 
+// ─── Roster Panel ─────────────────────────────────────────────────────────────
+function parseRosterText(text: string): { email: string; name?: string }[] {
+  const emailRegex = /[^\s<>,;]+@[^\s<>,;]+\.[^\s<>,;]+/;
+  const entries: { email: string; name?: string }[] = [];
+  for (const raw of text.split(/\r?\n/)) {
+    const line = raw.trim();
+    if (!line) continue;
+    const match = line.match(emailRegex);
+    if (!match) continue;
+    const email = match[0];
+    const name = line.replace(email, "").replace(/[<>,;]/g, "").trim();
+    entries.push(name ? { email, name } : { email });
+  }
+  return entries;
+}
+
+function RosterPanel({ examId }: { examId: string }) {
+  const [roster, setRoster] = useState<RosterEntry[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState("");
+  const [text, setText] = useState("");
+  const [saving, setSaving] = useState(false);
+  const [saveError, setSaveError] = useState("");
+  const [removingId, setRemovingId] = useState<string | null>(null);
+
+  const load = () => {
+    setLoading(true);
+    setError("");
+    rosterApi.get(examId)
+      .then(setRoster)
+      .catch(e => setError(e instanceof Error && e.message ? e.message : "Failed to load the roster. Please try again."))
+      .finally(() => setLoading(false));
+  };
+
+  useEffect(() => { load(); }, [examId]);
+
+  const save = async () => {
+    const entries = parseRosterText(text);
+    if (entries.length === 0) { setSaveError("Paste at least one valid email, one per line."); return; }
+    setSaving(true);
+    setSaveError("");
+    try {
+      const updated = await rosterApi.upload(examId, entries);
+      setRoster(updated);
+      setText("");
+    } catch (e) {
+      setSaveError(e instanceof Error && e.message ? e.message : "Failed to save the roster. Please try again.");
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  const remove = async (id: string) => {
+    setRemovingId(id);
+    try {
+      await rosterApi.remove(examId, id);
+      setRoster(p => p.filter(r => r.id !== id));
+    } catch (e) {
+      alert(e instanceof Error && e.message ? e.message : "Failed to remove student. Please try again.");
+    } finally {
+      setRemovingId(null);
+    }
+  };
+
+  return (
+    <div className="grid lg:grid-cols-[1fr_340px] gap-5">
+      <div className="bg-white rounded-2xl border border-gray-100 overflow-hidden">
+        <div className="px-6 py-4 border-b border-gray-100 flex items-center justify-between">
+          <div>
+            <h3 className="text-sm font-black" style={{ fontFamily: U, color: INK }}>Expected Students</h3>
+            <p className="text-xs text-gray-400 mt-0.5" style={{ fontFamily: I }}>{roster.length} on roster</p>
+          </div>
+        </div>
+        {error ? (
+          <div className="p-10 text-center">
+            <AlertTriangle size={28} className="mx-auto mb-2 text-red-300"/>
+            <p className="text-sm text-red-500 mb-3" style={{ fontFamily: U }}>{error}</p>
+            <button onClick={load} className="text-xs font-bold px-4 py-2 rounded-xl text-white" style={{ background: INK, fontFamily: U }}>Try again</button>
+          </div>
+        ) : loading ? (
+          <div className="p-10 text-center"><Loader2 className="animate-spin mx-auto text-gray-300" size={22}/></div>
+        ) : roster.length === 0 ? (
+          <div className="p-10 text-center">
+            <ClipboardList size={28} className="mx-auto mb-2 text-gray-200"/>
+            <p className="text-sm text-gray-400" style={{ fontFamily: I }}>No roster uploaded yet — attendance will just show who joined.</p>
+          </div>
+        ) : (
+          <div className="max-h-[420px] overflow-y-auto divide-y divide-gray-50">
+            {roster.map(r => (
+              <div key={r.id} className="flex items-center gap-3 px-6 py-3">
+                <div className="w-8 h-8 rounded-full flex items-center justify-center text-white text-xs font-bold flex-shrink-0" style={{ background: CAMEL, fontFamily: U }}>
+                  {(r.name || r.email)[0]?.toUpperCase()}
+                </div>
+                <div className="flex-1 min-w-0">
+                  <p className="text-sm font-semibold text-gray-800 truncate" style={{ fontFamily: U }}>{r.name || r.email}</p>
+                  {r.name && <p className="text-xs text-gray-400 truncate" style={{ fontFamily: I }}>{r.email}</p>}
+                </div>
+                <button onClick={() => remove(r.id)} disabled={removingId === r.id} className="w-7 h-7 rounded-lg flex items-center justify-center text-gray-300 hover:bg-red-50 hover:text-red-500 transition-colors disabled:opacity-50 flex-shrink-0">
+                  {removingId === r.id ? <Loader2 size={13} className="animate-spin"/> : <UserX size={14}/>}
+                </button>
+              </div>
+            ))}
+          </div>
+        )}
+      </div>
+
+      <div className="bg-white rounded-2xl border border-gray-100 p-5">
+        <h3 className="text-sm font-black mb-1" style={{ fontFamily: U, color: INK }}>Upload roster</h3>
+        <p className="text-xs text-gray-400 mb-4" style={{ fontFamily: I }}>Paste one student per line — email, or &quot;Name, email&quot;. This replaces the current roster.</p>
+        <textarea value={text} onChange={e => { setText(e.target.value); setSaveError(""); }} rows={8}
+          placeholder={"jane.doe@school.edu\nJohn Smith, john.smith@school.edu"}
+          className="w-full border border-gray-200 rounded-xl px-3 py-2.5 text-xs font-mono text-gray-700 focus:outline-none focus:border-gray-400 resize-none mb-3" style={{ fontFamily: I }}/>
+        {saveError && <p className="text-xs text-red-500 mb-3" style={{ fontFamily: I }}>{saveError}</p>}
+        <button onClick={save} disabled={saving || !text.trim()} className="w-full text-sm font-bold text-white py-2.5 rounded-xl hover:opacity-90 disabled:opacity-40 transition-all" style={{ background: INK, fontFamily: U }}>
+          {saving ? "Saving…" : "Save roster"}
+        </button>
+      </div>
+    </div>
+  );
+}
+
 // ─── Main Component ───────────────────────────────────────────────────────────
 export function ExamDetail() {
   const { id } = useParams();
@@ -259,7 +381,7 @@ export function ExamDetail() {
     if (typeof window !== "undefined") {
       const urlParams = new URLSearchParams(window.location.search);
       const initialTab = urlParams.get("tab");
-      if (initialTab && ["session", "overview", "sharing", "settings", "preview"].includes(initialTab)) {
+      if (initialTab && ["session", "overview", "sharing", "roster", "settings", "preview"].includes(initialTab)) {
         setTab(initialTab);
       }
     }
@@ -295,7 +417,7 @@ export function ExamDetail() {
     }
   };
 
-  const tabs = ["session", "overview", "sharing", "settings", "preview"];
+  const tabs = ["session", "overview", "sharing", "roster", "settings", "preview"];
 
   const sessionStateLabel: Record<string, string> = {
     WAITING: "Waiting",
@@ -445,6 +567,9 @@ export function ExamDetail() {
           </div>
         </div>
       )}
+
+      {/* Roster tab */}
+      {tab === "roster" && <RosterPanel examId={exam.id} />}
 
       {/* Settings tab */}
       {tab === "settings" && (
