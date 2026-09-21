@@ -73,6 +73,24 @@ export const authApi = {
     });
   },
 
+  // Always resolves for a well-formed request, whether or not the address has
+  // an account — the response must not reveal who is registered.
+  forgotPassword: async (email: string): Promise<{ message: string }> => {
+    return fetchApi<{ message: string }>("/auth/forgot-password", {
+      method: "POST",
+      body: JSON.stringify({ email }),
+    });
+  },
+
+  // `accessToken` is the session from the reset link's URL. On success the
+  // response carries a fresh session, so the user can be signed straight in.
+  resetPassword: async (accessToken: string, newPassword: string): Promise<{ message: string; access_token?: string; refresh_token?: string; user?: User }> => {
+    return fetchApi<{ message: string; access_token?: string; refresh_token?: string; user?: User }>("/auth/reset-password", {
+      method: "POST",
+      body: JSON.stringify({ access_token: accessToken, newPassword }),
+    });
+  },
+
   getMe: async (): Promise<User> => {
     return fetchApi<User>("/auth/me", {
       method: "GET",

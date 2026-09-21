@@ -24,6 +24,17 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
+    // Supabase sends people back to the exact address the email link asked for
+    // — but if that address isn't in its allowed redirect list it falls back to
+    // the site's home page, with the sign-in tokens (or an error) in the URL
+    // hash. The home page ignored them, so a freshly confirmed user looked
+    // logged out. Hand those links to the callback page, which signs them in.
+    if (window.location.pathname === "/" && /^#(.*&)?(access_token|error_code|error)=/.test(window.location.hash)) {
+      const isRecovery = /[#&]type=recovery(&|$)/.test(window.location.hash);
+      window.location.replace(`${isRecovery ? "/auth/reset-password" : "/auth/callback"}${window.location.hash}`);
+      return;
+    }
+
     const token = localStorage.getItem("token");
     if (!token) {
       setLoading(false);

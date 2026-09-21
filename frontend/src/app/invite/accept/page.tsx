@@ -56,7 +56,7 @@ export default function AcceptInvitePage() {
           <>
             <LogIn size={32} className="text-gray-300 mb-4 mx-auto"/>
             <h1 className="text-lg font-black mb-2" style={{ fontFamily: U, color: INK }}>Log in to accept this invite</h1>
-            <p className="text-sm text-gray-500 mb-6" style={{ fontFamily: I }}>You'll need an exam.ai account to join this exam. Log in, then open this invite link again.</p>
+            <p className="text-sm text-gray-500 mb-6" style={{ fontFamily: I }}>You'll need a Cheating.me account to join this exam. Log in, then open this invite link again.</p>
             <button onClick={() => router.push("/")} className="text-white text-sm font-bold px-6 py-3 rounded-xl hover:opacity-90" style={{ background: INK, fontFamily: U }}>Go to login</button>
           </>
         )}

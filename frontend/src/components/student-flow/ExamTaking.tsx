@@ -10,9 +10,10 @@ import { eventLabel } from "@/lib/violationEvents";
 import { Loader2 as Spinner } from "lucide-react";
 import { 
   CheckCircle2, X, Clock, AlertTriangle, Lock, AlertOctagon, 
-  Upload, QrCode, RefreshCw, BookMarked, ChevronLeft, ChevronRight, LayoutDashboard, Eye, Activity, Check, GraduationCap 
+  Upload, QrCode, RefreshCw, BookMarked, ChevronLeft, ChevronRight, LayoutDashboard, Eye, Activity, Check 
 } from "lucide-react";
 import { U, I, INK, CAMEL, CREAM } from "@/lib/tokens";
+import { Logo } from "@/components/Logo";
 
 const S  = "#059669";
 const SL = "#ecfdf5";
@@ -197,7 +198,7 @@ function MathUploadFlow({questionId,onClose,onUploaded}:{questionId:number;onClo
               <div className="flex justify-center mb-4">
                 <div className="p-4 rounded-2xl border-2 border-gray-100"><QRPattern/></div>
               </div>
-              <p className="text-center text-[11px] text-gray-400 mb-4" style={{fontFamily:I}}>examai.app/upload?q={questionId}&amp;session=demo</p>
+              <p className="text-center text-[11px] text-gray-400 mb-4" style={{fontFamily:I}}>cheating.me/upload?q={questionId}&amp;session=demo</p>
               <div className="flex items-center gap-3 mb-4">
                 <div className="h-px flex-1 bg-gray-100"/>
                 <span className="text-xs text-gray-400" style={{fontFamily:I}}>or upload here</span>
@@ -954,9 +955,7 @@ export function ExamTaking() {
 
       <header className="sticky top-0 z-40 flex items-center gap-3 px-4 lg:px-6 h-14 border-b" style={{background:CARD,borderColor:BORDER}}>
         <div className="flex items-center gap-2 flex-shrink-0">
-          <div className="w-7 h-7 rounded-lg flex items-center justify-center" style={{background:INK}}>
-            <GraduationCap size={13} className="text-white"/>
-          </div>
+          <Logo height={30} onDark />
           <span className="text-sm font-black hidden sm:block truncate max-w-[140px]" style={{fontFamily:U,color:TEXT}}>{exam.title}</span>
         </div>
         <div className="flex-1 flex items-center gap-2 min-w-0">

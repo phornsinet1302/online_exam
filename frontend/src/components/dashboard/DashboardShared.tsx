@@ -3,7 +3,7 @@
 import React, { useState, useEffect, useRef } from "react";
 import { usePathname } from "next/navigation";
 import {
-  GraduationCap, Search, Bell, ChevronDown, ChevronUp,
+  Search, Bell, ChevronDown, ChevronUp,
   LogOut, Check, X, Copy, Settings,
   LayoutDashboard, FileText, Monitor, BarChart2,
 } from "lucide-react";
@@ -12,6 +12,7 @@ import { useNavigate, useUnreadNotificationCount } from "@/lib/hooks";
 import { useAuth } from "@/components/providers/AuthProvider";
 import { notificationsApi, Notification } from "@/lib/api/notifications";
 import { collaborationApi, Collaborator } from "@/lib/api/collaboration";
+import { Logo } from "@/components/Logo";
 
 function timeAgo(iso: string) {
   const diffMs = Date.now() - new Date(iso).getTime();
@@ -91,12 +92,24 @@ export function DashboardSidebar({ active }: { active: string }) {
   const section = getTeacherSection(active);
   const name = user?.name || "Teacher";
   const initials = name ? name.split(" ").map((n: string) => n[0]).join("").toUpperCase().substring(0, 2) : "T";
+
+  // Profile menu (Account settings / Log out) — closes on outside click or Escape.
+  const [menuOpen, setMenuOpen] = useState(false);
+  const menuRef = useRef<HTMLDivElement>(null);
+  useEffect(() => {
+    if (!menuOpen) return;
+    const onDown = (e: MouseEvent) => { if (!menuRef.current?.contains(e.target as Node)) setMenuOpen(false); };
+    const onKey = (e: KeyboardEvent) => { if (e.key === "Escape") setMenuOpen(false); };
+    document.addEventListener("mousedown", onDown);
+    document.addEventListener("keydown", onKey);
+    return () => { document.removeEventListener("mousedown", onDown); document.removeEventListener("keydown", onKey); };
+  }, [menuOpen]);
+
   return (
     <aside className="fixed top-0 left-0 h-screen flex flex-col z-40 select-none"
       style={{ width: SIDEBAR_W, background: INK, borderRight: "1px solid rgba(255,255,255,0.06)" }}>
       <div className="flex items-center gap-2.5 px-5 h-16 border-b flex-shrink-0" style={{ borderColor: "rgba(255,255,255,0.07)" }}>
-        <div className="w-8 h-8 rounded-lg flex items-center justify-center" style={{ background: CAMEL }}><GraduationCap size={16} className="text-white"/></div>
-        <span className="text-[17px] font-black text-white" style={{ fontFamily: U }}>exam<span style={{ color: CAMEL }}>·ai</span></span>
+        <Logo height={44} onDark href="/dashboard" />
       </div>
       <nav className="flex-1 px-3 py-4 space-y-1.5 overflow-y-auto">
         <p className="text-[9px] font-bold uppercase tracking-widest px-3 mb-2" style={{ color: "rgba(255,255,255,0.22)", fontFamily: U }}>Teacher Workspace</p>
@@ -114,8 +127,22 @@ export function DashboardSidebar({ active }: { active: string }) {
           );
         })}
       </nav>
-      <div className="px-4 py-4 border-t" style={{ borderColor: "rgba(255,255,255,0.07)" }}>
-        <div className="flex items-center gap-3 px-2 py-2 rounded-xl hover:bg-white/5 transition-all cursor-pointer">
+      <div ref={menuRef} className="relative px-4 py-4 border-t" style={{ borderColor: "rgba(255,255,255,0.07)" }}>
+        {menuOpen && (
+          <div role="menu" className="absolute bottom-full left-4 right-4 mb-2 z-10 overflow-hidden rounded-xl border shadow-xl"
+            style={{ background: "#14283d", borderColor: "rgba(255,255,255,0.1)" }}>
+            <button type="button" role="menuitem" onClick={() => { setMenuOpen(false); navigate("/dashboard/settings"); }}
+              className="w-full flex items-center gap-2.5 px-3.5 py-3 text-sm text-gray-200 hover:bg-white/5 transition-colors" style={{ fontFamily: I }}>
+              <Settings size={15} className="flex-shrink-0"/>Account settings
+            </button>
+            <button type="button" role="menuitem" onClick={logout}
+              className="w-full flex items-center gap-2.5 px-3.5 py-3 text-sm text-red-300 hover:bg-red-500/10 transition-colors border-t" style={{ fontFamily: I, borderColor: "rgba(255,255,255,0.08)" }}>
+              <LogOut size={15} className="flex-shrink-0"/>Log out
+            </button>
+          </div>
+        )}
+        <button type="button" aria-haspopup="menu" aria-expanded={menuOpen} onClick={() => setMenuOpen(o => !o)}
+          className="w-full flex items-center gap-3 px-2 py-2 rounded-xl hover:bg-white/5 transition-all text-left focus:outline-none focus:ring-2 focus:ring-white/20">
           {user?.avatarUrl ? (
             <img src={user.avatarUrl} alt={name} className="w-9 h-9 rounded-full object-cover flex-shrink-0"/>
           ) : (
@@ -125,11 +152,8 @@ export function DashboardSidebar({ active }: { active: string }) {
             <p className="text-sm font-semibold text-white truncate" style={{ fontFamily: U }}>{name}</p>
             <p className="text-xs text-gray-500 truncate" style={{ fontFamily: I }}>{user?.email || "Teacher"}</p>
           </div>
-          <button type="button" onClick={logout} aria-label="Log out"
-            className="rounded-md p-1 text-gray-600 transition-colors hover:text-red-400 focus:outline-none focus:ring-2 focus:ring-white/20">
-            <LogOut size={14} className="flex-shrink-0"/>
-          </button>
-        </div>
+          <ChevronUp size={14} className={`flex-shrink-0 text-gray-500 transition-transform ${menuOpen ? "" : "rotate-180"}`}/>
+        </button>
       </div>
     </aside>
   );
@@ -324,8 +348,7 @@ export function DashboardLayout({ children, active, title, subtitle, actions }: 
     return (
       <div className="min-h-screen flex flex-col items-center justify-center" style={{ background: CREAM }}>
         <div className="flex items-center gap-2 mb-4 animate-pulse">
-           <div className="w-8 h-8 rounded-lg flex items-center justify-center" style={{ background: CAMEL }}><GraduationCap size={16} className="text-white"/></div>
-           <span className="text-[17px] font-black" style={{ fontFamily: U, color: INK }}>exam<span style={{ color: CAMEL }}>·ai</span></span>
+           <Logo height={56} />
         </div>
         <p className="text-sm text-gray-500 font-semibold" style={{ fontFamily: I }}>Authenticating...</p>
       </div>

@@ -149,8 +149,10 @@ export const forgotPassword = async (req: Request, res: Response) => {
 
 export const resetPassword = async (req: Request, res: Response) => {
   try {
-    const { token, newPassword } = req.body;
-    const result = await authService.resetPassword(token, newPassword);
+    // access_token: the session on the reset page's URL (standard Supabase email).
+    // token: the token-hash email format. One of the two is required.
+    const { access_token, token, newPassword } = req.body;
+    const result = await authService.resetPassword({ accessToken: access_token, token, newPassword });
     res.status(200).json(result);
   } catch (error: any) {
     res.status(400).json({ message: error.message });

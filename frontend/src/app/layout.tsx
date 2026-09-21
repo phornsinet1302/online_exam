@@ -3,7 +3,7 @@ import "../styles/index.css";
 import { AuthProvider } from "@/components/providers/AuthProvider";
 
 export const metadata: Metadata = {
-  title: "exam.ai",
+  title: "Cheating.me",
   description: "AI-powered exam platform experience",
 };
 

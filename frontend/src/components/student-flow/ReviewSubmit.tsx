@@ -3,8 +3,9 @@
 import { useState, useEffect } from "react";
 import { useNavigate } from "@/lib/hooks";
 import { submitExam } from "@/lib/api/session";
-import { AlertTriangle, ArrowRight, GraduationCap, Loader2 } from "lucide-react";
+import { AlertTriangle, ArrowRight, Loader2 } from "lucide-react";
 import { U, I, INK, CAMEL, CREAM } from "@/lib/tokens";
+import { Logo } from "@/components/Logo";
 
 const S  = "#059669";
 const SL = "#ecfdf5";
@@ -13,10 +14,7 @@ function StudentHeader() {
   return (
     <header className="flex items-center px-6 py-4 border-b border-gray-100 bg-white sticky top-0 z-10">
       <div className="flex items-center gap-2.5">
-        <div className="w-8 h-8 rounded-lg flex items-center justify-center" style={{background:INK}}>
-          <GraduationCap size={15} className="text-white"/>
-        </div>
-        <span className="text-base font-black" style={{fontFamily:U,color:INK}}>exam<span style={{color:CAMEL}}>·ai</span></span>
+        <Logo height={44} />
       </div>
     </header>
   );
