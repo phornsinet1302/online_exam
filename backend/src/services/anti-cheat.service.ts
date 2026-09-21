@@ -329,7 +329,7 @@ export class AntiCheatService {
     } = {},
   ) {
     const { severity, eventType, resolved, attemptId, examId, page = 1, pageSize = 50 } = filters;
-    const where: Record<string, any> = { exam: { ownerId } };
+    const where: Record<string, any> = { attempt: { exam: { ownerId } } };
     if (examId)    where.examId = examId;
     if (severity)  where.severity = severity;
     if (eventType) where.eventType = eventType;
@@ -344,13 +344,11 @@ export class AntiCheatService {
         skip:    (page - 1) * pageSize,
         take:    pageSize,
         include: {
-          exam: {
-            select: { title: true }
-          },
           attempt: {
             select: {
               studentId: true,
               answers:   true,  // contains studentInfo
+              exam: { select: { title: true } }
             },
           },
         },
@@ -358,13 +356,13 @@ export class AntiCheatService {
     ]);
 
     const enriched = logs.map(log => {
-      const answers = log.attempt.answers as Record<string, any> | null;
+      const answers = log.attempt?.answers as Record<string, any> | null;
       const info    = answers?.studentInfo as Record<string, any> | undefined;
       return {
         id:              log.id,
         attemptId:       log.attemptId,
         examId:          log.examId,
-        examTitle:       log.exam.title,
+        examTitle:       log.attempt?.exam?.title ?? 'Unknown Exam',
         eventType:       log.eventType,
         detail:          log.detail,
         severity:        log.severity,
@@ -374,7 +372,7 @@ export class AntiCheatService {
         resolvedBy:      log.resolvedBy,
         resolvedAt:      log.resolvedAt,
         createdAt:       log.createdAt,
-        studentId:       log.attempt.studentId,
+        studentId:       log.attempt?.studentId,
         studentName:     info?.name    ?? 'Unknown',
         studentEmail:    info?.email   ?? '',
       };

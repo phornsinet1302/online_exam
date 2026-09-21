@@ -23,12 +23,16 @@ export function SecurityLogs() {
   }, []);
 
   useEffect(() => {
-    fetchLogs();
+    fetchLogs(true);
+    const interval = setInterval(() => {
+      fetchLogs(false);
+    }, 5000);
+    return () => clearInterval(interval);
   }, [sevFilter, examFilter, resolvedFilter]);
 
-  const fetchLogs = async () => {
+  const fetchLogs = async (showLoading = true) => {
     try {
-      setLoading(true);
+      if (showLoading) setLoading(true);
       const res = await monitoringApi.getAllViolations({
         severity: sevFilter !== "all" ? sevFilter : undefined,
         resolved: resolvedFilter !== "all" ? (resolvedFilter === "resolved" ? "true" : "false") : undefined,
@@ -37,9 +41,9 @@ export function SecurityLogs() {
       });
       setLogs(res.logs || []);
     } catch (err: any) {
-      toast.error("Failed to load logs: " + err.message);
+      if (showLoading) toast.error("Failed to load logs: " + err.message);
     } finally {
-      setLoading(false);
+      if (showLoading) setLoading(false);
     }
   };
 

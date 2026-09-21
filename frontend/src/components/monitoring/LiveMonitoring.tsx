@@ -155,13 +155,13 @@ export function LiveMonitoring() {
       try {
         const payload = JSON.parse(e.data);
         const student = students.find(s => s.attemptId === payload.attemptId);
-        const name = student?.studentInfo?.name || payload.studentId || "Student";
+        const name = student?.studentInfo?.name || payload.studentName || "Student";
         setStudents(prev => prev.map(s =>
           s.attemptId === payload.attemptId
             ? { ...s, violationCount: (s.violationCount || 0) + 1 }
             : s
         ));
-        addAlert(name, payload.event || "Violation detected", payload.count >= 3 ? "critical" : "warn");
+        addAlert(name, payload.eventType || "Violation detected", payload.severity || "warn");
       } catch {}
     });
 
