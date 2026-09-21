@@ -5,12 +5,13 @@ import {
   ChevronDown, ArrowRight, Check, Star, Shield, Zap,
   BarChart3, Eye, Users, FileCheck, Brain, Clock, Hash,
   Twitter, Linkedin, Youtube, Globe, Lock,
-  CheckCircle2, GraduationCap, Menu, X, RefreshCw, EyeOff,
+  CheckCircle2, GraduationCap, Menu, X, RefreshCw, EyeOff, Mail,
 } from "lucide-react";
 import { U, I, INK, CAMEL, CREAM, BLUE } from "@/lib/tokens";
 import { useNavigate } from "@/lib/hooks";
 import { authApi } from "@/lib/api/auth";
 import { useAuth } from "@/components/providers/AuthProvider";
+import { Logo } from "@/components/Logo";
 
 // ─── Enter Code Modal ─────────────────────────────────────────────────────────
 export function EnterCodeModal({ onClose }: { onClose: () => void }) {
@@ -48,7 +49,7 @@ export function EnterCodeModal({ onClose }: { onClose: () => void }) {
 }
 
 // ─── Auth Modal ───────────────────────────────────────────────────────────────
-export function AuthModal({ mode, onClose, onSwitch }: { mode: "login" | "register"; onClose: () => void; onSwitch: () => void }) {
+export function AuthModal({ mode, onClose, onSwitch, onForgot }: { mode: "login" | "register" | "forgot"; onClose: () => void; onSwitch: () => void; onForgot: () => void }) {
   const navigate = useNavigate();
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
@@ -56,8 +57,14 @@ export function AuthModal({ mode, onClose, onSwitch }: { mode: "login" | "regist
   const [showPw, setShowPw] = useState(false);
   const [loading, setLoading] = useState(false);
   const [authError, setAuthError] = useState("");
-  const [successMsg, setSuccessMsg] = useState("");
+  // Set once the account is created: the form is replaced by "check your email".
+  const [registeredEmail, setRegisteredEmail] = useState("");
+  // Set once a password-reset email has been requested.
+  const [resetSentTo, setResetSentTo] = useState("");
   const { login: loginContext } = useAuth();
+
+  // Switching between sign in / sign up / reset starts each view clean.
+  useEffect(() => { setResetSentTo(""); setAuthError(""); }, [mode]);
 
   const handleGoogle = () => {
     const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL || "https://jfebblgfihkhuaewxnjs.supabase.co";
@@ -67,19 +74,21 @@ export function AuthModal({ mode, onClose, onSwitch }: { mode: "login" | "regist
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     setAuthError("");
-    setSuccessMsg("");
     setLoading(true);
 
     try {
       const cleanEmail = email.trim();
-      if (mode === "login") {
+      if (mode === "forgot") {
+        await authApi.forgotPassword(cleanEmail);
+        setResetSentTo(cleanEmail);
+      } else if (mode === "login") {
         const data = await authApi.login({ email: cleanEmail, password });
         loginContext(data.access_token, data.user, data.refresh_token);
         onClose();
         navigate("/dashboard");
       } else {
         await authApi.register({ email: cleanEmail, password, name, role: "teacher" });
-        setSuccessMsg("Registration successful! Please check your email to verify your account before signing in.");
+        setRegisteredEmail(cleanEmail);
       }
     } catch (err: any) {
       setAuthError(err.message || "Authentication failed");
@@ -94,11 +103,55 @@ export function AuthModal({ mode, onClose, onSwitch }: { mode: "login" | "regist
         <div className="p-8">
           <div className="flex items-center justify-between mb-7">
             <div className="flex items-center gap-2.5">
-              <div className="w-8 h-8 rounded-lg flex items-center justify-center" style={{ background: INK }}><GraduationCap size={15} className="text-white"/></div>
-              <span className="text-base font-black" style={{ fontFamily: U, color: INK }}>exam<span style={{ color: CAMEL }}>·ai</span></span>
+              <Logo height={44} />
             </div>
             <button onClick={onClose} className="w-8 h-8 rounded-full bg-gray-100 hover:bg-gray-200 flex items-center justify-center text-gray-500 transition-colors"><X size={15}/></button>
           </div>
+          {mode === "forgot" ? (
+            resetSentTo ? (
+              <div className="text-center py-2">
+                <div className="w-14 h-14 rounded-full mx-auto mb-4 flex items-center justify-center" style={{ background: "#ecfdf5" }}><Mail size={24} style={{ color: "#059669" }} /></div>
+                <h2 className="text-2xl font-black mb-2" style={{ fontFamily: U, color: INK }}>Check your email</h2>
+                <p className="text-sm text-gray-500 leading-relaxed mb-1" style={{ fontFamily: I }}>If an account exists for</p>
+                <p className="text-sm font-bold mb-4 break-all" style={{ fontFamily: U, color: INK }}>{resetSentTo}</p>
+                <p className="text-sm text-gray-500 leading-relaxed mb-6" style={{ fontFamily: I }}>
+                  we've sent a link to choose a new password. It works for about an hour — check your spam folder if you don't see it.
+                </p>
+                <div className="flex flex-col items-center gap-2">
+                  <button type="button" onClick={() => setResetSentTo("")} className="text-xs font-semibold hover:underline" style={{ color: CAMEL, fontFamily: U }}>Use a different email</button>
+                  <button type="button" onClick={onSwitch} className="text-xs font-semibold text-gray-500 hover:underline" style={{ fontFamily: U }}>Back to sign in</button>
+                </div>
+              </div>
+            ) : (
+              <>
+                <h2 className="text-2xl font-black mb-1" style={{ fontFamily: U, color: INK }}>Reset your password</h2>
+                <p className="text-sm text-gray-500 mb-6" style={{ fontFamily: I }}>Enter your email and we'll send you a link to choose a new one.</p>
+                <form onSubmit={handleSubmit} className="flex flex-col gap-3">
+                  <input type="email" value={email} onChange={e => setEmail(e.target.value)} placeholder="Your account email" required autoFocus className="w-full border border-gray-200 rounded-xl px-4 py-3 text-sm text-gray-900 placeholder:text-gray-400 focus:outline-none focus:border-gray-400 transition-colors" style={{ fontFamily: I }}/>
+                  {authError && <p className="text-xs font-semibold text-red-500" style={{ fontFamily: I }}>{authError}</p>}
+                  <button type="submit" disabled={loading} className="w-full flex items-center justify-center gap-2 text-white font-bold py-3.5 rounded-xl transition-all hover:opacity-90 active:scale-[0.98] mt-1 disabled:opacity-60" style={{ background: INK, fontFamily: U }}>
+                    {loading ? <RefreshCw size={15} className="animate-spin"/> : "Send reset link"}
+                  </button>
+                </form>
+                <p className="text-center text-xs text-gray-500 mt-5" style={{ fontFamily: I }}>
+                  Remembered it? <button onClick={onSwitch} className="font-semibold hover:underline" style={{ color: CAMEL }}>Back to sign in</button>
+                </p>
+              </>
+            )
+          ) : registeredEmail ? (
+            <div className="text-center py-2">
+              <div className="w-14 h-14 rounded-full mx-auto mb-4 flex items-center justify-center" style={{ background: "#ecfdf5" }}><Mail size={24} style={{ color: "#059669" }} /></div>
+              <h2 className="text-2xl font-black mb-2" style={{ fontFamily: U, color: INK }}>Check your email</h2>
+              <p className="text-sm text-gray-500 leading-relaxed mb-1" style={{ fontFamily: I }}>We sent a confirmation link to</p>
+              <p className="text-sm font-bold mb-4 break-all" style={{ fontFamily: U, color: INK }}>{registeredEmail}</p>
+              <p className="text-sm text-gray-500 leading-relaxed mb-6" style={{ fontFamily: I }}>
+                Click the link in that email and you'll be taken straight into your dashboard — no need to sign in again.
+              </p>
+              <button type="button" onClick={() => { setRegisteredEmail(""); setPassword(""); }} className="text-xs font-semibold hover:underline" style={{ color: CAMEL, fontFamily: U }}>
+                Wrong email? Start over
+              </button>
+            </div>
+          ) : (<>
           <h2 className="text-2xl font-black mb-1" style={{ fontFamily: U, color: INK }}>{mode === "login" ? "Welcome back" : "Create your account"}</h2>
           <p className="text-sm text-gray-500 mb-6" style={{ fontFamily: I }}>{mode === "login" ? "Sign in to access your teacher dashboard." : "Start your 30-day free trial today."}</p>
           <button type="button" onClick={handleGoogle} className="w-full flex items-center justify-center gap-3 border border-gray-200 hover:bg-gray-50 rounded-xl py-3 text-sm font-semibold text-gray-700 transition-all mb-4" style={{ fontFamily: U }}>
@@ -114,8 +167,7 @@ export function AuthModal({ mode, onClose, onSwitch }: { mode: "login" | "regist
               <button type="button" onClick={() => setShowPw(s => !s)} className="absolute right-3.5 top-1/2 -translate-y-1/2 text-gray-400 hover:text-gray-600">{showPw ? <EyeOff size={15}/> : <Eye size={15}/>}</button>
             </div>
             {authError && <p className="text-xs font-semibold text-red-500" style={{ fontFamily: I }}>{authError}</p>}
-            {successMsg && <p className="text-xs font-semibold text-green-600" style={{ fontFamily: I }}>{successMsg}</p>}
-            {mode === "login" && <div className="flex justify-end -mt-1"><button type="button" className="text-xs font-semibold hover:underline" style={{ color: CAMEL, fontFamily: U }}>Forgot password?</button></div>}
+            {mode === "login" && <div className="flex justify-end -mt-1"><button type="button" onClick={onForgot} className="text-xs font-semibold hover:underline" style={{ color: CAMEL, fontFamily: U }}>Forgot password?</button></div>}
             <button type="submit" disabled={loading} className="w-full flex items-center justify-center gap-2 text-white font-bold py-3.5 rounded-xl transition-all hover:opacity-90 active:scale-[0.98] mt-1 disabled:opacity-60" style={{ background: INK, fontFamily: U }}>
               {loading ? <RefreshCw size={15} className="animate-spin"/> : mode === "login" ? "Sign in to dashboard" : "Create free account"}
             </button>
@@ -124,6 +176,7 @@ export function AuthModal({ mode, onClose, onSwitch }: { mode: "login" | "regist
             {mode === "login" ? "Don't have an account? " : "Already have an account? "}
             <button onClick={onSwitch} className="font-semibold hover:underline" style={{ color: CAMEL }}>{mode === "login" ? "Sign up free" : "Sign in"}</button>
           </p>
+          </>)}
         </div>
       </div>
     </div>
@@ -131,22 +184,35 @@ export function AuthModal({ mode, onClose, onSwitch }: { mode: "login" | "regist
 }
 
 // ─── Landing Navbar ───────────────────────────────────────────────────────────
-const NAV_LINKS = [{ label: "How it works", dropdown: true, id: "how-it-works" }, { label: "Pricing", dropdown: false }, { label: "Customers", dropdown: true }, { label: "Resources", dropdown: true }];
+// Each item scrolls to a section of this page. There is no dedicated pricing
+// section, so Pricing goes to the call-to-action, which states the plan
+// ("Free forever plan · No credit card").
+const NAV_LINKS = [
+  { label: "How it works", dropdown: true, id: "how-it-works" },
+  { label: "Pricing", dropdown: false, id: "pricing" },
+  { label: "Customers", dropdown: true, id: "customers" },
+  { label: "Resources", dropdown: true, id: "resources" },
+];
 
 export function LandingNavbar({ onEnterCode, onSignIn, onSignUp }: { onEnterCode: () => void; onSignIn: () => void; onSignUp: () => void }) {
   const [open, setOpen] = useState(false);
   const [codeInput, setCodeInput] = useState("");
   const [activeNav, setActiveNav] = useState<string | null>(null);
 
-  // Highlights "How it works" in camel while its section is scrolled into view
-  // (the only nav item with a real matching section on this page).
+  // Highlights the nav item whose section is scrolled into view.
   useEffect(() => {
-    const section = document.getElementById("how-it-works");
-    if (!section || typeof IntersectionObserver === "undefined") return;
-    const observer = new IntersectionObserver(([entry]) => {
-      if (entry.isIntersecting) setActiveNav("How it works");
+    if (typeof IntersectionObserver === "undefined") return;
+    const sections = NAV_LINKS
+      .map(l => ({ label: l.label, el: document.getElementById(l.id) }))
+      .filter((x): x is { label: string; el: HTMLElement } => !!x.el);
+    const observer = new IntersectionObserver(entries => {
+      for (const entry of entries) {
+        if (!entry.isIntersecting) continue;
+        const hit = sections.find(x => x.el === entry.target);
+        if (hit) setActiveNav(hit.label);
+      }
     }, { threshold: 0.35 });
-    observer.observe(section);
+    sections.forEach(x => observer.observe(x.el));
     return () => observer.disconnect();
   }, []);
 
@@ -159,8 +225,7 @@ export function LandingNavbar({ onEnterCode, onSignIn, onSignUp }: { onEnterCode
     <nav className="fixed top-0 left-0 right-0 z-50 bg-white border-b border-gray-100">
       <div className="max-w-7xl mx-auto px-6 h-[68px] flex items-center gap-8">
         <a href="#" className="flex items-center gap-2 flex-shrink-0">
-          <div className="w-8 h-8 rounded-lg flex items-center justify-center" style={{ background: INK }}><GraduationCap size={16} className="text-white"/></div>
-          <span className="text-[17px] font-black tracking-tight" style={{ fontFamily: U, color: INK }}>exam<span style={{ color: CAMEL }}>·ai</span></span>
+          <Logo height={48} />
         </a>
         <div className="hidden lg:flex items-center gap-6 flex-1">
           {NAV_LINKS.map(({ label, dropdown, id }) => (
@@ -365,14 +430,14 @@ function HeroMockup() {
       <div className={`hero-window bg-white rounded-2xl shadow-2xl shadow-gray-300/50 overflow-hidden border border-gray-200/80 ${phase2 ? "hero-phase2" : ""}`}>
         <div className="flex items-center gap-2 px-4 py-3 bg-gray-50 border-b border-gray-200">
           <div className="flex gap-1.5"><div className="w-3 h-3 rounded-full bg-red-400/80"/><div className="w-3 h-3 rounded-full bg-amber-400/80"/><div className="w-3 h-3 rounded-full bg-green-400/80"/></div>
-          <div className="flex-1 mx-3 bg-white rounded-md px-3 py-1 border border-gray-200"><span className="text-xs text-gray-400" style={{ fontFamily: I }}>exam.ai/live/mathematics-final</span></div>
+          <div className="flex-1 mx-3 bg-white rounded-md px-3 py-1 border border-gray-200"><span className="text-xs text-gray-400" style={{ fontFamily: I }}>cheating.me/live/mathematics-final</span></div>
           <div className="w-2 h-2 rounded-full bg-green-400"/>
         </div>
         <div className="flex h-[340px]">
           <div className="w-44 bg-gray-900 flex flex-col p-4 gap-1 flex-shrink-0">
             <div className="flex items-center gap-2 mb-4 px-1">
               <div className="w-5 h-5 rounded bg-white/10 flex items-center justify-center"><GraduationCap size={11} className="text-white"/></div>
-              <span className="text-white text-xs font-bold" style={{ fontFamily: U }}>exam·ai</span>
+              <span className="text-white text-xs font-bold" style={{ fontFamily: U }}>Cheating.me</span>
             </div>
             {HERO_NAV_ITEMS.map((item, i) => (
               <div key={item} className={`hero-nav-item flex items-center gap-2.5 px-3 py-2 rounded-lg text-xs ${i === activeNav ? "bg-white/15 text-white font-semibold" : "text-gray-400"}`} style={{ fontFamily: I, animationDelay: HERO_NAV_DELAYS[i] }}>
@@ -752,7 +817,7 @@ function Testimonials() {
   const [textRef, textInView] = useInViewToggle<HTMLDivElement>({ threshold: 0.3 });
   const [cardsRef, cardsInView] = useInViewToggle<HTMLDivElement>({ threshold: 0.2 });
   return (
-    <section className="py-28" style={{ background: CREAM }}>
+    <section id="customers" className="py-28 scroll-mt-[68px]" style={{ background: CREAM }}>
       <div className="max-w-7xl mx-auto px-6">
         <div className="grid lg:grid-cols-[1fr_2fr] gap-16 items-start">
           <div ref={textRef} className={`testi-text ${textInView ? "in-view" : ""}`}>
@@ -862,7 +927,7 @@ function CtaHighlightReel() {
 
 function CTA({ onEnterCode, onSignUp }: { onEnterCode: () => void; onSignUp: () => void }) {
   return (
-    <section className="py-16 bg-white">
+    <section id="pricing" className="py-16 bg-white scroll-mt-[68px]">
       <div className="max-w-6xl mx-auto px-6">
         <div className="relative rounded-3xl overflow-hidden px-10 py-20 text-center" style={{ background: INK }}>
           <div className="absolute top-0 right-0 w-96 h-96 rounded-full blur-3xl opacity-20 pointer-events-none" style={{ background: CAMEL, transform: "translate(30%, -30%)" }}/>
@@ -886,11 +951,11 @@ function CTA({ onEnterCode, onSignUp }: { onEnterCode: () => void; onSignUp: () 
 function Footer() {
   const cols = { Product: ["Features","Pricing","Security","Integrations","Changelog"], Solutions: ["K–12 Schools","Universities","Corporate Training","Certification Bodies"], Resources: ["Documentation","Blog","Case Studies","API Reference"], Company: ["About us","Careers","Press","Contact"] };
   return (
-    <footer className="border-t border-gray-100 bg-white pt-16 pb-10">
+    <footer id="resources" className="border-t border-gray-100 bg-white pt-16 pb-10 scroll-mt-[68px]">
       <div className="max-w-7xl mx-auto px-6">
         <div className="grid sm:grid-cols-2 lg:grid-cols-[1.5fr_1fr_1fr_1fr_1fr] gap-10 mb-14">
           <div>
-            <div className="flex items-center gap-2 mb-5"><div className="w-8 h-8 rounded-lg flex items-center justify-center" style={{ background: INK }}><GraduationCap size={15} className="text-white"/></div><span className="text-lg font-black" style={{ fontFamily: U, color: INK }}>exam<span style={{ color: CAMEL }}>·ai</span></span></div>
+            <div className="flex items-center gap-2 mb-5"><Logo height={56} /></div>
             <p className="text-xs text-gray-400 leading-relaxed mb-6 max-w-[220px]" style={{ fontFamily: I }}>AI-powered online examination for modern educators. Secure, simple, and fast.</p>
             <div className="flex gap-2">{[Twitter,Linkedin,Youtube].map((Icon,i) => <button key={i} className="w-8 h-8 rounded-lg border border-gray-200 flex items-center justify-center text-gray-400 hover:border-gray-400 hover:text-gray-600 transition-all"><Icon size={13}/></button>)}</div>
           </div>
@@ -902,7 +967,7 @@ function Footer() {
           ))}
         </div>
         <div className="flex flex-col sm:flex-row justify-between items-center gap-4 pt-8 border-t border-gray-100">
-          <p className="text-xs text-gray-400" style={{ fontFamily: I }}>© 2026 exam·ai. All rights reserved.</p>
+          <p className="text-xs text-gray-400" style={{ fontFamily: I }}>© 2026 Cheating.me. All rights reserved.</p>
           <div className="flex items-center gap-5">{["Privacy","Terms","GDPR","Security"].map(item => <a key={item} href="#" className="text-xs text-gray-400 hover:text-gray-600 transition-colors" style={{ fontFamily: I }}>{item}</a>)}</div>
         </div>
       </div>
@@ -913,12 +978,22 @@ function Footer() {
 // ─── Landing Page (assembles all sections) ────────────────────────────────────
 export function LandingPage() {
   const [showCode, setShowCode] = useState(false);
-  const [authMode, setAuthMode] = useState<null | "login" | "register">(null);
+  const [authMode, setAuthMode] = useState<null | "login" | "register" | "forgot">(null);
+
+  // "/?auth=login" (or register / forgot) opens the form straight away — used by
+  // the email-confirmation and password-reset pages when a link has expired.
+  useEffect(() => {
+    const requested = new URLSearchParams(window.location.search).get("auth");
+    if (requested === "login" || requested === "register" || requested === "forgot") {
+      setAuthMode(requested);
+      window.history.replaceState(null, "", "/");
+    }
+  }, []);
 
   return (
     <div className="min-h-screen" style={{ background: CREAM }}>
       {showCode && <EnterCodeModal onClose={() => setShowCode(false)}/>}
-      {authMode && <AuthModal mode={authMode} onClose={() => setAuthMode(null)} onSwitch={() => setAuthMode(m => m === "login" ? "register" : "login")}/>}
+      {authMode && <AuthModal mode={authMode} onClose={() => setAuthMode(null)} onSwitch={() => setAuthMode(m => m === "login" ? "register" : "login")} onForgot={() => setAuthMode("forgot")}/>}
       <LandingNavbar onEnterCode={() => setShowCode(true)} onSignIn={() => setAuthMode("login")} onSignUp={() => setAuthMode("register")}/>
       <Hero onEnterCode={() => setShowCode(true)} onSignUp={() => setAuthMode("register")}/>
       <TrustBar/>

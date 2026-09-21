@@ -48,7 +48,8 @@ export class ReportService {
         studentMap.set(key, {
           studentId: studentInfo?.studentId || null,
           name: studentInfo?.name || key,
-          email: attempt.studentId,
+          // Students who joined with just a name + Student ID are keyed "id:<ID>" — no email.
+          email: attempt.studentId?.startsWith('id:') ? '' : attempt.studentId,
           latestScore: Math.round(score * 100) / 100,
           examsAttempted: 0,
           totalScore: 0,
@@ -876,7 +877,7 @@ export class ReportService {
       doc.on('error', reject);
 
       // Header
-      doc.fontSize(20).font('Helvetica-Bold').text('Online Exam Platform', { align: 'center' });
+      doc.fontSize(20).font('Helvetica-Bold').text('Cheating.me', { align: 'center' });
       doc.moveDown(0.5);
       doc.fontSize(14).font('Helvetica-Bold').text(
         `${type.replace(/_/g, ' ')} Report`, { align: 'center' }
@@ -975,7 +976,7 @@ export class ReportService {
       doc.moveTo(50, doc.y).lineTo(545, doc.y).stroke('#C8A97E');
       doc.moveDown(0.5);
       doc.fontSize(8).font('Helvetica').fillColor('#9CA3AF')
-        .text('© Online Exam Platform — Kirirom Institute of Technology', { align: 'center' });
+        .text('© Cheating.me — Kirirom Institute of Technology', { align: 'center' });
 
       doc.end();
     });

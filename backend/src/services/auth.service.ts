@@ -23,6 +23,11 @@ export const DEFAULT_PRIVACY_PREFS = {
   allowResearch: false,
 };
 
+// Where confirmation / recovery links send the user back to. Not hard-coded:
+// a fixed localhost address breaks as soon as the app is opened from another
+// address (or deployed), and Supabase then drops the user on the home page.
+const frontendBase = () => (process.env.FRONTEND_URL || 'http://localhost:3000').replace(/\/+$/, '');
+
 export class AuthService {
   // Register a new teacher
   async register(email: string, password: string, name: string) {
@@ -34,12 +39,22 @@ export class AuthService {
           name,
           role: 'teacher', // explicitly set role in metadata
         },
-        emailRedirectTo: 'http://localhost:3000/auth/callback',
+        // The confirmation link lands on this page, which signs the user in
+        // and opens the dashboard — no separate login after confirming.
+        emailRedirectTo: `${frontendBase()}/auth/callback`,
       },
     });
 
     if (error) {
       throw new Error(error.message);
+    }
+
+    // For an email that already has an account Supabase doesn't error (that
+    // would reveal which emails are registered): it returns a user with no
+    // identities and sends nothing. Without this check the form would say
+    // "check your email" and the person would wait for a message that never comes.
+    if (data.user && Array.isArray(data.user.identities) && data.user.identities.length === 0) {
+      throw new Error('An account with this email already exists. Please sign in instead.');
     }
 
     return {
@@ -231,36 +246,89 @@ export class AuthService {
   // Forgot password – send reset email
   async forgotPassword(email: string) {
     const { error } = await supabase.auth.resetPasswordForEmail(email, {
-      redirectTo: 'http://localhost:3000/auth/reset-password',
+      redirectTo: `${frontendBase()}/auth/reset-password`,
     });
     if (error) throw new Error(error.message);
     return { message: 'Password reset email sent.' };
   }
 
-  // Reset password using recovery token and new password
-  async resetPassword(token: string, newPassword: string) {
-    // Exchange token for a session (verifies the token)
-    const { data, error } = await supabase.auth.verifyOtp({
-      token_hash: token,
-      type: 'recovery',
-    });
+  // Reset password from an emailed recovery link.
+  //
+  // Supabase's standard recovery email drops the user on the reset page with a
+  // short-lived session in the URL, which the page sends here as `accessToken`.
+  // (`token` is the alternative token-hash email format.) Either way, the caller
+  // has to prove control of the mailbox — a normal logged-in session is refused,
+  // otherwise a stolen login token could change the password without knowing it.
+  async resetPassword(input: { accessToken?: string; token?: string; newPassword: string }) {
+    const { accessToken, token, newPassword } = input;
 
-    if (error) {
-      throw new Error(error.message);
+    if (typeof newPassword !== 'string' || newPassword.length < 8) {
+      throw new Error('Password must be at least 8 characters.');
+    }
+    if (newPassword.length > 72) {
+      throw new Error('Password must be 72 characters or fewer.');
     }
 
-    if (!data.user) {
+    let userId: string | undefined;
+    let userEmail: string | undefined;
+
+    if (accessToken) {
+      const { data, error } = await supabase.auth.getUser(accessToken);
+      if (error || !data.user) {
+        throw new Error('This reset link has expired or was already used. Please request a new one.');
+      }
+      userId = data.user.id;
+      userEmail = data.user.email;
+
+      // The token is verified by getUser above, so its claims can be trusted.
+      // A session from an emailed link is marked "otp"; a password or Google
+      // login is not, and it must be recent (links last about an hour).
+      let claims: any = {};
+      try { claims = JSON.parse(Buffer.from(accessToken.split('.')[1], 'base64url').toString()); } catch { /* handled below */ }
+      const latest = Array.isArray(claims.amr) ? claims.amr[0] : undefined;
+      const fresh = latest && typeof latest.timestamp === 'number' && Date.now() / 1000 - latest.timestamp < 3600;
+      if (!latest || latest.method !== 'otp' || !fresh) {
+        throw new Error('Please use the link from your password reset email.');
+      }
+    } else if (token) {
+      // Exchange token for a session (verifies the token)
+      const { data, error } = await supabase.auth.verifyOtp({
+        token_hash: token,
+        type: 'recovery',
+      });
+      if (error) {
+        throw new Error(error.message);
+      }
+      userId = data.user?.id;
+      userEmail = data.user?.email;
+    }
+
+    if (!userId) {
       throw new Error('Invalid or expired recovery token');
     }
 
     // Update the user's password using the admin client
     const { error: updateError } = await supabaseAdmin.auth.admin.updateUserById(
-      data.user.id,
+      userId,
       { password: newPassword }
     );
 
     if (updateError) {
       throw new Error(updateError.message);
+    }
+
+    // Changing a password makes Supabase end every existing session for the
+    // account — including the recovery one the reset page was holding — which is
+    // what we want after a reset (anyone else who had the old password is out).
+    // So sign the user in with the new password and hand back a fresh session:
+    // the page can then open the dashboard without asking them to log in again.
+    if (userEmail) {
+      try {
+        const session = await this.login(userEmail, newPassword);
+        return { ...session, message: 'Password has been reset successfully.' };
+      } catch {
+        // Reset itself succeeded; the page falls back to a normal sign-in.
+      }
     }
 
     return { message: 'Password has been reset successfully.' };

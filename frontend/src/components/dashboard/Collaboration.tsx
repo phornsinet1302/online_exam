@@ -66,7 +66,7 @@ export function InviteCollaborators() {
       const result = await collaborationApi.invite(examId, { email: email.trim(), role });
       const roleLabel = role === "COLLABORATOR" ? "Collaborator" : "Invigilator";
       setSent(p => [...p, result.isNewAccount
-        ? `${email.trim()} (${roleLabel}) — wasn't on exam.ai yet, created their account and emailed them to set it up`
+        ? `${email.trim()} (${roleLabel}) — wasn't on Cheating.me yet, created their account and emailed them to set it up`
         : `${email.trim()} (${roleLabel})`]);
       setEmail("");
     } catch (error) {

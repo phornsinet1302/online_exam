@@ -108,7 +108,7 @@ export class GradeReportService {
         attemptNumber,
         studentName: info?.name || at.studentId || 'Unknown',
         studentRoll: info?.studentId || null,
-        studentEmail: at.studentId,
+        studentEmail: at.studentId?.startsWith('id:') ? null : at.studentId,
         submittedAt: at.submittedAt,
         timeTakenMinutes: at.submittedAt ? Math.max(0, Math.round((at.submittedAt.getTime() - at.startedAt.getTime()) / 60000)) : null,
         score: percentage,

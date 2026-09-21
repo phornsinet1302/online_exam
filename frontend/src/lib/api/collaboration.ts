@@ -34,7 +34,7 @@ export interface AcceptLinkResult {
 export interface InviteResult {
   status: "INVITED";
   collaborator: Collaborator;
-  // true when the invited email had no exam.ai account yet — Supabase just
+  // true when the invited email had no Cheating.me account yet — Supabase just
   // created one for them and emailed them to set it up.
   isNewAccount: boolean;
 }

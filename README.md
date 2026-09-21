@@ -1,4 +1,4 @@
-# Online Exam Project
+# Cheating.me
 
 This project has two parts:
 

@@ -50,20 +50,33 @@ export const registerStudent = async (req: Request, res: Response) => {
   try {
     const schema = z.object({
       examId: z.string(),
-      name: z.string().min(1),
-      studentId: z.string().min(1),
-      email: z.string().email(),
+      name: z.string().trim().min(2, 'Please enter your full name.'),
+      studentId: z.string().trim().min(1, 'Please enter your Student ID.'),
+      // Optional: only present when the student signed in with Google.
+      email: z.union([z.string().trim().email(), z.literal('')]).optional(),
       password: z.string().optional(),
     });
     const { examId, name, studentId, email, password } = schema.parse(req.body);
+
+    // A device that already joined presents its student token, which lets a
+    // Student-ID-only student resume their own attempt (see registerStudent).
+    let resumeAttemptId: string | undefined;
+    try {
+      const auth = req.headers.authorization;
+      if (auth?.startsWith('Bearer ')) {
+        const held = verifyStudentToken(auth.split(' ')[1]);
+        if (held.examId === examId) resumeAttemptId = held.attemptId;
+      }
+    } catch { /* no or stale token: treated as a new device */ }
+
     const result = await sessionService.registerStudent(
       examId,
-      { name, studentId, email },
-      { password, clientKey: req.ip },
+      { name, studentId, email: email || undefined },
+      { password, clientKey: req.ip, resumeAttemptId },
     );
     return res.status(201).json(result);
   } catch (error: any) {
-    return res.status(400).json({ error: error.message });
+    return res.status(400).json({ error: error?.issues?.[0]?.message ?? error.message });
   }
 };
 

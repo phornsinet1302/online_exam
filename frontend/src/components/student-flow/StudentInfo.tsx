@@ -3,9 +3,10 @@
 import { useState, useEffect } from "react";
 import { useNavigate } from "@/lib/hooks";
 import { useSearchParams } from "next/navigation";
-import { GraduationCap, CheckCircle2, Hash, ArrowRight, Loader2, LogIn, UserX, Lock } from "lucide-react";
+import { CheckCircle2, Hash, ArrowRight, Loader2, LogIn, UserX, Lock, User } from "lucide-react";
 import { U, I, INK, CAMEL, CREAM } from "@/lib/tokens";
-import { joinByCode, validateAttempt } from "@/lib/api/session";
+import { joinByCode, validateAttempt, registerStudent } from "@/lib/api/session";
+import { Logo } from "@/components/Logo";
 
 const S  = "#059669";
 const SL = "#ecfdf5";
@@ -14,10 +15,7 @@ function StudentHeader() {
   return (
     <header className="flex items-center px-6 py-4 border-b border-gray-100 bg-white sticky top-0 z-10">
       <div className="flex items-center gap-2.5">
-        <div className="w-8 h-8 rounded-lg flex items-center justify-center" style={{background:INK}}>
-          <GraduationCap size={15} className="text-white"/>
-        </div>
-        <span className="text-base font-black" style={{fontFamily:U,color:INK}}>exam<span style={{color:CAMEL}}>·ai</span></span>
+        <Logo height={44} href="/" />
       </div>
     </header>
   );
@@ -31,8 +29,11 @@ export function StudentInfo() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
+  const [fullName, setFullName] = useState("");
   const [studentId, setStudentId] = useState("");
   const [examPassword, setExamPassword] = useState("");
+  const [joining, setJoining] = useState(false);
+  const [formError, setFormError] = useState("");
 
   // When a valid token is found for this exam, show a "welcome back" screen
   // instead of silently redirecting — the student may want to switch accounts.
@@ -93,8 +94,10 @@ export function StudentInfo() {
   };
 
   const handleSwitchAccount = () => {
-    // Clear the saved token — send them back to the normal sign-in form
-    localStorage.removeItem("student_token");
+    // Show the details form again. The saved token is deliberately kept: it is
+    // what lets the same student re-enter their own Student ID and resume their
+    // attempt (a Student ID alone can't prove who is asking). It is replaced as
+    // soon as they join with different details.
     setReturningAs(null);
     // Also clear any leftover pending data
     localStorage.removeItem("pending_student_id");
@@ -102,19 +105,45 @@ export function StudentInfo() {
     localStorage.removeItem("pending_exam_id");
   };
 
+  // Join the waiting room with just a full name and Student ID — no Google needed.
+  const handleJoin = async (e: React.FormEvent) => {
+    e.preventDefault();
+    setFormError("");
+    const name = fullName.trim().replace(/\s+/g, " ");
+    const id = studentId.trim();
+    if (name.length < 2) { setFormError("Please enter your full name."); return; }
+    if (!id) { setFormError("Please enter your Student ID."); return; }
+    if (exam.requiresPassword && !examPassword) { setFormError("Please enter the exam password."); return; }
+
+    setJoining(true);
+    try {
+      const res = await registerStudent(exam.examId, name, id, "", examPassword || undefined);
+      localStorage.setItem("student_token", res.token);
+      const waitingParams = new URLSearchParams();
+      waitingParams.set("examId", exam.examId);
+      waitingParams.set("code", code);
+      navigate(`/student/waiting?${waitingParams.toString()}`);
+    } catch (err: any) {
+      setFormError(err?.message || "Couldn't join the exam. Please try again.");
+      setJoining(false);
+    }
+  };
+
   const handleGoogle = () => {
-    if (!studentId.trim()) {
-      alert("Please enter your Student ID first");
+    if (fullName.trim().length < 2 || !studentId.trim()) {
+      setFormError("Please enter your full name and Student ID first.");
       return;
     }
     if (exam.requiresPassword && !examPassword) {
-      alert("Please enter the exam password first");
+      setFormError("Please enter the exam password first.");
       return;
     }
+    setFormError("");
     // Kept in sessionStorage (not localStorage) so the password doesn't
     // outlive this tab; the auth-callback page reads and clears it.
     if (exam.requiresPassword) sessionStorage.setItem('pending_exam_password', examPassword);
     localStorage.setItem('pending_student_id', studentId.trim());
+    localStorage.setItem('pending_student_name', fullName.trim().replace(/\s+/g, " "));
     localStorage.setItem('pending_exam_code', code || "");
     localStorage.setItem('pending_exam_id', exam.examId);
     
@@ -147,10 +176,15 @@ export function StudentInfo() {
     );
   }
 
+  const isPrivate = exam.accessType === "PRIVATE";
+
   // ── Returning student screen ────────────────────────────────────────────────
   if (returningAs) {
-    const emailDisplay = returningAs.email;
-    const initials = emailDisplay.slice(0, 2).toUpperCase();
+    // The token's id is the email for Google sign-ins, or "id:<Student ID>" for
+    // students who joined with a name + Student ID.
+    const idPart = returningAs.email.startsWith("id:") ? returningAs.email.slice(3) : returningAs.email;
+    const emailDisplay = returningAs.name || idPart;
+    const initials = emailDisplay.replace(/[^A-Za-z0-9 ]/g, "").split(" ").filter(Boolean).map((w: string) => w[0]).join("").slice(0, 2).toUpperCase() || "ME";
 
     return (
       <div className="min-h-screen flex flex-col" style={{ background: CREAM }}>
@@ -186,8 +220,11 @@ export function StudentInfo() {
                 <p className="text-sm text-gray-500 mb-1" style={{ fontFamily: I }}>
                   You previously joined as:
                 </p>
-                <p className="text-sm font-black mb-6" style={{ fontFamily: U, color: INK }}>
+                <p className="text-sm font-black mb-1" style={{ fontFamily: U, color: INK }}>
                   {emailDisplay}
+                </p>
+                <p className="text-xs text-gray-400 mb-6" style={{ fontFamily: I }}>
+                  {returningAs.name ? idPart : ""}
                 </p>
 
                 {/* Continue button */}
@@ -205,11 +242,11 @@ export function StudentInfo() {
                   className="w-full flex items-center justify-center gap-2 py-3.5 rounded-2xl text-sm font-semibold text-gray-600 border border-gray-200 hover:bg-gray-50 transition-all"
                   style={{ fontFamily: U }}>
                   <UserX size={15}/>
-                  Not you? Use a different account
+                  Not you? Enter different details
                 </button>
 
                 <p className="text-xs text-gray-400 mt-4 leading-relaxed" style={{ fontFamily: I }}>
-                  Switching accounts will clear your saved session. You will need to sign in again with Google.
+                  You'll enter your name and Student ID again.
                 </p>
               </div>
             </div>
@@ -247,25 +284,31 @@ export function StudentInfo() {
 
           <div className="rounded-3xl border border-gray-100 bg-white p-7 shadow-sm flex flex-col justify-center">
             <div className="mb-6">
-              <h2 className="text-xl font-black" style={{ fontFamily:U, color:INK }}>Student information</h2>
-              <p className="mt-1 text-sm text-gray-500" style={{ fontFamily:I }}>Verify your identity to enter the exam.</p>
+              <h2 className="text-xl font-black" style={{ fontFamily:U, color:INK }}>Your details</h2>
+              <p className="mt-1 text-sm text-gray-500" style={{ fontFamily:I }}>Enter your full name and Student ID to join the waiting room.</p>
             </div>
 
-            <div className="space-y-4 mb-6">
+            {isPrivate && (
+              <div className="mb-5 rounded-2xl border border-amber-100 bg-amber-50 px-4 py-3 text-xs leading-relaxed text-amber-700" style={{ fontFamily:I }}>
+                This exam is invitation-only. Fill in your details, then continue with the Google account your teacher invited.
+              </div>
+            )}
+
+            <form onSubmit={handleJoin} className="space-y-4">
+              <label className="block">
+                <span className="mb-2 block text-xs font-black uppercase tracking-wider text-gray-400" style={{ fontFamily:U }}>Full name</span>
+                <div className="relative">
+                  <User size={16} className="absolute left-4 top-1/2 -translate-y-1/2 text-gray-400"/>
+                  <input type="text" value={fullName} onChange={e => setFullName(e.target.value)} placeholder="e.g. Sok Dara" required autoFocus autoComplete="name"
+                    className="w-full rounded-2xl border border-gray-200 bg-white px-11 py-4 text-sm text-gray-900 transition-colors placeholder:text-gray-300 focus:border-gray-900 focus:outline-none" style={{ fontFamily:I }}/>
+                </div>
+              </label>
               <label className="block">
                 <span className="mb-2 block text-xs font-black uppercase tracking-wider text-gray-400" style={{ fontFamily:U }}>Student ID</span>
                 <div className="relative">
                   <Hash size={16} className="absolute left-4 top-1/2 -translate-y-1/2 text-gray-400"/>
-                  <input
-                    type="text"
-                    value={studentId}
-                    onChange={e => setStudentId(e.target.value)}
-                    placeholder="e.g. STU-1029"
-                    required
-                    autoComplete="off"
-                    className="w-full rounded-2xl border border-gray-200 bg-white px-11 py-4 text-sm text-gray-900 transition-colors placeholder:text-gray-300 focus:border-gray-900 focus:outline-none"
-                    style={{ fontFamily:I }}
-                  />
+                  <input type="text" value={studentId} onChange={e => setStudentId(e.target.value)} placeholder="e.g. STU-1029" required autoComplete="off"
+                    className="w-full rounded-2xl border border-gray-200 bg-white px-11 py-4 text-sm text-gray-900 transition-colors placeholder:text-gray-300 focus:border-gray-900 focus:outline-none" style={{ fontFamily:I }}/>
                 </div>
               </label>
               {exam.requiresPassword && (
@@ -273,23 +316,29 @@ export function StudentInfo() {
                   <span className="mb-2 block text-xs font-black uppercase tracking-wider text-gray-400" style={{ fontFamily:U }}>Exam password</span>
                   <div className="relative">
                     <Lock size={16} className="absolute left-4 top-1/2 -translate-y-1/2 text-gray-400"/>
-                    <input
-                      type="password"
-                      value={examPassword}
-                      onChange={e => setExamPassword(e.target.value)}
-                      placeholder="Ask your teacher for the password"
-                      autoComplete="off"
-                      className="w-full rounded-2xl border border-gray-200 bg-white px-11 py-4 text-sm text-gray-900 transition-colors placeholder:text-gray-300 focus:border-gray-900 focus:outline-none"
-                      style={{ fontFamily:I }}
-                    />
+                    <input type="password" value={examPassword} onChange={e => setExamPassword(e.target.value)} placeholder="Ask your teacher for the password" autoComplete="off"
+                      className="w-full rounded-2xl border border-gray-200 bg-white px-11 py-4 text-sm text-gray-900 transition-colors placeholder:text-gray-300 focus:border-gray-900 focus:outline-none" style={{ fontFamily:I }}/>
                   </div>
                 </label>
               )}
-            </div>
-            
-            <button type="button" onClick={handleGoogle} disabled={!studentId.trim() || (exam.requiresPassword && !examPassword)} className="w-full flex items-center justify-center gap-3 border border-gray-200 hover:bg-gray-50 rounded-xl py-3 text-sm font-semibold text-gray-700 transition-all mb-4 disabled:opacity-50" style={{ fontFamily: U }}>
+
+              {formError && <p className="text-xs font-semibold text-red-500 leading-relaxed" style={{ fontFamily:I }}>{formError}</p>}
+
+              {!isPrivate && (
+                <button type="submit" disabled={joining || fullName.trim().length < 2 || !studentId.trim() || (exam.requiresPassword && !examPassword)}
+                  className="w-full flex items-center justify-center gap-2 rounded-2xl py-4 text-sm font-black text-white transition-all hover:opacity-90 active:scale-[0.99] disabled:opacity-50"
+                  style={{ background:S, fontFamily:U }}>
+                  {joining ? <><Loader2 size={16} className="animate-spin"/>Joining…</> : <>Join waiting room<ArrowRight size={16}/></>}
+                </button>
+              )}
+            </form>
+
+            {!isPrivate && <div className="my-4 flex items-center gap-3"><div className="h-px flex-1 bg-gray-200"/><span className="text-xs text-gray-400" style={{ fontFamily:I }}>or</span><div className="h-px flex-1 bg-gray-200"/></div>}
+            {isPrivate && <div className="mb-1"/>}
+
+            <button type="button" onClick={handleGoogle} disabled={joining} className="w-full flex items-center justify-center gap-3 border border-gray-200 hover:bg-gray-50 rounded-xl py-3 text-sm font-semibold text-gray-700 transition-all mb-4 disabled:opacity-50" style={{ fontFamily: U }}>
               <svg width="17" height="17" viewBox="0 0 48 48" fill="none"><path d="M43.6 20.5H42V20H24v8h11.3C33.7 32.7 29.3 36 24 36c-6.6 0-12-5.4-12-12s5.4-12 12-12c3.1 0 5.8 1.2 7.9 3l5.7-5.7C34.5 6.5 29.5 4 24 4 12.9 4 4 12.9 4 24s8.9 20 20 20 20-8.9 20-20c0-1.2-.1-2.3-.4-3.5z" fill="#FFC107"/><path d="M6.3 14.7l6.6 4.8C14.5 16 19 13 24 13c3.1 0 5.8 1.2 7.9 3l5.7-5.7C34.5 6.5 29.5 4 24 4 16.3 4 9.7 8.4 6.3 14.7z" fill="#FF3D00"/><path d="M24 44c5.2 0 9.9-2 13.4-5.2l-6.2-5.2C29.3 35.3 26.8 36 24 36c-5.3 0-9.7-3.3-11.3-8H6.3C9.7 35.6 16.3 44 24 44z" fill="#4CAF50"/><path d="M43.6 20.5H42V20H24v8h11.3c-.8 2.1-2.2 3.9-4 5.2l6.2 5.2C37.2 38.6 44 33.3 44 24c0-1.2-.1-2.3-.4-3.5z" fill="#1976D2"/></svg>
-              Continue with Google
+              {isPrivate ? "Continue with Google" : "Continue with Google instead"}
             </button>
 
             <div className="mt-2 flex flex-col sm:flex-row">

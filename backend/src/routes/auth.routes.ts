@@ -191,8 +191,8 @@ router.post('/forgot-password', forgotPassword);
  *   post:
  *     tags:
  *       - Authentication
- *     summary: Reset password using recovery token
- *     description: Submits a new password along with the recovery token received via email. The token is verified by Supabase, then the password is updated using the admin API.
+ *     summary: Reset password using an emailed recovery link
+ *     description: Submits a new password with the session (`access_token`) from the reset link, or with a token hash (`token`). Only sessions that came from an emailed link are accepted. The password must be 8-72 characters, and all other sessions are signed out.
  *     requestBody:
  *       required: true
  *       content:
@@ -200,9 +200,11 @@ router.post('/forgot-password', forgotPassword);
  *           schema:
  *             type: object
  *             required:
- *               - token
  *               - newPassword
  *             properties:
+ *               access_token:
+ *                 type: string
+ *                 description: The session token from the reset link's URL
  *               token:
  *                 type: string
  *                 description: The recovery token (from the reset link)
@@ -210,7 +212,7 @@ router.post('/forgot-password', forgotPassword);
  *               newPassword:
  *                 type: string
  *                 format: password
- *                 minLength: 6
+ *                 minLength: 8
  *                 example: newSecurePass
  *     responses:
  *       200:

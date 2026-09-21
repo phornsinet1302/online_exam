@@ -217,7 +217,7 @@ export function broadcastToTeacher(examId: string, event: string, data: object) 
 
 const STUDENT_TOKEN_SECRET = process.env.JWT_SECRET || 'fallback-secret';
 
-export function signStudentToken(payload: { attemptId: string; examId: string; studentId: string }) {
+export function signStudentToken(payload: { attemptId: string; examId: string; studentId: string; name?: string }) {
   return jwt.sign(payload, STUDENT_TOKEN_SECRET, { expiresIn: '12h' });
 }
 
@@ -314,8 +314,11 @@ export class SessionService {
    */
   async registerStudent(
     examId: string,
-    studentInfo: { name: string; studentId: string; email: string },
-    opts: { password?: string; clientKey?: string } = {},
+    // email is optional: a student can join with just a full name and Student ID.
+    // Only Google sign-in gives a verified email (needed for private exams).
+    studentInfo: { name: string; studentId: string; email?: string },
+    // resumeAttemptId: the attempt the caller already holds a valid token for
+    opts: { password?: string; clientKey?: string; resumeAttemptId?: string } = {},
   ) {
     const exam = await prisma.exam.findUnique({
       where: { id: examId },
@@ -339,9 +342,17 @@ export class SessionService {
     if (!awaitingManualStart && effectiveEnd && now >= effectiveEnd) throw new Error('This exam has already concluded.');
 
     // ── Exam privacy (SRS 3.3) ───────────────────────────────────────────────
-    const studentEmail = studentInfo.email.toLowerCase().trim();
+    const studentEmail = (studentInfo.email || '').toLowerCase().trim();
+    // Who this student is. A verified email when they signed in with Google;
+    // otherwise the Student ID they typed (prefixed so it can never collide with an email).
+    const identity = studentEmail || `id:${studentInfo.studentId.trim().toLowerCase()}`;
+    studentInfo = { name: studentInfo.name.trim(), studentId: studentInfo.studentId.trim(), email: studentEmail };
     if (exam.accessType === 'PRIVATE') {
-      // Private = invitation only; the invite list is the exam's Roster.
+      // Private = invitation only, checked against the Roster by email — which a
+      // typed name and ID can't prove, so those students must sign in with Google.
+      if (!studentEmail) {
+        throw new Error('This is a private exam. Please continue with Google, using the email your teacher invited.');
+      }
       const invited = await prisma.enrolledStudent.findFirst({
         where: { examId: exam.id, email: studentEmail },
         select: { id: true },
@@ -412,9 +423,9 @@ export class SessionService {
       })
     );
 
-    const studentIdStr = studentInfo.email.toLowerCase().trim();
+    const studentIdStr = identity;
 
-    // Attempts already made by this email, newest first
+    // Attempts already made by this student, newest first
     const previousAttempts = await prisma.examAttempt.findMany({
       where: { examId: exam.id, studentId: studentIdStr },
       orderBy: { startedAt: 'desc' },
@@ -433,6 +444,14 @@ export class SessionService {
 
     // An unfinished attempt is resumed rather than duplicated
     if (attempt) {
+      // With only a typed Student ID there is nothing to prove who is asking, so
+      // resuming needs the token this device got when it first joined. Otherwise
+      // typing a classmate's ID would hand over their attempt. (Emails are
+      // verified by Google, so those resume freely.) The teacher can remove the
+      // student from the session to let a locked-out student back in.
+      if (!studentEmail && opts.resumeAttemptId !== attempt.id) {
+        throw new Error('This Student ID has already joined this exam from another device or browser. If that was you, ask your teacher to remove you from the session, then join again.');
+      }
       // Update the attempt with the latest studentInfo so they can fix typos in their Student ID
       const currentAnswers = (attempt.answers as any) || {};
       await prisma.examAttempt.update({
@@ -447,6 +466,7 @@ export class SessionService {
         attemptId: attempt.id,
         examId: exam.id,
         studentId: studentIdStr,
+        name: studentInfo.name,
       });
       return { token, attemptId: attempt.id, snapshot: attempt.snapshot, isApproved: attempt.isApproved };
     }
@@ -470,6 +490,7 @@ export class SessionService {
       attemptId: attempt.id,
       examId: exam.id,
       studentId: studentIdStr,
+      name: studentInfo.name,
     });
 
     // Broadcast student joined event
@@ -737,6 +758,7 @@ export class SessionService {
         attemptId: attempt.id,
         examId: attempt.examId,
         studentId: attempt.studentId || '',
+        name: (attempt.answers as any)?.studentInfo?.name,
       });
 
       return { token: newToken };
