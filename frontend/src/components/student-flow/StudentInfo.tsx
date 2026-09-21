@@ -3,7 +3,7 @@
 import { useState, useEffect } from "react";
 import { useNavigate } from "@/lib/hooks";
 import { useSearchParams } from "next/navigation";
-import { GraduationCap, CheckCircle2, Hash, ArrowRight, Loader2, LogIn, UserX } from "lucide-react";
+import { GraduationCap, CheckCircle2, Hash, ArrowRight, Loader2, LogIn, UserX, Lock } from "lucide-react";
 import { U, I, INK, CAMEL, CREAM } from "@/lib/tokens";
 import { joinByCode, validateAttempt } from "@/lib/api/session";
 
@@ -32,6 +32,7 @@ export function StudentInfo() {
   const [error, setError] = useState<string | null>(null);
 
   const [studentId, setStudentId] = useState("");
+  const [examPassword, setExamPassword] = useState("");
 
   // When a valid token is found for this exam, show a "welcome back" screen
   // instead of silently redirecting — the student may want to switch accounts.
@@ -106,6 +107,13 @@ export function StudentInfo() {
       alert("Please enter your Student ID first");
       return;
     }
+    if (exam.requiresPassword && !examPassword) {
+      alert("Please enter the exam password first");
+      return;
+    }
+    // Kept in sessionStorage (not localStorage) so the password doesn't
+    // outlive this tab; the auth-callback page reads and clears it.
+    if (exam.requiresPassword) sessionStorage.setItem('pending_exam_password', examPassword);
     localStorage.setItem('pending_student_id', studentId.trim());
     localStorage.setItem('pending_exam_code', code || "");
     localStorage.setItem('pending_exam_id', exam.examId);
@@ -260,9 +268,26 @@ export function StudentInfo() {
                   />
                 </div>
               </label>
+              {exam.requiresPassword && (
+                <label className="block">
+                  <span className="mb-2 block text-xs font-black uppercase tracking-wider text-gray-400" style={{ fontFamily:U }}>Exam password</span>
+                  <div className="relative">
+                    <Lock size={16} className="absolute left-4 top-1/2 -translate-y-1/2 text-gray-400"/>
+                    <input
+                      type="password"
+                      value={examPassword}
+                      onChange={e => setExamPassword(e.target.value)}
+                      placeholder="Ask your teacher for the password"
+                      autoComplete="off"
+                      className="w-full rounded-2xl border border-gray-200 bg-white px-11 py-4 text-sm text-gray-900 transition-colors placeholder:text-gray-300 focus:border-gray-900 focus:outline-none"
+                      style={{ fontFamily:I }}
+                    />
+                  </div>
+                </label>
+              )}
             </div>
             
-            <button type="button" onClick={handleGoogle} disabled={!studentId.trim()} className="w-full flex items-center justify-center gap-3 border border-gray-200 hover:bg-gray-50 rounded-xl py-3 text-sm font-semibold text-gray-700 transition-all mb-4 disabled:opacity-50" style={{ fontFamily: U }}>
+            <button type="button" onClick={handleGoogle} disabled={!studentId.trim() || (exam.requiresPassword && !examPassword)} className="w-full flex items-center justify-center gap-3 border border-gray-200 hover:bg-gray-50 rounded-xl py-3 text-sm font-semibold text-gray-700 transition-all mb-4 disabled:opacity-50" style={{ fontFamily: U }}>
               <svg width="17" height="17" viewBox="0 0 48 48" fill="none"><path d="M43.6 20.5H42V20H24v8h11.3C33.7 32.7 29.3 36 24 36c-6.6 0-12-5.4-12-12s5.4-12 12-12c3.1 0 5.8 1.2 7.9 3l5.7-5.7C34.5 6.5 29.5 4 24 4 12.9 4 4 12.9 4 24s8.9 20 20 20 20-8.9 20-20c0-1.2-.1-2.3-.4-3.5z" fill="#FFC107"/><path d="M6.3 14.7l6.6 4.8C14.5 16 19 13 24 13c3.1 0 5.8 1.2 7.9 3l5.7-5.7C34.5 6.5 29.5 4 24 4 16.3 4 9.7 8.4 6.3 14.7z" fill="#FF3D00"/><path d="M24 44c5.2 0 9.9-2 13.4-5.2l-6.2-5.2C29.3 35.3 26.8 36 24 36c-5.3 0-9.7-3.3-11.3-8H6.3C9.7 35.6 16.3 44 24 44z" fill="#4CAF50"/><path d="M43.6 20.5H42V20H24v8h11.3c-.8 2.1-2.2 3.9-4 5.2l6.2 5.2C37.2 38.6 44 33.3 44 24c0-1.2-.1-2.3-.4-3.5z" fill="#1976D2"/></svg>
               Continue with Google
             </button>

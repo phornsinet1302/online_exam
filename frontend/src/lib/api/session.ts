@@ -1,4 +1,11 @@
-import { fetchApi } from "./client";
+import { fetchApi, API_URL } from "./client";
+
+// EventSource can't send an Authorization header, so the teacher live stream
+// is authenticated by a signed, exam-scoped token passed in the query string.
+export async function getTeacherStreamUrl(examId: string): Promise<string> {
+  const { token } = await fetchApi<{ token: string }>(`/session/${examId}/teacher-live-token`, { method: "POST" });
+  return `${API_URL}/session/${examId}/teacher-live?token=${encodeURIComponent(token)}`;
+}
 
 export async function joinByCode(code: string) {
   return fetchApi<any>("/join", {
@@ -7,10 +14,10 @@ export async function joinByCode(code: string) {
   });
 }
 
-export async function registerStudent(examId: string, name: string, studentId: string, email: string) {
+export async function registerStudent(examId: string, name: string, studentId: string, email: string, password?: string) {
   return fetchApi<any>("/join/register", {
     method: "POST",
-    body: JSON.stringify({ examId, name, studentId, email }),
+    body: JSON.stringify({ examId, name, studentId, email, password }),
   });
 }
 

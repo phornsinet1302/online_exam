@@ -24,11 +24,12 @@ export function ManualGrading() {
 
   useEffect(() => {
     examsApi.getAll().then(data => {
-      const published = data.filter(e => e.status !== "draft");
+      const published = data.filter(e => e.status !== "DRAFT");
       setExams(published);
-      if (published.length > 0) {
-        setExamId(published[0].id);
-      }
+      // ?examId= lets the results page link straight to the right exam
+      const requested = typeof window !== "undefined" ? new URLSearchParams(window.location.search).get("examId") : null;
+      const initial = published.find(e => e.id === requested) ?? published[0];
+      if (initial) setExamId(initial.id);
     });
   }, []);
 

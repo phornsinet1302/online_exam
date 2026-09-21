@@ -705,6 +705,19 @@ export class ReportService {
         }));
         fields = ['Exam', 'Subject', 'Date', 'Students', 'Status'];
         break;
+      case 'ANTI_CHEATING':
+        rows = data.exams.map((e: any) => ({
+          Exam: e.examTitle,
+          Date: e.date ? new Date(e.date).toLocaleDateString() : '',
+          Students: e.students,
+          'Auto Submitted': e.autoSubmitted,
+          'Total Flags': e.totalFlags,
+          'Critical Flags': e.criticalFlags,
+          'Resolved Flags': e.resolvedFlags,
+          Events: e.events.map((ev: any) => `${ev.type}:${ev.count}`).join('; '),
+        }));
+        fields = ['Exam', 'Date', 'Students', 'Auto Submitted', 'Total Flags', 'Critical Flags', 'Resolved Flags', 'Events'];
+        break;
       default:
         rows = [data.summary || data];
         fields = Object.keys(rows[0] || {});
@@ -797,6 +810,21 @@ export class ReportService {
           { header: 'Date', key: 'date', width: 15 },
           { header: 'Students', key: 'students', width: 12 },
           { header: 'Status', key: 'status', width: 12 },
+        ];
+        break;
+      case 'ANTI_CHEATING':
+        rows = (data.exams || []).map((e: any) => ({
+          ...e,
+          eventsSummary: e.events.map((ev: any) => `${ev.type}:${ev.count}`).join('; '),
+        }));
+        dataSheet.columns = [
+          { header: 'Exam', key: 'examTitle', width: 30 },
+          { header: 'Students', key: 'students', width: 12 },
+          { header: 'Auto Submitted', key: 'autoSubmitted', width: 15 },
+          { header: 'Total Flags', key: 'totalFlags', width: 14 },
+          { header: 'Critical Flags', key: 'criticalFlags', width: 14 },
+          { header: 'Resolved Flags', key: 'resolvedFlags', width: 14 },
+          { header: 'Events', key: 'eventsSummary', width: 40 },
         ];
         break;
       default:
@@ -921,6 +949,20 @@ export class ReportService {
             doc.fontSize(10).font('Helvetica-Bold').text(e.title);
             doc.fontSize(9).font('Helvetica')
               .text(`  Subject: ${e.subject || '—'} | Date: ${e.date ? new Date(e.date).toLocaleDateString() : '—'} | Students: ${e.students} | Status: ${e.status}`);
+            doc.moveDown(0.3);
+          });
+          break;
+        case 'ANTI_CHEATING':
+          items = data.exams || [];
+          items.forEach((e: any) => {
+            if (doc.y > 700) doc.addPage();
+            doc.fontSize(10).font('Helvetica-Bold').text(e.examTitle);
+            doc.fontSize(9).font('Helvetica')
+              .text(`  Students: ${e.students} | Auto-submitted: ${e.autoSubmitted} | Flags: ${e.totalFlags} (${e.criticalFlags} critical, ${e.resolvedFlags} resolved)`);
+            if (e.events.length > 0) {
+              doc.fontSize(9).font('Helvetica')
+                .text(`  Events: ${e.events.map((ev: any) => `${ev.type} ×${ev.count}`).join(', ')}`);
+            }
             doc.moveDown(0.3);
           });
           break;

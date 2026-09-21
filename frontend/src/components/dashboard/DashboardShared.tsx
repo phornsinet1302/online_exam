@@ -48,6 +48,7 @@ const SECTION_TABS: Record<string, DashboardTabItem[]> = {
   ],
   exams: [
     { id: "exams",          label: "My Exams",       path: "/dashboard/exams" },
+    { id: "exams-shared",   label: "Shared with me",  path: "/dashboard/exams/shared" },
     { id: "exams-create",   label: "Create",          path: "/dashboard/exams/create" },
     { id: "grading",        label: "Auto-Grade",      path: "/dashboard/grading" },
     { id: "grading-manual", label: "Manual Grading",  path: "/dashboard/grading/manual" },
@@ -75,7 +76,7 @@ const SECTION_TABS: Record<string, DashboardTabItem[]> = {
 
 export function getTeacherSection(active: string) {
   if (["charts"].includes(active)) return "overview";
-  if (["exams", "exams-create", "grading", "grading-manual"].includes(active)) return "exams";
+  if (["exams", "exams-shared", "exams-create", "grading", "grading-manual"].includes(active)) return "exams";
   if (["monitoring", "rules", "logs"].includes(active)) return "monitoring";
   if (["reports", "reports-scores", "reports-attend", "reports-cheat", "reports-qana", "filters"].includes(active)) return "reports";
   if (["settings", "notifications", "collab-invite", "collab-manage"].includes(active)) return "settings";

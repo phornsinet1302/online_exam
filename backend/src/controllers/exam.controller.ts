@@ -9,6 +9,10 @@ const examService = new ExamService();
 
 // Helper to get ownerId from authenticated request
 const getOwnerId = (req: Request): string => (req as any).user.id;
+const statusFromError = (message: string) =>
+  message.includes('not found') ? 404
+    : message.includes('Access denied') ? 403
+      : 400;
 
 const idSchema = z.object({id: z.string()});
 // Define the validation schema for creating/updating exam
@@ -18,13 +22,21 @@ const examSchema = z.object({
   subject: z.string().optional(),
   startDate: z.string().regex(/^\d{2}\/\d{2}\/\d{4}$/, 'Format must be MM/dd/yyyy').optional(),
   startTime: z.string().regex(/^\d{2}:\d{2} (AM|PM)$/, 'Format must be hh:mm AM/PM').optional(),
+  // Optional explicit close time; blank means start + duration + late allowance.
+  endDate: z.string().regex(/^\d{2}\/\d{2}\/\d{4}$/, 'Format must be MM/dd/yyyy').nullable().optional(),
+  endTime: z.string().regex(/^\d{2}:\d{2} (AM|PM)$/, 'Format must be hh:mm AM/PM').nullable().optional(),
   duration: z.number().int().positive().optional(),
   timezone: z.string().optional(),
   passingScore: z.number().optional(),
-  maxAttempts: z.number().int().positive().optional(),
+  // null = unlimited attempts
+  maxAttempts: z.number().int().positive().nullable().optional(),
   randomizeQuestions: z.boolean().optional(),
+  shuffleAnswers: z.boolean().optional(),
   showResults: z.boolean().optional(),
   requireLateApproval: z.boolean().optional(),
+  lateAllowanceMinutes: z.number().int().min(0).max(480).optional(),
+  // true = the teacher starts the exam by hand; it never auto-starts on schedule
+  manualStart: z.boolean().optional(),
   accessType: z.enum(['PUBLIC', 'PRIVATE', 'PASSWORD_PROTECTED']).optional(),
   password: z.string().optional(),
   fullSections: z.array(z.any()).optional(),
@@ -74,6 +86,16 @@ export const getExams = async (req: Request, res: Response) => {
   }
 };
 
+export const getAccessibleExams = async (req: Request, res: Response) => {
+  try {
+    const userId = getOwnerId(req);
+    const exams = await examService.getAccessibleExams(userId);
+    res.status(200).json(exams);
+  } catch (error: any) {
+    res.status(statusFromError(error.message)).json({ message: error.message });
+  }
+};
+
 export const getExamById = async (req: Request, res: Response) => {
   try {
     const ownerId = getOwnerId(req);
@@ -81,7 +103,7 @@ export const getExamById = async (req: Request, res: Response) => {
     const exam = await examService.getExamById(id, ownerId);
     res.status(200).json(exam);
   } catch (error: any) {
-    res.status(404).json({ message: error.message });
+    res.status(statusFromError(error.message)).json({ message: error.message });
   }
 };
 
@@ -96,7 +118,7 @@ export const updateExam = async (req: Request, res: Response) => {
     }
     res.status(200).json(exam);
   } catch (error: any) {
-    res.status(400).json({ message: error.message });
+    res.status(statusFromError(error.message)).json({ message: error.message });
   }
 };
 
@@ -107,7 +129,7 @@ export const deleteExam = async (req: Request, res: Response) => {
     const result = await examService.deleteExam(id, ownerId);
     res.status(200).json(result);
   } catch (error: any) {
-    res.status(400).json({ message: error.message });
+    res.status(statusFromError(error.message)).json({ message: error.message });
   }
 };
 
@@ -118,7 +140,7 @@ export const duplicateExam = async (req: Request, res: Response) => {
     const newExam = await examService.duplicateExam(id, ownerId);
     res.status(201).json(newExam);
   } catch (error: any) {
-    res.status(400).json({ message: error.message });
+    res.status(statusFromError(error.message)).json({ message: error.message });
   }
 };
 
@@ -134,7 +156,7 @@ export const publishExam = async (req: Request, res: Response) => {
     }
     res.status(200).json(result);
   } catch (error: any) {
-    res.status(400).json({ message: error.message });
+    res.status(statusFromError(error.message)).json({ message: error.message });
   }
 };
 
@@ -145,7 +167,40 @@ export const archiveExam = async (req: Request, res: Response) => {
     const exam = await examService.archiveExam(id, ownerId);
     res.status(200).json(exam);
   } catch (error: any) {
-    res.status(400).json({ message: error.message });
+    res.status(statusFromError(error.message)).json({ message: error.message });
+  }
+};
+
+export const unarchiveExam = async (req: Request, res: Response) => {
+  try {
+    const ownerId = getOwnerId(req);
+    const { id } = idSchema.parse(req.params);
+    const exam = await examService.unarchiveExam(id, ownerId);
+    res.status(200).json(exam);
+  } catch (error: any) {
+    res.status(statusFromError(error.message)).json({ message: error.message });
+  }
+};
+
+const reopenSchema = z.object({
+  // Minutes from now until the (re)scheduled start; at least 1 so students can still join.
+  startsInMinutes: z.number().int().min(1).max(60 * 24 * 14).default(5),
+  endDate: z.string().regex(/^\d{2}\/\d{2}\/\d{4}$/, 'Format must be MM/dd/yyyy').nullable().optional(),
+  endTime: z.string().regex(/^\d{2}:\d{2} (AM|PM)$/, 'Format must be hh:mm AM/PM').nullable().optional(),
+});
+
+export const reopenExam = async (req: Request, res: Response) => {
+  try {
+    const ownerId = getOwnerId(req);
+    const { id } = idSchema.parse(req.params);
+    const opts = reopenSchema.parse(req.body ?? {});
+    const exam = await examService.reopenExam(id, ownerId, opts);
+    // The 15s sweeper would catch it too, but this starts it on the dot.
+    if (exam.startDate) scheduleAutoStart(exam.id, new Date(exam.startDate));
+    res.status(200).json(exam);
+  } catch (error: any) {
+    const message = error?.issues?.[0]?.message ?? error.message;
+    res.status(statusFromError(message)).json({ message });
   }
 };
 
@@ -156,7 +211,7 @@ export const previewExam = async (req: Request, res: Response) => {
     const preview = await examService.previewExam(id, ownerId);
     res.status(200).json(preview);
   } catch (error: any) {
-    res.status(404).json({ message: error.message });
+    res.status(statusFromError(error.message)).json({ message: error.message });
   }
 };
 export const startExamSession = async (req: Request, res: Response) => {
@@ -194,7 +249,7 @@ export const updateTimerConfig = async (req: Request, res: Response) => {
     const exam = await examService.updateTimerConfig(id, ownerId, config);
     res.status(200).json(exam);
   } catch (error: any) {
-    res.status(400).json({ message: error.message });
+    res.status(statusFromError(error.message)).json({ message: error.message });
   }
 };
 
@@ -211,7 +266,7 @@ export const setExtraTime = async (req: Request, res: Response) => {
     const result = await examService.setExtraTime(id, ownerId, studentId, extraMinutes);
     res.status(200).json(result);
   } catch (error: any) {
-    res.status(400).json({ message: error.message });
+    res.status(statusFromError(error.message)).json({ message: error.message });
   }
 };
 

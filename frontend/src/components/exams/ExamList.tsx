@@ -3,7 +3,7 @@
 import { useState, useEffect } from "react";
 import { useNavigate } from "@/lib/hooks";
 import { DashboardLayout, StatusBadge } from "@/components/dashboard/DashboardShared";
-import { Plus, Archive, Search, FileText, Hash, Copy, MoreVertical, Eye, Pencil, Trash2 } from "lucide-react";
+import { Plus, Archive, ArchiveRestore, Search, FileText, Hash, Copy, MoreVertical, Eye, Pencil, Trash2 } from "lucide-react";
 import { examsApi, Exam } from "@/lib/api/exams";
 import { U, I, INK, CAMEL } from "@/lib/tokens";
 
@@ -50,6 +50,15 @@ export function ExamList() {
     }
   };
 
+  const handleUnarchive = async (examId: string) => {
+    try {
+      const updated = await examsApi.unarchive(examId);
+      setAllExams(prev => prev.map(e => e.id === updated.id ? { ...e, ...updated } : e));
+    } catch (e: any) {
+      alert("Failed to unarchive exam: " + e.message);
+    }
+  };
+
   const exams = allExams.filter(e => {
     const matchStatus = statusFilter === "all" || (e.status.toLowerCase() === statusFilter);
     const matchSearch = e.title.toLowerCase().includes(search.toLowerCase()) || (e.subject || "").toLowerCase().includes(search.toLowerCase());
@@ -72,7 +81,7 @@ export function ExamList() {
           <div className="bg-white rounded-2xl p-7 w-full max-w-sm shadow-2xl" onClick={e=>e.stopPropagation()}>
             <div className="w-12 h-12 rounded-2xl bg-amber-50 flex items-center justify-center mb-4"><Archive size={22} className="text-amber-600"/></div>
             <h3 className="text-lg font-black mb-2" style={{ fontFamily:U, color:INK }}>Archive this exam?</h3>
-            <p className="text-sm text-gray-500 mb-6" style={{ fontFamily:I }}>The exam will be hidden from students. You can unarchive it at any time.</p>
+            <p className="text-sm text-gray-500 mb-6" style={{ fontFamily:I }}>The exam will be hidden from students. You can unarchive it at any time — it returns as a draft, so you'll republish it when ready.</p>
             <div className="flex gap-3">
               <button onClick={()=>setArchiveConfirm(null)} className="flex-1 text-sm font-semibold py-3 rounded-xl border border-gray-200 text-gray-600 hover:bg-gray-50" style={{ fontFamily:U }}>Cancel</button>
               <button onClick={handleArchive} className="flex-1 text-sm font-bold py-3 rounded-xl text-white bg-amber-500 hover:bg-amber-600 transition-colors" style={{ fontFamily:U }}>Archive</button>
@@ -130,7 +139,9 @@ export function ExamList() {
                           ...(exam.sessionState !== "ENDED" ? [{icon:Pencil,label:"Edit",action:()=>navigate(`/dashboard/exams/${exam.id}/edit`)}] : []),
                           {icon:Hash,label:"Copy code",action:()=>copyExamCode(exam.uniqueCode || "")},
                           {icon:Copy,label:"Duplicate",action:()=>handleDuplicate(exam.id)},
-                          {icon:Archive,label:"Archive",action:()=>{setArchiveConfirm(exam.id);setMenuOpen(null);}},
+                          ...(exam.status === "ARCHIVED"
+                            ? [{icon:ArchiveRestore,label:"Unarchive",action:()=>handleUnarchive(exam.id)}]
+                            : [{icon:Archive,label:"Archive",action:()=>{setArchiveConfirm(exam.id);setMenuOpen(null);}}]),
                           {icon:Trash2,label:"Delete",action:async ()=>{
                           if (window.confirm("Are you sure you want to delete this exam?")) {
                             try {
