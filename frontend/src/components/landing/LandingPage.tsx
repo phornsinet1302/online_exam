@@ -74,7 +74,7 @@ export function AuthModal({ mode, onClose, onSwitch }: { mode: "login" | "regist
       const cleanEmail = email.trim();
       if (mode === "login") {
         const data = await authApi.login({ email: cleanEmail, password });
-        loginContext(data.access_token, data.user);
+        loginContext(data.access_token, data.user, data.refresh_token);
         onClose();
         navigate("/dashboard");
       } else {

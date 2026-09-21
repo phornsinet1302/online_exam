@@ -52,6 +52,7 @@ const TYPE_LABELS: Record<string, string> = {
   TRUE_FALSE: "T/F",
   MULTIPLE_SELECT: "Multi-Select",
   CHECKBOX: "Checkbox",
+  DROPDOWN: "Dropdown",
   SHORT_ANSWER: "Short",
   ESSAY: "Essay",
   FILL_IN_BLANK: "Fill Blank",

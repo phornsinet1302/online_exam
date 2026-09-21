@@ -317,6 +317,17 @@ export class CollaborationService {
     });
   }
 
+  // ── Exam IDs a user can access as owner or accepted collaborator ────────
+  // Shared by anything that needs "every exam this teacher has a stake in",
+  // not just exams they own — e.g. cross-exam monitoring/violation views.
+  async getAccessibleExamIds(userId: string): Promise<string[]> {
+    const [owned, collaborations] = await Promise.all([
+      prisma.exam.findMany({ where: { ownerId: userId }, select: { id: true } }),
+      prisma.collaborator.findMany({ where: { userId, status: 'ACCEPTED' }, select: { examId: true } }),
+    ]);
+    return [...new Set([...owned.map(e => e.id), ...collaborations.map(c => c.examId)])];
+  }
+
   // ── Permission check ──────────────────────────────────────────────────
   async checkPermission(examId: string, userId: string, action: string): Promise<boolean> {
     const exam = await prisma.exam.findUnique({ where: { id: examId } });

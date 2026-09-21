@@ -6,6 +6,7 @@ import {
   updateExamRules,
   reportViolation,
   flushOfflineQueue,
+  getStudentAntiCheatConfig,
   getViolationLogs,
   exportViolationsCsv,
   getLiveStudentSummary,
@@ -22,6 +23,7 @@ router.put( '/exams/:examId/anti-cheat/rules',     authMiddleware, updateExamRul
 
 // ── Student: report violations ────────────────────────────────────────────────
 // NOTE: uses student JWT (verified in controller), NOT authMiddleware (teacher JWT)
+router.get( '/attempts/:attemptId/anti-cheat/config',      getStudentAntiCheatConfig);
 router.post('/attempts/:attemptId/violations',             reportViolation);
 router.post('/attempts/:attemptId/violations/offline-flush', flushOfflineQueue);
 

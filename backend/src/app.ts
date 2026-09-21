@@ -70,7 +70,7 @@ app.use((err: any, req: any, res: any, next: any) => {
 
   if (err instanceof multer.MulterError) {
     if (err.code === 'LIMIT_FILE_SIZE') {
-      return res.status(400).json({ error: 'That file is too large. Please upload a PDF up to 10MB.' });
+      return res.status(400).json({ error: 'That file is too large. The limit is 10MB.' });
     }
     // Other Multer-specific errors (unexpected field, wrong file type, etc.)
     return res.status(400).json({ error: err.message });

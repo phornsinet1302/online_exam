@@ -56,6 +56,7 @@ export default function StudentAuthCallback() {
         const studentId = localStorage.getItem("pending_student_id") || "";
         const code = localStorage.getItem("pending_exam_code") || "";
         const examId = localStorage.getItem("pending_exam_id") || "";
+        const examPassword = sessionStorage.getItem("pending_exam_password") || undefined;
 
         // Sign out from Supabase so the student doesn't stay logged in as a teacher
         fetch(`${supabaseUrl}/auth/v1/logout`, {
@@ -70,6 +71,7 @@ export default function StudentAuthCallback() {
         localStorage.removeItem("pending_student_id");
         localStorage.removeItem("pending_exam_code");
         localStorage.removeItem("pending_exam_id");
+        sessionStorage.removeItem("pending_exam_password");
 
         if (!studentId || !code || !examId) {
           throw new Error("Missing session details. Please try again.");
@@ -77,7 +79,7 @@ export default function StudentAuthCallback() {
 
         // Register the student directly and go to waiting room
         setStatus("Registering you for the exam...");
-        const regResult = await registerStudent(examId, name, studentId, email);
+        const regResult = await registerStudent(examId, name, studentId, email, examPassword);
         localStorage.setItem("student_token", regResult.token);
 
         const waitingParams = new URLSearchParams();

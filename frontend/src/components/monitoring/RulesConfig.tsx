@@ -9,11 +9,11 @@ import { antiCheatApi, AntiCheatRule, RuleAction } from "@/lib/api/anticheat";
 import { eventLabel } from "@/lib/violationEvents";
 
 const ACTION_LABELS: Record<RuleAction,{label:string;color:string;bg:string;desc:string}> = {
-  ignore:      { label:"Ignore",      color:"#9ca3af", bg:"#f9fafb", desc:"No action taken" },
-  warn:        { label:"Warn",        color:"#d97706", bg:"#fffbeb", desc:"Logged as a warning" },
-  flag:        { label:"Flag",        color:"#ef4444", bg:"#fff0f0", desc:"Logged and sent to the proctor" },
-  block:       { label:"Block",       color:"#dc2626", bg:"#fef2f2", desc:"Logged as blocked" },
-  auto_submit: { label:"Auto-submit", color:"#7c3aed", bg:"#f5f3ff", desc:"Exam is auto-submitted" },
+  ignore:      { label:"Allow",       color:"#9ca3af", bg:"#f9fafb", desc:"Allowed — nothing happens" },
+  warn:        { label:"Warn",        color:"#d97706", bg:"#fffbeb", desc:"Student sees a warning; you're alerted" },
+  flag:        { label:"Flag",        color:"#ef4444", bg:"#fff0f0", desc:"Flagged for review; you're alerted live" },
+  block:       { label:"Block",       color:"#dc2626", bg:"#fef2f2", desc:"Locks the student's screen for 15 seconds" },
+  auto_submit: { label:"Auto-submit", color:"#7c3aed", bg:"#f5f3ff", desc:"Exam is submitted and graded immediately" },
 };
 
 // Extra context beyond the shared eventLabel() — kept local since it's just
@@ -25,7 +25,7 @@ const EVENT_DESCRIPTIONS: Record<string, string> = {
   right_click:         "Student right-clicks during the exam.",
   keyboard_shortcut:   "Student uses a restricted keyboard shortcut.",
   fullscreen_exit:     "Student exits fullscreen / lockdown browser mode.",
-  window_blur:         "The exam window loses focus (e.g. switching apps).",
+  window_blur:         "The exam window loses focus — e.g. another application is opened.",
   devtools:            "Browser developer tools are detected open.",
   print_screen:        "Student presses the print screen / screenshot key.",
   idle:                "Student is inactive for an extended period.",
@@ -180,7 +180,7 @@ export function RulesConfig() {
             <div className="bg-white rounded-2xl border border-gray-100 p-6">
               <div className="flex items-center gap-2 mb-5">
                 <h3 className="text-sm font-black" style={{ fontFamily:U, color:INK }}>Session Requirements</h3>
-                <span className="text-[10px] font-bold text-amber-600 bg-amber-50 px-2 py-0.5 rounded-full" style={{ fontFamily:U }}>Not yet enforced</span>
+                <span className="text-[10px] font-bold text-amber-600 bg-amber-50 px-2 py-0.5 rounded-full" style={{ fontFamily:U }}>Camera enforced; others not yet</span>
               </div>
               <div className="space-y-1">
                 {[

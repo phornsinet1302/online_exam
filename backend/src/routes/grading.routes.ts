@@ -6,6 +6,8 @@ import {
   gradeStudentAnswer,
   batchGradeAnswers,
   regradeAttempt,
+  getExamGrades,
+  exportExamGrades,
 } from '../controllers/grading.controller.js';
 import { authMiddleware } from '../middleware/auth.middleware.js';
 
@@ -205,5 +207,53 @@ router.post('/student-answers/batch-grade', authMiddleware, batchGradeAnswers);
  *         description: Updated attempt with re-graded scores
  */
 router.post('/exams/:examId/attempts/:attemptId/regrade', authMiddleware, regradeAttempt);
+
+/**
+ * @openapi
+ * /api/exams/{examId}/grades:
+ *   get:
+ *     tags: [Grading]
+ *     summary: Per-attempt grades for an exam, with each answer next to the correct answer
+ *     security: [{ bearerAuth: [] }]
+ *     parameters:
+ *       - in: path
+ *         name: examId
+ *         required: true
+ *         schema: { type: string }
+ *     responses:
+ *       200:
+ *         description: Summary plus one entry per submitted attempt
+ */
+router.get('/exams/:examId/grades', authMiddleware, getExamGrades);
+
+/**
+ * @openapi
+ * /api/exams/{examId}/grades/export:
+ *   post:
+ *     tags: [Grading]
+ *     summary: Export the grade sheet as CSV, Excel or PDF
+ *     security: [{ bearerAuth: [] }]
+ *     parameters:
+ *       - in: path
+ *         name: examId
+ *         required: true
+ *         schema: { type: string }
+ *     requestBody:
+ *       required: true
+ *       content:
+ *         application/json:
+ *           schema:
+ *             type: object
+ *             required: [format, fields]
+ *             properties:
+ *               format: { type: string, enum: [csv, excel, pdf] }
+ *               fields:
+ *                 type: array
+ *                 items: { type: string, enum: [name, score, grade, breakdown, time, attempt, submitted] }
+ *     responses:
+ *       200:
+ *         description: The file
+ */
+router.post('/exams/:examId/grades/export', authMiddleware, exportExamGrades);
 
 export default router;

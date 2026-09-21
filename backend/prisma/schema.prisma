@@ -61,6 +61,9 @@ model Exam {
   subject              String?
   startDate            DateTime?
   endDate              DateTime?
+  // True when the teacher set the end date explicitly; a session that starts
+  // late is then cut off at endDate instead of running the full duration.
+  endDateFixed         Boolean          @default(false)
   duration             Int?
   passingScore         Float?
   maxAttempts          Int?
@@ -75,10 +78,14 @@ model Exam {
   sessionState         ExamSessionState @default(WAITING)
   // Timer configuration fields (SRS 3.9)
   autoStart            Boolean          @default(false)
+  // Teacher-controlled start: the exam never auto-starts at its scheduled time
+  // and students can wait in the lobby until the teacher presses Start.
+  manualStart          Boolean          @default(false)
   autoClose            Boolean          @default(false)
   autoSubmit           Boolean          @default(true)
   showCountdown        Boolean          @default(true)
   requireLateApproval  Boolean          @default(false)
+  shuffleAnswers       Boolean          @default(false)
   // Session requirements (SRS 3.10 anti-cheat) — persisted here, but not yet
   // enforced anywhere in the student exam-taking flow. See RulesConfig.tsx.
   requireCamera          Boolean        @default(false)
@@ -342,6 +349,7 @@ enum QuestionType {
   FILL_IN_BLANK
   MATCHING
   CHECKBOX
+  DROPDOWN
   FILE_UPLOAD
   MATH_FORMULA
 }

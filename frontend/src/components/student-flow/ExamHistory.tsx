@@ -64,7 +64,9 @@ export function ExamHistory() {
                   <p className="text-xs text-gray-400 mt-0.5" style={{fontFamily:I}}>{new Date(h.date).toLocaleDateString()}</p>
                 </div>
                 <div className="text-right flex-shrink-0">
-                  {h.grading?.status==="needs_review"
+                  {h.grading?.hidden||h.showResults===false
+                    ?<span className="text-xs font-bold text-gray-500 bg-gray-100 px-2.5 py-1 rounded-full" style={{fontFamily:U}}>Submitted</span>
+                    :h.grading?.status==="needs_review"
                     ?<span className="text-xs font-bold text-amber-600 bg-amber-50 px-2.5 py-1 rounded-full" style={{fontFamily:U}}>Pending</span>
                     :(
                       <>

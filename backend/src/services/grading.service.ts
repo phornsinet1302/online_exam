@@ -1,6 +1,15 @@
 // src/services/grading.service.ts
 import prisma from '../config/database.js';
 import { GradingStatus, QuestionType } from '@prisma/client';
+import { CollaborationService } from './collaboration.service.js';
+
+const collaborationService = new CollaborationService();
+
+// Grading is owner-only per SRS 3.10 — neither Collaborator nor Invigilator
+// have `manage_grades`, so this doubles as an ownership check.
+async function requireGradingAccess(examId: string, requesterId: string) {
+  await collaborationService.requireAccess(examId, requesterId, 'manage_grades');
+}
 
 // ─────────────────────────────────────────────
 // Types
@@ -11,8 +20,10 @@ interface GradingKeyQuestion {
   questionId: string;
   type: QuestionType;
   points: number;
-  /** IDs of correct options (for MCQ, MULTIPLE_SELECT, TRUE_FALSE, CHECKBOX) */
+  /** IDs of correct options (for MCQ, DROPDOWN, MULTIPLE_SELECT, TRUE_FALSE, CHECKBOX) */
   correctOptionIds: string[];
+  /** Text of the correct options — TRUE_FALSE students answer "True"/"False", not an option id */
+  correctOptionTexts?: string[];
   /** For FILL_IN_BLANK: expected text */
   expectedText?: string;
   /** For FILL_IN_BLANK: whether comparison is case-sensitive */
@@ -37,6 +48,40 @@ interface GradeResult {
 }
 
 // ─────────────────────────────────────────────
+// Answer key
+// ─────────────────────────────────────────────
+
+/**
+ * Builds the answer key from the exam's *current* questions. Grading and
+ * regrading use this rather than the copy frozen on the attempt at
+ * registration — otherwise fixing a wrong answer key and hitting "regrade"
+ * would keep grading against the old, wrong key.
+ */
+export async function buildGradingKey(examId: string): Promise<GradingKeyQuestion[]> {
+  const sections = await prisma.section.findMany({
+    where: { examId },
+    orderBy: { order: 'asc' },
+    include: { questions: { orderBy: { order: 'asc' }, include: { options: { orderBy: { order: 'asc' } } } } },
+  });
+  return sections.flatMap((section) =>
+    section.questions.map((q) => {
+      const meta = (q.metadata ?? {}) as Record<string, any>;
+      const correct = q.options.filter((o) => o.isCorrect);
+      return {
+        questionId: q.id,
+        type: q.type,
+        points: q.points,
+        correctOptionIds: correct.map((o) => o.id),
+        correctOptionTexts: correct.map((o) => o.text),
+        expectedText: meta.expectedText as string | undefined,
+        caseSensitive: meta.caseSensitive as boolean | undefined,
+        correctPairs: meta.correctPairs as { leftId: string; rightId: string }[] | undefined,
+      } as GradingKeyQuestion;
+    })
+  );
+}
+
+// ─────────────────────────────────────────────
 // Auto-grading logic (no AI)
 // ─────────────────────────────────────────────
 
@@ -46,7 +91,6 @@ function gradeAnswer(key: GradingKeyQuestion, submitted: SubmittedAnswer): Grade
     QuestionType.ESSAY,
     QuestionType.MATH_FORMULA,
     QuestionType.FILE_UPLOAD,
-    QuestionType.FILL_IN_BLANK,
   ];
 
   if (subjective.includes(key.type)) {
@@ -54,6 +98,23 @@ function gradeAnswer(key: GradingKeyQuestion, submitted: SubmittedAnswer): Grade
   }
 
   switch (key.type) {
+    case QuestionType.FILL_IN_BLANK: {
+      // Auto-grade only when the teacher supplied an expected answer;
+      // otherwise there's nothing to compare against, so leave it for review.
+      // Several accepted answers can be given separated by "|".
+      const accepted = (key.expectedText ?? '')
+        .split('|')
+        .map((s) => s.trim())
+        .filter(Boolean);
+      if (accepted.length === 0) return { score: 0, status: GradingStatus.needs_review };
+
+      const norm = (s: string) => (key.caseSensitive ? s.trim() : s.trim().toLowerCase());
+      const given = norm(submitted.textAnswer ?? '');
+      const isCorrect = accepted.some((a) => norm(a) === given);
+      return { score: isCorrect ? key.points : 0, status: GradingStatus.auto_graded };
+    }
+
+    case QuestionType.DROPDOWN:
     case QuestionType.MCQ: {
       // Single correct option – student submits exactly one optionId
       const selected = submitted.selectedOptionIds?.[0];
@@ -63,22 +124,22 @@ function gradeAnswer(key: GradingKeyQuestion, submitted: SubmittedAnswer): Grade
     }
 
     case QuestionType.TRUE_FALSE: {
+      // The student UI saves the literal "True"/"False"; other clients may send
+      // an option id. Questions from the editor / file import carry
+      // metadata.expectedText, while AI-generated and API-created ones only
+      // have options — so fall back to the correct option's text (comparing
+      // against its *id*, as this used to, could never match "True"/"False").
       const rawSelected = submitted.selectedOptionIds?.[0];
-      // Fallback chain: metadata.expectedText → first correct option → boolean heuristics
-      let expected: string | undefined = key.expectedText;
-      if (!expected && key.correctOptionIds?.length === 1) {
-        expected = key.correctOptionIds[0];
+      if (rawSelected === undefined) return { score: 0, status: GradingStatus.auto_graded };
+
+      if (key.correctOptionIds?.includes(rawSelected)) {
+        return { score: key.points, status: GradingStatus.auto_graded };
       }
 
-      const normalize = (v: any) =>
-        String(v ?? '').trim().toLowerCase() === 'true' ? 'true'
-        : String(v ?? '').trim().toLowerCase() === 'false' ? 'false'
-        : String(v ?? '').trim().toLowerCase();
+      const expected = key.expectedText ?? key.correctOptionTexts?.[0];
+      if (expected === undefined) return { score: 0, status: GradingStatus.auto_graded };
 
-      if (rawSelected === undefined || expected === undefined) {
-        return { score: 0, status: GradingStatus.auto_graded };
-      }
-
+      const normalize = (v: unknown) => String(v ?? '').trim().toLowerCase();
       const isCorrect = normalize(rawSelected) === normalize(expected);
       return { score: isCorrect ? key.points : 0, status: GradingStatus.auto_graded };
     }
@@ -139,7 +200,7 @@ export class GradingService {
         const sub: SubmittedAnswer = { questionId: question.id };
 
         if (answer !== undefined && answer !== null) {
-          if (question.type === 'MCQ' || question.type === 'TRUE_FALSE') {
+          if (question.type === 'MCQ' || question.type === 'TRUE_FALSE' || question.type === 'DROPDOWN') {
             sub.selectedOptionIds = [String(answer)];
           } else if (question.type === 'CHECKBOX' || question.type === 'MULTIPLE_SELECT') {
             sub.selectedOptionIds = Array.isArray(answer) ? answer.map(String) : [];
@@ -162,8 +223,13 @@ export class GradingService {
 
     const updated = await this.submitAndGrade(attemptId, submittedAnswers);
 
+    const questionInfo = new Map(
+      attempt.exam.sections.flatMap(sec => sec.questions.map(q => [q.id, { text: q.text, type: q.type, order: q.order }] as const))
+    );
     const gradedAnswers = updated.studentAnswers.map(a => ({
       questionId: a.questionId,
+      text: questionInfo.get(a.questionId)?.text ?? '',
+      type: questionInfo.get(a.questionId)?.type ?? null,
       score: a.score ?? 0,
       maxScore: a.maxScore,
       status: a.status
@@ -176,7 +242,10 @@ export class GradingService {
       ? parseFloat(((scoredSoFar / maxPossible) * 100).toFixed(2))
       : 0;
 
-    const passed = attempt.exam.passingScore != null
+    // No pass/fail verdict while essays/short answers are still awaiting a
+    // teacher: the score so far only covers the auto-graded part, so
+    // "failed" could be wrong once the rest is marked.
+    const passed = attempt.exam.passingScore != null && updated.gradingStatus !== 'needs_review'
       ? percentageScore >= attempt.exam.passingScore
       : null;
 
@@ -210,7 +279,10 @@ export class GradingService {
     if (!attempt) throw new Error('Attempt not found');
     if (attempt.submittedAt) throw new Error('Attempt already submitted');
 
-    const gradingKey = (attempt.gradingKey ?? []) as unknown as GradingKeyQuestion[];
+    // Grade against the exam's current answer key; the copy frozen on the
+    // attempt is only a fallback for an exam whose questions are gone.
+    let gradingKey = await buildGradingKey(attempt.examId);
+    if (gradingKey.length === 0) gradingKey = (attempt.gradingKey ?? []) as unknown as GradingKeyQuestion[];
     const keyMap = new Map(gradingKey.map((k) => [k.questionId, k]));
 
     // 1. Create StudentAnswer rows and grade each answer
@@ -290,7 +362,9 @@ export class GradingService {
   /**
    * Fetch student answers for an exam, optionally filtered by status.
    */
-  async getReviews(examId: string, filterAll: boolean = false) {
+  async getReviews(examId: string, requesterId: string, filterAll: boolean = false) {
+    await requireGradingAccess(examId, requesterId);
+
     const answers = await prisma.studentAnswer.findMany({
       where: {
         attempt: { examId },
@@ -319,8 +393,12 @@ export class GradingService {
    * Teacher grades a single student answer.
    */
   async gradeAnswer(answerId: string, score: number, feedback: string | undefined, gradedBy: string) {
-    const answer = await prisma.studentAnswer.findUnique({ where: { id: answerId } });
+    const answer = await prisma.studentAnswer.findUnique({
+      where: { id: answerId },
+      include: { attempt: { select: { examId: true } } },
+    });
     if (!answer) throw new Error('Answer not found');
+    await requireGradingAccess(answer.attempt.examId, gradedBy);
     if (score < 0 || score > answer.maxScore) {
       throw new Error(`Score must be between 0 and ${answer.maxScore}`);
     }
@@ -349,10 +427,22 @@ export class GradingService {
     grades: { answerId: string; score: number; feedback?: string }[],
     gradedBy: string
   ) {
+    // Resolve every affected exam up front and check access before writing
+    // anything — grades could in principle span more than one exam per batch.
+    const answerIds = grades.map(g => g.answerId);
+    const answers = await prisma.studentAnswer.findMany({
+      where: { id: { in: answerIds } },
+      select: { id: true, attempt: { select: { examId: true } } },
+    });
+    const examIdByAnswerId = new Map(answers.map(a => [a.id, a.attempt.examId]));
+    const examIds = [...new Set(answers.map(a => a.attempt.examId))];
+    await Promise.all(examIds.map(examId => requireGradingAccess(examId, gradedBy)));
+
     const results = [];
     const attemptIds = new Set<string>();
 
     for (const grade of grades) {
+      if (!examIdByAnswerId.has(grade.answerId)) continue;
       const answer = await prisma.studentAnswer.findUnique({ where: { id: grade.answerId } });
       if (!answer) continue;
       if (grade.score < 0 || grade.score > answer.maxScore) continue;
@@ -383,14 +473,18 @@ export class GradingService {
    * Re-run auto-grading on an attempt (e.g., after a teacher changes correct answers).
    * Only re-grades objective (auto_graded) answers; manual answers are untouched.
    */
-  async regradeAttempt(attemptId: string) {
+  async regradeAttempt(attemptId: string, requesterId: string) {
     const attempt = await prisma.examAttempt.findUnique({
       where: { id: attemptId },
       include: { studentAnswers: true },
     });
     if (!attempt) throw new Error('Attempt not found');
+    await requireGradingAccess(attempt.examId, requesterId);
 
-    const gradingKey = (attempt.gradingKey ?? []) as unknown as GradingKeyQuestion[];
+    // Rebuilt from the exam's current questions — that's the whole point of a
+    // regrade ("after answer key changes"); the key frozen on the attempt at
+    // registration would just reproduce the old result.
+    const gradingKey = await buildGradingKey(attempt.examId);
     const keyMap = new Map(gradingKey.map((k) => [k.questionId, k]));
 
     let autoTotal = 0;
@@ -416,7 +510,8 @@ export class GradingService {
 
       await prisma.studentAnswer.update({
         where: { id: answer.id },
-        data: { score: status === GradingStatus.auto_graded ? score : null, status },
+        // maxScore too: the question's points may have changed since submission
+        data: { score: status === GradingStatus.auto_graded ? score : null, status, maxScore: key.points },
       });
 
       if (status === GradingStatus.auto_graded) autoTotal += score;

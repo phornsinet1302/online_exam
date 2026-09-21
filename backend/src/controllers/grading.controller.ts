@@ -1,9 +1,11 @@
 // src/controllers/grading.controller.ts
 import { Request, Response } from 'express';
 import { GradingService } from '../services/grading.service.js';
+import { GradeReportService, GRADE_EXPORT_FIELDS } from '../services/grade-report.service.js';
 import { z } from 'zod';
 
 const gradingService = new GradingService();
+const gradeReportService = new GradeReportService();
 
 // ─── Validation Schemas ───────────────────────────────────────────────────────
 
@@ -39,6 +41,10 @@ const batchGradeSchema = z.object({
 // ─── Helpers ──────────────────────────────────────────────────────────────────
 
 const getTeacherId = (req: Request): string => (req as any).user.id;
+const statusFromError = (message: string) =>
+  message.includes('not found') ? 404
+    : message.includes('Access denied') ? 403
+      : 400;
 
 // ─── Controllers ─────────────────────────────────────────────────────────────
 
@@ -66,11 +72,12 @@ export const submitAttempt = async (req: Request, res: Response) => {
 export const getPendingReviews = async (req: Request, res: Response) => {
   try {
     const { examId } = z.object({ examId: z.string() }).parse(req.params);
+    const requesterId = getTeacherId(req);
     const filterAll = req.query.all === 'true';
-    const pending = await gradingService.getReviews(examId, filterAll);
+    const pending = await gradingService.getReviews(examId, requesterId, filterAll);
     return res.status(200).json(pending);
   } catch (error: any) {
-    return res.status(400).json({ error: error.message });
+    return res.status(statusFromError(error.message)).json({ error: error.message });
   }
 };
 
@@ -87,7 +94,7 @@ export const gradeStudentAnswer = async (req: Request, res: Response) => {
     const result = await gradingService.gradeAnswer(answerId, score, feedback, gradedBy);
     return res.status(200).json(result);
   } catch (error: any) {
-    return res.status(400).json({ error: error.message });
+    return res.status(statusFromError(error.message)).json({ error: error.message });
   }
 };
 
@@ -103,7 +110,7 @@ export const batchGradeAnswers = async (req: Request, res: Response) => {
     const results = await gradingService.batchGradeAnswers(grades, gradedBy);
     return res.status(200).json({ graded: results.length, results });
   } catch (error: any) {
-    return res.status(400).json({ error: error.message });
+    return res.status(statusFromError(error.message)).json({ error: error.message });
   }
 };
 
@@ -114,9 +121,46 @@ export const batchGradeAnswers = async (req: Request, res: Response) => {
 export const regradeAttempt = async (req: Request, res: Response) => {
   try {
     const { attemptId } = z.object({ attemptId: z.string() }).parse(req.params);
-    const result = await gradingService.regradeAttempt(attemptId);
+    const requesterId = getTeacherId(req);
+    const result = await gradingService.regradeAttempt(attemptId, requesterId);
     return res.status(200).json(result);
   } catch (error: any) {
-    return res.status(400).json({ error: error.message });
+    return res.status(statusFromError(error.message)).json({ error: error.message });
+  }
+};
+
+/**
+ * GET /api/exams/:examId/grades
+ * Every submitted attempt with its score, grade, status and per-question
+ * answer-vs-correct-answer breakdown (owner / Collaborator).
+ */
+export const getExamGrades = async (req: Request, res: Response) => {
+  try {
+    const { examId } = z.object({ examId: z.string() }).parse(req.params);
+    const result = await gradeReportService.getExamGrades(examId, getTeacherId(req));
+    return res.status(200).json(result);
+  } catch (error: any) {
+    return res.status(statusFromError(error.message)).json({ error: error.message });
+  }
+};
+
+/**
+ * POST /api/exams/:examId/grades/export
+ * Downloads the grade sheet as CSV / Excel / PDF with the chosen fields.
+ */
+export const exportExamGrades = async (req: Request, res: Response) => {
+  try {
+    const { examId } = z.object({ examId: z.string() }).parse(req.params);
+    const { format, fields } = z.object({
+      format: z.enum(['csv', 'excel', 'pdf']),
+      fields: z.array(z.enum(GRADE_EXPORT_FIELDS)).min(1, 'Select at least one field to export.'),
+    }).parse(req.body);
+    const result = await gradeReportService.exportGrades(examId, getTeacherId(req), format, fields);
+    res.setHeader('Content-Type', result.contentType);
+    res.setHeader('Content-Disposition', `attachment; filename="${result.filename}"`);
+    return res.send(result.data);
+  } catch (error: any) {
+    const message = error?.issues?.[0]?.message ?? error.message;
+    return res.status(statusFromError(message)).json({ error: message });
   }
 };

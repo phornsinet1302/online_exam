@@ -6,7 +6,7 @@ import { authApi, User } from "@/lib/api/auth";
 interface AuthContextType {
   user: User | null;
   loading: boolean;
-  login: (token: string, user: User) => void;
+  login: (token: string, user: User, refreshToken?: string) => void;
   logout: () => void;
   updateUser: (patch: Partial<User>) => void;
 }
@@ -80,8 +80,11 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       });
   }, []);
 
-  const login = (token: string, userData: User) => {
+  const login = (token: string, userData: User, refreshToken?: string) => {
     localStorage.setItem("token", token);
+    // Without this, a password login can't renew its ~1h access token and the
+    // session dies mid-use (every dashboard call then fails "Authentication required").
+    if (refreshToken) localStorage.setItem("refresh_token", refreshToken);
     setUser(userData);
   };
 

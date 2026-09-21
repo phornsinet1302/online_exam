@@ -4,12 +4,24 @@ import { useEffect, useState } from "react";
 import { DashboardLayout } from "@/components/dashboard/DashboardShared";
 import { Download, X, RefreshCw, AlertTriangle, Users } from "lucide-react";
 import { U, I, INK, CAMEL } from "@/lib/tokens";
-import { reportsApi, AttendanceSummary, AttendanceExamRow } from "@/lib/api/reports";
+import { reportsApi, AttendanceSummary, AttendanceExamRow, ReportExportFormat } from "@/lib/api/reports";
 
-function ReportExportModal({ title, onClose }: { title:string; onClose:()=>void }) {
-  const [fmt, setFmt] = useState("pdf");
+function ReportExportModal({ title, onClose, onExport }: { title:string; onClose:()=>void; onExport:(format: ReportExportFormat)=>Promise<void> }) {
+  const [fmt, setFmt] = useState<ReportExportFormat>("pdf");
   const [exporting, setExporting] = useState(false);
-  const go = ()=>{ setExporting(true); setTimeout(()=>{ setExporting(false); onClose(); },900); };
+  const [error, setError] = useState("");
+  const go = async () => {
+    setExporting(true);
+    setError("");
+    try {
+      await onExport(fmt);
+      onClose();
+    } catch (e) {
+      setError(e instanceof Error && e.message ? e.message : "Export failed. Please try again.");
+    } finally {
+      setExporting(false);
+    }
+  };
   return (
     <div className="fixed inset-0 z-[100] flex items-center justify-center px-4" style={{ background:"rgba(13,27,42,0.55)", backdropFilter:"blur(8px)" }} onClick={onClose}>
       <div className="bg-white rounded-2xl w-full max-w-sm shadow-2xl overflow-hidden" onClick={e=>e.stopPropagation()}>
@@ -21,12 +33,13 @@ function ReportExportModal({ title, onClose }: { title:string; onClose:()=>void 
           </div>
           <p className="text-xs font-black uppercase tracking-wider text-gray-400 mb-3" style={{ fontFamily:U }}>Format</p>
           <div className="grid grid-cols-3 gap-2 mb-6">
-            {[{id:"pdf",label:"PDF"},{id:"xlsx",label:"Excel"},{id:"csv",label:"CSV"}].map(f=>(
+            {([{id:"pdf",label:"PDF"},{id:"excel",label:"Excel"},{id:"csv",label:"CSV"}] as const).map(f=>(
               <button key={f.id} onClick={()=>setFmt(f.id)} className="py-2.5 rounded-xl border text-xs font-bold transition-all" style={{ background:fmt===f.id?INK:undefined, color:fmt===f.id?"white":"#6b7280", borderColor:fmt===f.id?"transparent":"#e5e7eb", fontFamily:U }}>{f.label}</button>
             ))}
           </div>
+          {error && <p className="text-xs text-red-500 mb-3" style={{ fontFamily:I }}>{error}</p>}
           <button onClick={go} disabled={exporting} className="w-full flex items-center justify-center gap-2 text-white font-bold py-3.5 rounded-xl text-sm hover:opacity-90 disabled:opacity-50" style={{ background:INK, fontFamily:U }}>
-            {exporting?<><RefreshCw size={14} className="animate-spin"/>Exporting…</>:<><Download size={14}/>Download .{fmt}</>}
+            {exporting?<><RefreshCw size={14} className="animate-spin"/>Exporting…</>:<><Download size={14}/>Download .{fmt==="excel"?"xlsx":fmt}</>}
           </button>
         </div>
       </div>
@@ -76,7 +89,7 @@ export function AttendanceReport() {
   return (
     <DashboardLayout active="reports-attend" title="Attendance Report" subtitle="Participation and submission rates by exam"
       actions={<button onClick={()=>setShowExport(true)} className="flex items-center gap-2 text-white text-xs font-bold px-4 py-2 rounded-xl hover:opacity-90" style={{ background:INK, fontFamily:U }}><Download size={13}/>Export</button>}>
-      {showExport&&<ReportExportModal title="Attendance Report" onClose={()=>setShowExport(false)}/>}
+      {showExport&&<ReportExportModal title="Attendance Report" onClose={()=>setShowExport(false)} onExport={(format)=>reportsApi.export("ATTENDANCE", format)}/>}
 
       <div className="grid grid-cols-4 gap-3 mb-3">
         {statCards.map(({l,v,bg})=>(
