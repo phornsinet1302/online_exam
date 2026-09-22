@@ -3,12 +3,15 @@ import { Router } from 'express';
 import {
   createExam,
   getExams,
+  getAccessibleExams,
   getExamById,
   updateExam,
   deleteExam,
   duplicateExam,
   publishExam,
   archiveExam,
+  unarchiveExam,
+  reopenExam,
   previewExam,
   startExamSession,
   updateTimerConfig,
@@ -204,6 +207,20 @@ router.post('/exams', authMiddleware, createExam);
 
 /**
  * @openapi
+ * /api/exams/accessible:
+ *   get:
+ *     tags: [Exams]
+ *     summary: Get every exam the teacher can access — owned, or an accepted collaboration/invigilation
+ *     description: Unlike GET /api/exams (owned only), this also includes exams the teacher has been added to as a Collaborator or Invigilator. Each entry is tagged with `role`.
+ *     security: [{ bearerAuth: [] }]
+ *     responses:
+ *       200:
+ *         description: List of accessible exams, each tagged with role (OWNER, COLLABORATOR, INVIGILATOR)
+ */
+router.get('/exams/accessible', authMiddleware, getAccessibleExams);
+
+/**
+ * @openapi
  * /api/exams/{id}:
  *   get:
  *     tags: [Exams]
@@ -305,6 +322,56 @@ router.post('/exams/:id/publish', authMiddleware, publishExam);
  *         description: Archived exam
  */
 router.post('/exams/:id/archive', authMiddleware, archiveExam);
+
+/**
+ * @openapi
+ * /api/exams/{id}/unarchive:
+ *   post:
+ *     tags: [Exams]
+ *     summary: Restore an archived exam to draft
+ *     security: [{ bearerAuth: [] }]
+ *     parameters:
+ *       - in: path
+ *         name: id
+ *         required: true
+ *         schema: { type: string }
+ *     responses:
+ *       200:
+ *         description: Exam restored to DRAFT
+ */
+router.post('/exams/:id/unarchive', authMiddleware, unarchiveExam);
+
+/**
+ * @openapi
+ * /api/exams/{id}/reopen:
+ *   post:
+ *     tags: [Exams]
+ *     summary: Reopen an ended exam for a new session (owner only)
+ *     description: Puts the exam back in the waiting room, scheduled to start `startsInMinutes` from now. Previous attempts are kept.
+ *     security: [{ bearerAuth: [] }]
+ *     parameters:
+ *       - in: path
+ *         name: id
+ *         required: true
+ *         schema: { type: string }
+ *     requestBody:
+ *       content:
+ *         application/json:
+ *           schema:
+ *             type: object
+ *             properties:
+ *               startsInMinutes: { type: integer, minimum: 1, default: 5 }
+ *               endDate: { type: string, description: "Optional hard close, MM/dd/yyyy", nullable: true }
+ *               endTime: { type: string, description: "hh:mm AM/PM", nullable: true }
+ *     responses:
+ *       200:
+ *         description: The reopened exam (sessionState WAITING)
+ *       400:
+ *         description: Exam isn't published/ended, or the end date leaves no room for the duration
+ *       403:
+ *         description: Only the owner can reopen an exam
+ */
+router.post('/exams/:id/reopen', authMiddleware, reopenExam);
 
 /**
  * @openapi

@@ -2,8 +2,9 @@
 
 import { useEffect, useState } from "react";
 import { useNavigate } from "@/lib/hooks";
-import { Clock, GraduationCap } from "lucide-react";
+import { Clock } from "lucide-react";
 import { U, I, INK, CAMEL, CREAM } from "@/lib/tokens";
+import { Logo } from "@/components/Logo";
 
 const S  = "#059669";
 const SL = "#ecfdf5";
@@ -12,10 +13,7 @@ function StudentHeader() {
   return (
     <header className="flex items-center px-6 py-4 border-b border-gray-100 bg-white sticky top-0 z-10">
       <div className="flex items-center gap-2.5">
-        <div className="w-8 h-8 rounded-lg flex items-center justify-center" style={{background:INK}}>
-          <GraduationCap size={15} className="text-white"/>
-        </div>
-        <span className="text-base font-black" style={{fontFamily:U,color:INK}}>exam<span style={{color:CAMEL}}>·ai</span></span>
+        <Logo height={44} href="/" />
       </div>
     </header>
   );
@@ -31,6 +29,24 @@ export function InstantResults() {
       if (stored) setResult(JSON.parse(stored));
     } catch (e) {}
   }, []);
+
+  // "Show results after submission" was off for this exam — the server sends
+  // no score at all, so say so instead of showing a misleading 0%.
+  if (result?.grading?.hidden || result?.showResults === false) {
+    return (
+      <div className="min-h-screen flex items-center justify-center px-4" style={{background:CREAM}}>
+        <div className="text-center max-w-sm">
+          <h1 className="text-2xl font-black mb-2" style={{fontFamily:U,color:INK}}>Results not released</h1>
+          <p className="text-sm text-gray-500 mb-6" style={{fontFamily:I}}>
+            Your teacher chose not to show scores right after submission{result?.title ? ` for ${result.title}` : ""}. Your answers were submitted and will be graded.
+          </p>
+          <button onClick={()=>navigate("/student/history")} className="px-6 py-3 rounded-2xl text-white font-black text-sm hover:opacity-90" style={{background:INK,fontFamily:U}}>
+            Back to history
+          </button>
+        </div>
+      </div>
+    );
+  }
 
   if (!result || !result.grading) {
     return (
@@ -54,7 +70,7 @@ export function InstantResults() {
   const gc        = pct>=80?S:pct>=60?"#d97706":"#ef4444";
 
   const breakdown = grading.breakdown || [];
-  const correctCount = breakdown.filter((r:any) => r.status === "auto_graded" && r.score === r.maxScore).length;
+  const correctCount = breakdown.filter((r:any) => r.status !== "needs_review" && r.score === r.maxScore).length;
   const pendingCount = breakdown.filter((r:any) => r.status === "needs_review").length;
   const wrongCount = breakdown.length - correctCount - pendingCount;
 
@@ -81,8 +97,11 @@ export function InstantResults() {
               <span className="text-xs text-gray-400" style={{fontFamily:I}}>score</span>
             </div>
           </div>
-          <p className="text-5xl font-black mb-1" style={{fontFamily:U,color:gc}}>{grade}</p>
-          <p className="text-sm text-gray-400 mb-4" style={{fontFamily:I}}>{earned} / {maxAuto} auto-graded points</p>
+          {grading.passed!==null&&grading.passed!==undefined&&(
+            <p className="text-xs font-black uppercase tracking-wider mb-1" style={{fontFamily:U,color:grading.passed?S:"#ef4444"}}>{grading.passed?"Passed":"Not passed"}</p>
+          )}
+          <p className="text-5xl font-black mb-1" style={{fontFamily:U,color:gc}}>{pendingCount>0?"—":grade}</p>
+          <p className="text-sm text-gray-400 mb-4" style={{fontFamily:I}}>{earned} / {maxAuto} points{pendingCount>0?" so far":""}</p>
           {pendingCount>0&&(
             <div className="inline-flex items-center gap-2 text-xs text-amber-600 bg-amber-50 border border-amber-100 rounded-xl px-4 py-2" style={{fontFamily:I}}>
               <Clock size={12}/>{pendingCount} open-answer questions pending manual review
@@ -118,7 +137,7 @@ export function InstantResults() {
                 Q{i+1}
               </span>
               <div className="flex-1 min-w-0">
-                <p className="text-xs font-semibold text-gray-700 truncate" style={{fontFamily:U}}>Question {i+1}</p>
+                <p className="text-xs font-semibold text-gray-700 truncate" style={{fontFamily:U}}>{r.text || `Question ${i+1}`}</p>
               </div>
               <span className={`text-xs font-black px-2.5 py-1 rounded-full whitespace-nowrap ${r.status === "needs_review" ? "bg-amber-50 text-amber-600" : (r.score === r.maxScore ? "bg-green-50 text-green-600" : "bg-red-50 text-red-500")}`} style={{fontFamily:U}}>
                 {r.status==="needs_review"?"Pending":`${r.score}/${r.maxScore}`}

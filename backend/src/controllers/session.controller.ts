@@ -8,9 +8,13 @@ import {
   registerSSETeacherClient,
   unregisterSSETeacherClient,
   verifyStudentToken,
+  signTeacherStreamToken,
+  verifyTeacherStreamToken,
 } from '../services/session.service.js';
+import { CollaborationService } from '../services/collaboration.service.js';
 
 const sessionService = new SessionService();
+const collaborationService = new CollaborationService();
 
 // ─── Student auth helper ─────────────────────────────────────────────────────
 
@@ -46,15 +50,33 @@ export const registerStudent = async (req: Request, res: Response) => {
   try {
     const schema = z.object({
       examId: z.string(),
-      name: z.string().min(1),
-      studentId: z.string().min(1),
-      email: z.string().email(),
+      name: z.string().trim().min(2, 'Please enter your full name.'),
+      studentId: z.string().trim().min(1, 'Please enter your Student ID.'),
+      // Optional: only present when the student signed in with Google.
+      email: z.union([z.string().trim().email(), z.literal('')]).optional(),
+      password: z.string().optional(),
     });
-    const { examId, name, studentId, email } = schema.parse(req.body);
-    const result = await sessionService.registerStudent(examId, { name, studentId, email });
+    const { examId, name, studentId, email, password } = schema.parse(req.body);
+
+    // A device that already joined presents its student token, which lets a
+    // Student-ID-only student resume their own attempt (see registerStudent).
+    let resumeAttemptId: string | undefined;
+    try {
+      const auth = req.headers.authorization;
+      if (auth?.startsWith('Bearer ')) {
+        const held = verifyStudentToken(auth.split(' ')[1]);
+        if (held.examId === examId) resumeAttemptId = held.attemptId;
+      }
+    } catch { /* no or stale token: treated as a new device */ }
+
+    const result = await sessionService.registerStudent(
+      examId,
+      { name, studentId, email: email || undefined },
+      { password, clientKey: req.ip, resumeAttemptId },
+    );
     return res.status(201).json(result);
   } catch (error: any) {
-    return res.status(400).json({ error: error.message });
+    return res.status(400).json({ error: error?.issues?.[0]?.message ?? error.message });
   }
 };
 
@@ -116,11 +138,40 @@ export const liveSessionStream = async (req: Request, res: Response) => {
 };
 
 /**
- * GET /api/session/:examId/teacher-live
+ * POST /api/session/:examId/teacher-live-token
+ * Issues the token the teacher SSE stream requires. Anyone who may monitor
+ * the exam (owner, Collaborator, Invigilator) can get one.
+ */
+export const issueTeacherStreamToken = async (req: Request, res: Response) => {
+  try {
+    const examId = req.params.examId as string;
+    const userId = getTeacherId(req);
+    if (!(await collaborationService.getUserRole(examId, userId))) {
+      return res.status(403).json({ error: 'Access denied.' });
+    }
+    await collaborationService.requireAccess(examId, userId, 'monitor_students');
+    return res.status(200).json({ token: signTeacherStreamToken({ examId, userId }) });
+  } catch (error: any) {
+    return res.status(403).json({ error: error.message });
+  }
+};
+
+/**
+ * GET /api/session/:examId/teacher-live?token=...
  * SSE stream — teacher subscribes to receive violation alerts and session events.
  */
 export const liveTeacherStream = async (req: Request, res: Response) => {
   const { examId } = req.params;
+
+  // EventSource can't send Authorization headers, so the stream is gated by a
+  // signed token from issueTeacherStreamToken, scoped to this exam.
+  try {
+    const token = typeof req.query.token === 'string' ? req.query.token : '';
+    const payload = verifyTeacherStreamToken(token);
+    if (payload.examId !== examId) throw new Error('Token does not match exam');
+  } catch {
+    return res.status(401).json({ error: 'A valid stream token is required.' });
+  }
 
   res.setHeader('Content-Type', 'text/event-stream');
   res.setHeader('Cache-Control', 'no-cache');

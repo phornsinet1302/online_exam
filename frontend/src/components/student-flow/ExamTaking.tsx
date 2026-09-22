@@ -5,22 +5,31 @@ import { useNavigate } from "@/lib/hooks";
 import { QTLABELS, QTCOLORS } from "@/lib/mock-data";
 import { getExamState, autosaveAnswers, submitExam } from "@/lib/api/session";
 import { API_URL } from "@/lib/api/client";
+import { useAntiCheat, AntiCheatAction } from "@/lib/useAntiCheat";
+import { eventLabel } from "@/lib/violationEvents";
 import { Loader2 as Spinner } from "lucide-react";
 import { 
   CheckCircle2, X, Clock, AlertTriangle, Lock, AlertOctagon, 
-  Upload, QrCode, RefreshCw, BookMarked, ChevronLeft, ChevronRight, LayoutDashboard, Eye, Activity, Check, GraduationCap 
+  Upload, QrCode, RefreshCw, BookMarked, ChevronLeft, ChevronRight, LayoutDashboard, Eye, Activity, Check 
 } from "lucide-react";
 import { U, I, INK, CAMEL, CREAM } from "@/lib/tokens";
+import { Logo } from "@/components/Logo";
 
 const S  = "#059669";
 const SL = "#ecfdf5";
 const SM = "#6ee7b7";
 
-interface SQ { id:number; type:string; points:number; text:string; options?:string[]; pairs?:{L:string;R:string}[]; hint?:string; }
+interface SQ { id:number; type:string; points:number; text:string; options?:string[]; optionIds?:string[]; pairs?:{L:string;R:string}[]; hint?:string; realId?:string; }
 
 // ─── Helpers ─────────────────────────────────────────────────────────────────
-function AntiCheatModal({ event, count, onClose }:{event:string;count:number;onClose:()=>void}) {
-  const severity = count>=3?"block":count>=2?"flag":"warn";
+const BLOCK_SECONDS = 15;
+
+// What the teacher's rule decided — not a local guess. `warned` and `flagged`
+// only; blocking and auto-submit have their own screens.
+function AntiCheatModal({ notice, onClose }:{notice:AntiCheatAction;onClose:()=>void}) {
+  const severity = notice.actionTaken==="flagged"?"flag":"warn";
+  const event = eventLabel(notice.eventType);
+  const count = notice.occurrenceCount;
   const colors = {warn:{bg:"#fffbeb",border:"#fde68a",icon:"#f59e0b",btn:"#d97706"},flag:{bg:"#fff7ed",border:"#fed7aa",icon:"#f97316",btn:"#ea580c"},block:{bg:"#fff0f0",border:"#fecaca",icon:"#ef4444",btn:"#dc2626"}};
   const cc = colors[severity];
   return (
@@ -32,10 +41,10 @@ function AntiCheatModal({ event, count, onClose }:{event:string;count:number;onC
             <AlertTriangle size={30} style={{color:cc.icon}}/>
           </div>
           <h3 className="text-xl font-black mb-1.5" style={{fontFamily:U,color:INK}}>
-            {severity==="warn"?"Warning":severity==="flag"?"Flagged for Review":"Exam Blocked"}
+            {severity==="warn"?"Warning":"Flagged for Review"}
           </h3>
           <p className="text-sm text-gray-500 mb-1" style={{fontFamily:I}}>{event}</p>
-          <p className="text-xs text-gray-400 mb-5" style={{fontFamily:I}}>Violation #{count} recorded. {count<3?"Further violations may suspend your exam.":"Your teacher has been alerted."}</p>
+          <p className="text-xs text-gray-400 mb-5" style={{fontFamily:I}}>{notice.message} (#{count} recorded)</p>
           <div className="flex items-start gap-2 px-4 py-3 rounded-2xl mb-6 text-left" style={{background:cc.bg,border:`1px solid ${cc.border}`}}>
             <AlertTriangle size={12} style={{color:cc.icon,flexShrink:0,marginTop:2}}/>
             <span className="text-xs" style={{fontFamily:I,color:cc.btn}}>Your activity is being monitored and your teacher has been notified. Please remain on this page.</span>
@@ -73,6 +82,52 @@ function LockdownOverlay({ onResume }:{onResume:()=>void}) {
   );
 }
 
+// "Block": the exam screen is locked for a short cooldown. The timer keeps running.
+function BlockedOverlay({ event, until, onDone }:{event:string;until:number;onDone:()=>void}) {
+  const [left,setLeft] = useState(Math.max(0,Math.ceil((until-Date.now())/1000)));
+  useEffect(()=>{
+    const t = setInterval(()=>setLeft(Math.max(0,Math.ceil((until-Date.now())/1000))),250);
+    return ()=>clearInterval(t);
+  },[until]);
+  return (
+    <div className="fixed inset-0 z-[530] flex items-center justify-center px-4" style={{background:"rgba(127,29,29,0.92)",backdropFilter:"blur(10px)"}}>
+      <div className="w-full max-w-md overflow-hidden rounded-3xl bg-white shadow-2xl">
+        <div className="h-1.5 w-full bg-red-500"/>
+        <div className="p-8 text-center">
+          <div className="mx-auto mb-5 flex h-16 w-16 items-center justify-center rounded-3xl bg-red-50"><Lock size={30} className="text-red-500"/></div>
+          <h3 className="mb-2 text-2xl font-black" style={{fontFamily:U,color:INK}}>Exam temporarily locked</h3>
+          <p className="mb-1 text-sm text-gray-500" style={{fontFamily:I}}>{event}</p>
+          <p className="mb-6 text-xs text-gray-400" style={{fontFamily:I}}>Your teacher has been notified. The exam timer keeps running while you wait.</p>
+          <button onClick={onDone} disabled={left>0}
+            className="w-full rounded-2xl bg-red-600 py-3.5 text-sm font-black text-white transition-all hover:opacity-90 disabled:opacity-40" style={{fontFamily:U}}>
+            {left>0?`You can continue in ${left}s`:"Return to exam"}
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function CameraRequiredOverlay({ onRetry }:{onRetry:()=>void}) {
+  return (
+    <div className="fixed inset-0 z-[540] flex items-center justify-center px-4" style={{background:"rgba(13,27,42,0.94)",backdropFilter:"blur(10px)"}}>
+      <div className="w-full max-w-md overflow-hidden rounded-3xl bg-white shadow-2xl">
+        <div className="h-1.5 w-full" style={{background:S}}/>
+        <div className="p-8 text-center">
+          <div className="mx-auto mb-5 flex h-16 w-16 items-center justify-center rounded-3xl" style={{background:SL}}><Eye size={30} style={{color:S}}/></div>
+          <h3 className="mb-2 text-2xl font-black" style={{fontFamily:U,color:INK}}>Camera required</h3>
+          <p className="mb-6 text-sm leading-relaxed text-gray-500" style={{fontFamily:I}}>
+            This exam requires your camera. Allow camera access in your browser (and make sure it&apos;s connected), then continue. Nothing is recorded or uploaded — your teacher is only told if the camera stops working.
+          </p>
+          <button onClick={onRetry} className="w-full rounded-2xl py-3.5 text-sm font-black text-white hover:opacity-90" style={{background:S,fontFamily:U}}>
+            Allow camera &amp; continue
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
 function ConnectionLostOverlay({onRetry}:{onRetry:()=>void}) {
   return (
     <div className="fixed inset-0 z-[500] flex items-center justify-center px-4" style={{background:"rgba(0,0,0,0.86)",backdropFilter:"blur(10px)"}}>
@@ -92,7 +147,7 @@ function ConnectionLostOverlay({onRetry}:{onRetry:()=>void}) {
           <button onClick={onRetry} className="w-full py-3.5 rounded-2xl text-white font-black text-sm hover:opacity-90 mb-2.5" style={{background:INK,fontFamily:U}}>
             Try reconnecting
           </button>
-          <p className="text-xs text-gray-400" style={{fontFamily:I}}>Your exam will auto-submit when connection is restored.</p>
+          <p className="text-xs text-gray-400" style={{fontFamily:I}}>This closes on its own once you&apos;re back online. The exam timer keeps running meanwhile.</p>
         </div>
       </div>
     </div>
@@ -143,7 +198,7 @@ function MathUploadFlow({questionId,onClose,onUploaded}:{questionId:number;onClo
               <div className="flex justify-center mb-4">
                 <div className="p-4 rounded-2xl border-2 border-gray-100"><QRPattern/></div>
               </div>
-              <p className="text-center text-[11px] text-gray-400 mb-4" style={{fontFamily:I}}>examai.app/upload?q={questionId}&amp;session=demo</p>
+              <p className="text-center text-[11px] text-gray-400 mb-4" style={{fontFamily:I}}>cheating.me/upload?q={questionId}&amp;session=demo</p>
               <div className="flex items-center gap-3 mb-4">
                 <div className="h-px flex-1 bg-gray-100"/>
                 <span className="text-xs text-gray-400" style={{fontFamily:I}}>or upload here</span>
@@ -394,8 +449,8 @@ export function ExamTaking() {
   const [flagged, setFlagged]     = useState<number[]>([]);
   const [navOpen, setNavOpen]     = useState(false);
   const [secs, setSecs]           = useState(0);
-  const [antiCheat, setAntiCheat] = useState<{event:string;count:number}|null>(null);
-  const [connLost, setConnLost]   = useState(false);
+  const [acNotice, setAcNotice]   = useState<AntiCheatAction|null>(null);
+  const [block, setBlock]         = useState<{event:string;until:number}|null>(null);
   const [showAccess, setShowAccess] = useState(false);
   const [dark, setDark]           = useState(false);
   const [fs, setFs]               = useState<"sm"|"md"|"lg">("md");
@@ -432,8 +487,8 @@ export function ExamTaking() {
               const typeMap: Record<string,string> = {
                 MCQ: "mcq", MULTIPLE_SELECT: "checkbox", TRUE_FALSE: "truefalse",
                 SHORT_ANSWER: "short", ESSAY: "essay", FILL_IN_BLANK: "fill",
-                MATCHING: "matching", CHECKBOX: "checkbox", FILE_UPLOAD: "file",
-                MATH_FORMULA: "math",
+                MATCHING: "matching", CHECKBOX: "checkbox", DROPDOWN: "dropdown",
+                FILE_UPLOAD: "file", MATH_FORMULA: "math",
               };
               return {
                 id: qIndex,
@@ -556,8 +611,8 @@ export function ExamTaking() {
     if (!attemptId || examLoading) return;
     autosaveTimerRef.current = window.setInterval(() => {
       const answersToSave: Record<string, { answer: unknown }> = {};
-      for (const [qIdx, ans] of Object.entries(answers)) {
-        const question = questions[Number(qIdx)];
+      for (const [qId, ans] of Object.entries(answers)) {
+        const question = questions.find(q => q.id === Number(qId));
         if (question && (question as any).realId) {
           answersToSave[(question as any).realId] = { answer: ans };
         }
@@ -569,19 +624,41 @@ export function ExamTaking() {
     return () => window.clearInterval(autosaveTimerRef.current);
   }, [attemptId, examLoading, answers, questions]);
 
-  const recordExamViolation = (event: string, blockExam = false) => {
-    acCount.current++;
-    setAntiCheat({event,count:acCount.current});
-    if (blockExam) {
-      lockdownEventActive.current = true;
-      setLockdownBlocked(true);
+  // Save the latest answers first, so if a violation triggers an auto-submit
+  // the server grades what the student had actually answered.
+  const flushAutosave = async () => {
+    if (!attemptId) return;
+    const answersToSave: Record<string, { answer: unknown }> = {};
+    for (const [qId, ans] of Object.entries(answers)) {
+      const question = questions.find(q => q.id === Number(qId));
+      if (question && (question as any).realId) answersToSave[(question as any).realId] = { answer: ans };
     }
+    if (Object.keys(answersToSave).length > 0) await autosaveAnswers(attemptId, answersToSave).catch(() => {});
   };
 
-  const recordLockdownIssue = (event: string) => {
-    if (!lockdownEventActive.current) recordExamViolation(event, true);
-    else setLockdownBlocked(true);
-  };
+  // Detection lives in useAntiCheat; the teacher's rules decide what happens.
+  const { offline, mediaBlocked, retryMedia, recheckConnection } = useAntiCheat({
+    attemptId,
+    active: !!attemptId && !examLoading,
+    beforeReport: flushAutosave,
+    onDetected: (eventType) => {
+      acCount.current++;
+      // Leaving the exam screen locks it until the student returns to fullscreen.
+      if (eventType==="tab_switch" || eventType==="window_blur" || eventType==="fullscreen_exit") {
+        lockdownEventActive.current = true;
+        setLockdownBlocked(true);
+      }
+    },
+    onAction: (action) => {
+      if (action.actionTaken==="auto_submitted") {
+        navigate("/student/exam/auto-submit?reason=violation");
+      } else if (action.actionTaken==="blocked") {
+        setBlock({ event: eventLabel(action.eventType), until: Date.now() + BLOCK_SECONDS*1000 });
+      } else {
+        setAcNotice(action); // warned / flagged
+      }
+    },
+  });
 
   const resumeFullscreen = async () => {
     try {
@@ -594,59 +671,6 @@ export function ExamTaking() {
       setLockdownBlocked(true);
     }
   };
-
-  useEffect(()=>{
-    const onVisibility=()=>{ if(document.hidden) recordLockdownIssue("Tab switch detected — stay in the locked exam screen."); };
-    const onFullscreen=()=>{ if(!document.fullscreenElement) recordLockdownIssue("Fullscreen exited — return to lockdown mode."); };
-    const onBlur=()=>recordLockdownIssue("Window focus lost — do not switch apps during the exam.");
-    const blockAttempt = (event: Event, message: string) => {
-      event.preventDefault();
-      event.stopPropagation();
-      recordExamViolation(message);
-    };
-    const onContextMenu=(e:MouseEvent)=>blockAttempt(e, "Right-click blocked during the exam.");
-    const onCopy=(e:ClipboardEvent)=>blockAttempt(e, "Copy attempt blocked during the exam.");
-    const onCut=(e:ClipboardEvent)=>blockAttempt(e, "Cut attempt blocked during the exam.");
-    const onPaste=(e:ClipboardEvent)=>blockAttempt(e, "Paste attempt blocked during the exam.");
-    const onSelect=(e:Event)=>blockAttempt(e, "Text selection blocked during the exam.");
-    const onDrag=(e:DragEvent)=>blockAttempt(e, "Drag or drop attempt blocked during the exam.");
-    const onKeyDown=(e:KeyboardEvent)=>{
-      const key = e.key.toLowerCase();
-      const meta = e.ctrlKey || e.metaKey;
-      const blockedCombo = meta && ["a","c","f","l","n","p","r","s","t","u","v","w","x"].includes(key);
-      const blockedDevTools = (meta && e.shiftKey && ["c","i","j"].includes(key)) || key==="f12";
-      const blockedNavigation = e.altKey && ["arrowleft","arrowright","tab"].includes(key);
-      if (blockedCombo || blockedDevTools || blockedNavigation || key==="printscreen") {
-        blockAttempt(e, `Keyboard shortcut blocked: ${e.key}`);
-      }
-    };
-
-    // Instead of instantly blocking if fullscreen was denied by the browser,
-    // we let the component render and show a "Click to Enter Fullscreen" prompt if needed.
-    
-    document.addEventListener("visibilitychange",onVisibility);
-    document.addEventListener("fullscreenchange",onFullscreen);
-    document.addEventListener("contextmenu",onContextMenu);
-    document.addEventListener("copy",onCopy);
-    document.addEventListener("cut",onCut);
-    document.addEventListener("paste",onPaste);
-    document.addEventListener("selectstart",onSelect);
-    document.addEventListener("dragstart",onDrag);
-    document.addEventListener("drop",onDrag);
-    document.addEventListener("keydown",onKeyDown,true);
-    return ()=>{
-      document.removeEventListener("visibilitychange",onVisibility);
-      document.removeEventListener("fullscreenchange",onFullscreen);
-      document.removeEventListener("contextmenu",onContextMenu);
-      document.removeEventListener("copy",onCopy);
-      document.removeEventListener("cut",onCut);
-      document.removeEventListener("paste",onPaste);
-      document.removeEventListener("selectstart",onSelect);
-      document.removeEventListener("dragstart",onDrag);
-      document.removeEventListener("drop",onDrag);
-      document.removeEventListener("keydown",onKeyDown,true);
-    };
-  },[]);
 
   useEffect(()=>{
     let active = true;
@@ -719,8 +743,8 @@ export function ExamTaking() {
       localStorage.setItem("exam_review_attempt", attemptId);
       // Autosave right before navigating
       const answersToSave: Record<string, { answer: unknown }> = {};
-      for (const [qI, ans] of Object.entries(answers)) {
-        const question = questions[Number(qI)];
+      for (const [qId, ans] of Object.entries(answers)) {
+        const question = questions.find(q => q.id === Number(qId));
         if (question && (question as any).realId) {
           answersToSave[(question as any).realId] = { answer: ans };
         }
@@ -754,17 +778,20 @@ export function ExamTaking() {
     switch(q.type){
       case "mcq": return (
         <div className="space-y-3">
-          {q.options!.map((opt,i)=>(
-            <button key={i} onClick={()=>setAnswer(i)}
-              className={`w-full flex items-center gap-4 p-4 rounded-2xl border-2 text-left transition-all hover:scale-[1.01]`}
-              style={{background:answer===i?`${S}14`:CARD,borderColor:answer===i?S:BORDER}}>
-              <div className="w-6 h-6 rounded-full border-2 flex items-center justify-center flex-shrink-0 transition-all"
-                style={{borderColor:answer===i?S:BORDER,background:answer===i?S:undefined}}>
-                {answer===i&&<div className="w-2.5 h-2.5 rounded-full bg-white"/>}
-              </div>
-              <span className={FSC} style={{fontFamily:I,color:TEXT}}>{opt}</span>
-            </button>
-          ))}
+          {q.options!.map((opt,i)=>{
+            const optId = q.optionIds![i];
+            return (
+              <button key={i} onClick={()=>setAnswer(optId)}
+                className={`w-full flex items-center gap-4 p-4 rounded-2xl border-2 text-left transition-all hover:scale-[1.01]`}
+                style={{background:answer===optId?`${S}14`:CARD,borderColor:answer===optId?S:BORDER}}>
+                <div className="w-6 h-6 rounded-full border-2 flex items-center justify-center flex-shrink-0 transition-all"
+                  style={{borderColor:answer===optId?S:BORDER,background:answer===optId?S:undefined}}>
+                  {answer===optId&&<div className="w-2.5 h-2.5 rounded-full bg-white"/>}
+                </div>
+                <span className={FSC} style={{fontFamily:I,color:TEXT}}>{opt}</span>
+              </button>
+            )
+          })}
         </div>
       );
 
@@ -831,13 +858,14 @@ export function ExamTaking() {
       }
 
       case "checkbox": {
-        const cbAns:number[] = answer||[];
+        const cbAns:string[] = answer||[];
         return (
           <div className="space-y-3">
             {q.options!.map((opt,i)=>{
-              const checked=cbAns.includes(i);
+              const optId = q.optionIds![i];
+              const checked=cbAns.includes(optId);
               return (
-                <button key={i} onClick={()=>setAnswer(checked?cbAns.filter(x=>x!==i):[...cbAns,i])}
+                <button key={i} onClick={()=>setAnswer(checked?cbAns.filter(x=>x!==optId):[...cbAns,optId])}
                   className={`w-full flex items-center gap-4 p-4 rounded-2xl border-2 text-left transition-all hover:scale-[1.01] ${FSC}`}
                   style={{background:checked?`${S}14`:CARD,borderColor:checked?S:BORDER}}>
                   <div className="w-5 h-5 rounded border-2 flex items-center justify-center flex-shrink-0 transition-all"
@@ -857,7 +885,8 @@ export function ExamTaking() {
           className={`w-full p-4 rounded-2xl border-2 focus:outline-none cursor-pointer transition-all ${FSC}`}
           style={{background:CARD,borderColor:answer?S:BORDER,color:answer?TEXT:MUTED,fontFamily:I}}>
           <option value="">Select your answer…</option>
-          {q.options!.map((opt,i)=><option key={i} value={opt}>{opt}</option>)}
+          {/* Answer is the option's id (like MCQ) — that's what grading compares. */}
+          {q.options!.map((opt,i)=><option key={i} value={q.optionIds![i]}>{opt}</option>)}
         </select>
       );
 
@@ -918,15 +947,15 @@ export function ExamTaking() {
       onDragStart={e=>e.preventDefault()}
     >
       {lockdownBlocked&&<LockdownOverlay onResume={resumeFullscreen}/>}
-      {antiCheat&&<AntiCheatModal event={antiCheat.event} count={antiCheat.count} onClose={()=>setAntiCheat(null)}/>}
-      {connLost&&<ConnectionLostOverlay onRetry={()=>setConnLost(false)}/>}
+      {acNotice&&<AntiCheatModal notice={acNotice} onClose={()=>setAcNotice(null)}/>}
+      {block&&<BlockedOverlay event={block.event} until={block.until} onDone={()=>setBlock(null)}/>}
+      {offline&&<ConnectionLostOverlay onRetry={recheckConnection}/>}
+      {mediaBlocked&&<CameraRequiredOverlay onRetry={retryMedia}/>}
       {mathUploadQ!==null&&<MathUploadFlow questionId={mathUploadQ} onClose={()=>setMathUploadQ(null)} onUploaded={qid=>setMathUploaded(p=>({...p,[qid]:true}))}/>}
 
       <header className="sticky top-0 z-40 flex items-center gap-3 px-4 lg:px-6 h-14 border-b" style={{background:CARD,borderColor:BORDER}}>
         <div className="flex items-center gap-2 flex-shrink-0">
-          <div className="w-7 h-7 rounded-lg flex items-center justify-center" style={{background:INK}}>
-            <GraduationCap size={13} className="text-white"/>
-          </div>
+          <Logo height={30} onDark />
           <span className="text-sm font-black hidden sm:block truncate max-w-[140px]" style={{fontFamily:U,color:TEXT}}>{exam.title}</span>
         </div>
         <div className="flex-1 flex items-center gap-2 min-w-0">
@@ -943,9 +972,6 @@ export function ExamTaking() {
         <div className="relative flex items-center gap-1.5 flex-shrink-0">
           <button onClick={()=>setShowAccess(s=>!s)} title="Accessibility" className="w-8 h-8 rounded-xl flex items-center justify-center hover:opacity-70" style={{background:dark?"#334155":"#f3f4f6"}}>
             <Eye size={14} style={{color:MUTED}}/>
-          </button>
-          <button onClick={()=>setConnLost(true)} title="[Demo] Simulate connection loss" className="w-8 h-8 rounded-xl flex items-center justify-center hover:opacity-70" style={{background:dark?"#334155":"#f3f4f6"}}>
-            <Activity size={14} style={{color:MUTED}}/>
           </button>
           {showAccess&&(
             <div className="absolute top-10 right-0 z-50 rounded-2xl border shadow-xl p-5 w-64" style={{background:CARD,borderColor:BORDER}}>

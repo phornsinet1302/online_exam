@@ -6,6 +6,12 @@ import crypto from 'crypto';
 import jwt from 'jsonwebtoken';
 import { parse } from 'date-fns';
 import { fromZonedTime } from 'date-fns-tz';
+import { CollaborationService } from './collaboration.service.js';
+import { hashPassword } from '../utils/password.js';
+import { maskMatchingPairs } from '../utils/snapshot.js';
+import { orderSectionForStudent } from '../utils/studentOrdering.js';
+
+const collaborationService = new CollaborationService();
 
 // Helper: combine date (MM/dd/yyyy), time (hh:mm a) and timezone into a UTC Date
 function combineDateAndTime(
@@ -27,6 +33,43 @@ function combineDateAndTime(
   return fromZonedTime(parsedDate, timezone);
 }
 
+// The stored (hashed) exam password must never leave the server — clients only
+// learn whether one is set.
+function sanitizeExam<T extends { password?: string | null }>(exam: T): Omit<T, 'password'> & { hasPassword: boolean } {
+  const { password, ...rest } = exam;
+  return { ...rest, hasPassword: !!password };
+}
+
+// Resolves when the exam window closes. An explicit end (same MM/dd/yyyy +
+// hh:mm a format as the start, or an ISO string from API clients) wins;
+// otherwise it's derived as start + duration + late-entry allowance.
+function resolveEndDate(opts: {
+  start?: Date | null;
+  endDate?: string | null;
+  endTime?: string;
+  timezone: string;
+  durationMin: number;
+  lateMin: number;
+}): Date | null {
+  const { start, endDate, endTime, timezone, durationMin, lateMin } = opts;
+  let explicit: Date | undefined;
+  if (endDate) {
+    explicit = /^\d{2}\/\d{2}\/\d{4}$/.test(endDate)
+      ? combineDateAndTime(endDate, endTime, timezone)
+      : new Date(endDate);
+    if (!explicit || isNaN(explicit.getTime())) throw new Error('Invalid end date or time format');
+  }
+
+  if (explicit) {
+    if (start && explicit <= start) throw new Error('End date must be after the start date.');
+    if (start && durationMin > 0 && explicit.getTime() < start.getTime() + durationMin * 60_000) {
+      throw new Error('End date must leave room for the full exam duration after the start.');
+    }
+    return explicit;
+  }
+  return start && durationMin > 0 ? new Date(start.getTime() + (durationMin + lateMin) * 60_000) : null;
+}
+
 function generateUniqueCode(length: number = 6): string {
   return crypto.randomBytes(Math.ceil(length / 2)).toString('hex').toUpperCase().slice(0, length);
 }
@@ -44,7 +87,7 @@ async function hasAttempts(examId: string): Promise<boolean> {
 }
 
 // Helper: sync sections and questions
-async function syncSectionsAndQuestions(examId: string, fullSections: any[], randomizeQuestions: boolean) {
+async function syncSectionsAndQuestions(examId: string, fullSections: any[], randomizeQuestions: boolean, shuffleAnswers: boolean) {
   const processedSectionIds: string[] = [];
   const processedQuestionIds: string[] = [];
   const processedOptionIds: string[] = [];
@@ -60,14 +103,14 @@ async function syncSectionsAndQuestions(examId: string, fullSections: any[], ran
           title: sec.title || `Section ${i + 1}`,
           order: i,
           randomization: randomizeQuestions,
-          shuffleAnswers: randomizeQuestions
+          shuffleAnswers
         }
       });
       sectionId = newSec.id;
     } else {
       await prisma.section.update({
         where: { id: sectionId },
-        data: { title: sec.title, order: i }
+        data: { title: sec.title, order: i, randomization: randomizeQuestions, shuffleAnswers }
       });
     }
     processedSectionIds.push(sectionId);
@@ -84,7 +127,7 @@ async function syncSectionsAndQuestions(examId: string, fullSections: any[], ran
       if (qType === "FILE") qType = "FILE_UPLOAD";
       if (qType === "MATH") qType = "MATH_FORMULA";
 
-      const isChoiceType = ["TRUE_FALSE", "MULTIPLE_SELECT", "MCQ", "CHECKBOX"].includes(qType);
+      const isChoiceType = ["TRUE_FALSE", "MULTIPLE_SELECT", "MCQ", "CHECKBOX", "DROPDOWN"].includes(qType);
 
       let metadata: any = {};
       if (q.metadata) {
@@ -100,9 +143,11 @@ async function syncSectionsAndQuestions(examId: string, fullSections: any[], ran
         }));
         metadata.pairs = pairs;
         metadata.correctPairs = pairs.map((p: any) => ({ leftId: p.L, rightId: p.R }));
-      } else if (qType === "FILL_IN_BLANK" && q.expectedText) {
-        metadata.expectedText = q.expectedText;
+      } else if (qType === "FILL_IN_BLANK") {
+        metadata.expectedText = q.answer || q.expectedText;
         metadata.caseSensitive = !!q.caseSensitive;
+      } else if (qType === "TRUE_FALSE") {
+        metadata.expectedText = q.answer; // Contains "True" or "False"
       }
 
       if (!qId || qId.startsWith('question-')) {
@@ -201,32 +246,45 @@ async function syncSectionsAndQuestions(examId: string, fullSections: any[], ran
 export class ExamService {
   // -------- Create Exam --------
   async createExam(ownerId: string, data: any) {
-    const { startDate, startTime, timezone, fullSections, ...rest } = data;
-    const combinedStartDate = combineDateAndTime(startDate, startTime, timezone || 'UTC');
+    const { startDate, startTime, endDate: rawEndDate, endTime, timezone, fullSections, password, ...rest } = data;
+    // A manual-start exam has no scheduled close: the session ends duration
+    // after the teacher presses Start (or when they end it).
+    const endDate = rest.manualStart ? undefined : rawEndDate;
+    const tz = timezone || 'UTC';
+    const combinedStartDate = combineDateAndTime(startDate, startTime, tz);
 
-    const durationMin = Number(rest.duration ?? 0);
-    const lateMin = Number(rest.lateAllowanceMinutes ?? 0);
-    const derivedEndDate = combinedStartDate && durationMin > 0
-      ? new Date(combinedStartDate.getTime() + (durationMin + lateMin) * 60_000)
-      : undefined;
+    const endDateResolved = resolveEndDate({
+      start: combinedStartDate,
+      endDate,
+      endTime,
+      timezone: tz,
+      durationMin: Number(rest.duration ?? 0),
+      lateMin: Number(rest.lateAllowanceMinutes ?? 0),
+    });
+
+    const accessType = rest.accessType || 'PUBLIC';
+    if (accessType === 'PASSWORD_PROTECTED' && !(typeof password === 'string' && password.trim())) {
+      throw new Error('A password is required for password-protected exams.');
+    }
 
     const examData = {
-      ownerId,
       status: 'DRAFT',
-      timezone: timezone || 'UTC',
-      accessType: rest.accessType || 'PUBLIC',
+      timezone: tz,
       uniqueCode: generateUniqueCode(),
       ...rest,
+      ownerId, // after ...rest so a request body can never assign another owner
+      accessType,
+      password: accessType === 'PASSWORD_PROTECTED' ? hashPassword(password.trim()) : null,
       startDate: combinedStartDate,
-      endDate: derivedEndDate ?? rest.endDate ?? null,
+      endDate: endDateResolved,
+      endDateFixed: !!endDate,
     };
-    delete examData.startTime;
 
     const exam = await prisma.exam.create({ data: examData as any });
     if (fullSections) {
-      await syncSectionsAndQuestions(exam.id, fullSections, !!rest.randomizeQuestions);
+      await syncSectionsAndQuestions(exam.id, fullSections, !!rest.randomizeQuestions, !!rest.shuffleAnswers);
     }
-    return exam;
+    return sanitizeExam(exam);
   }
 
   // -------- Get Exams (filterable) --------
@@ -257,11 +315,52 @@ export class ExamService {
       const { _count, sections, ...rest } = exam;
       const questionsCount = sections.reduce((acc: number, sec: any) => acc + sec._count.questions, 0);
       return {
-        ...rest,
+        ...sanitizeExam(rest),
         studentsCount: _count.attempts,
         questionsCount,
       };
     });
+  }
+
+  // -------- Get Exams accessible to a user (owned + accepted collaborations) --------
+  // Used by pickers/selectors that need every exam a teacher has a stake in,
+  // not just the ones they own — e.g. the Live Monitoring exam dropdown.
+  async getAccessibleExams(userId: string) {
+    const [owned, collaborations] = await Promise.all([
+      prisma.exam.findMany({
+        where: { ownerId: userId },
+        orderBy: { createdAt: 'desc' },
+        include: { _count: { select: { attempts: true } } },
+      }),
+      prisma.collaborator.findMany({
+        where: { userId, status: 'ACCEPTED' },
+        include: { exam: { include: { _count: { select: { attempts: true } } } } },
+        orderBy: { createdAt: 'desc' },
+      }),
+    ]);
+
+    const ownedMapped = owned.map(e => ({
+      id: e.id,
+      title: e.title,
+      subject: e.subject,
+      status: e.status,
+      startDate: e.startDate,
+      sessionState: e.sessionState,
+      studentsCount: e._count.attempts,
+      role: 'OWNER' as const,
+    }));
+    const collabMapped = collaborations.map(c => ({
+      id: c.exam.id,
+      title: c.exam.title,
+      subject: c.exam.subject,
+      status: c.exam.status,
+      startDate: c.exam.startDate,
+      sessionState: c.exam.sessionState,
+      studentsCount: c.exam._count.attempts,
+      role: c.role as 'COLLABORATOR' | 'INVIGILATOR',
+    }));
+
+    return [...ownedMapped, ...collabMapped];
   }
 
   // -------- Get Exam by ID --------
@@ -280,56 +379,105 @@ export class ExamService {
       },
     });
     if (!exam) throw new Error('Exam not found');
-    if (exam.ownerId !== ownerId) throw new Error('Access denied');
+    // Owner, collaborator, and invigilator can all view exam details —
+    // collaborators need it to edit, invigilators to know what they're proctoring.
+    const myRole = await collaborationService.getUserRole(examId, ownerId);
+    if (!myRole) throw new Error('Access denied');
 
     const questionsCount = exam.sections.reduce((acc, sec) => acc + sec.questions.length, 0);
 
     return {
-      ...exam,
+      ...sanitizeExam(exam),
       questionsCount,
       studentsCount: exam._count.attempts,
+      myRole,
     };
   }
 
   async updateExam(examId: string, ownerId: string, data: any) {
     const exam = await prisma.exam.findUnique({ where: { id: examId } });
     if (!exam) throw new Error('Exam not found');
-    if (exam.ownerId !== ownerId) throw new Error('Access denied');
+    if (exam.ownerId !== ownerId) {
+      await collaborationService.requireAccess(examId, ownerId, 'update_exam_details');
+    }
     if (exam.sessionState === 'ENDED') throw new Error('Cannot edit an exam that has already ended.');
 
-    const { startDate, startTime, fullSections, ...rest } = data;
-    const combinedStartDate = combineDateAndTime(startDate, startTime, rest.timezone || exam.timezone || 'UTC');
-    
-    const durationMin = Number(rest.duration ?? exam?.duration ?? 0);
-    const lateMin = Number(rest.lateAllowanceMinutes ?? exam?.lateAllowanceMinutes ?? 0);
-    const derivedEndDate = combinedStartDate && durationMin > 0
-      ? new Date(combinedStartDate.getTime() + (durationMin + lateMin) * 60_000)
-      : undefined;
+    // The body is applied to the exam row wholesale, so guard the fields a
+    // Collaborator must not be able to reach through a general "update":
+    // ownership (never client-settable — there's no transfer flow) and the
+    // publish/archive lifecycle + access credentials (owner-only per SRS 3.10).
+    delete data.id;
+    delete data.ownerId;
+    if (exam.ownerId !== ownerId) {
+      delete data.uniqueCode;
+      delete data.magicLinkToken;
+      // The editor sends status "DRAFT" on every plain save — for a
+      // Collaborator that must neither 403 nor unpublish, so just ignore it.
+      if (data.status === 'DRAFT') delete data.status;
+      if (data.status !== undefined && data.status !== exam.status) {
+        await collaborationService.requireAccess(examId, ownerId, 'publish_exam');
+      }
+    }
 
-    const updateData = {
-      ...rest,
-      startDate: combinedStartDate,
-      endDate: derivedEndDate ?? rest.endDate ?? null,
-    };
-    delete updateData.startTime;
+    const { startDate, startTime, endDate: rawEndDate, endTime, fullSections, password, ...rest } = data;
+    const manual = rest.manualStart ?? exam.manualStart;
+    const endDate = manual ? undefined : rawEndDate;
+    const tz = rest.timezone || exam.timezone || 'UTC';
+    const updateData: any = { ...rest };
+    // Switching to manual start drops any hard close left over from scheduling.
+    if (rest.manualStart === true) updateData.endDateFixed = false;
+
+    // Only touch the schedule when the request actually carries schedule
+    // fields — a settings-only save (e.g. privacy) must not wipe the end date.
+    const timingTouched = startDate !== undefined || endDate !== undefined
+      || rest.duration !== undefined || rest.lateAllowanceMinutes !== undefined;
+    if (timingTouched) {
+      const start = startDate !== undefined ? combineDateAndTime(startDate, startTime, tz) : exam.startDate;
+      if (startDate !== undefined) updateData.startDate = start;
+      updateData.endDateFixed = !!endDate;
+      updateData.endDate = resolveEndDate({
+        start,
+        endDate,
+        endTime,
+        timezone: tz,
+        durationMin: Number(rest.duration ?? exam.duration ?? 0),
+        lateMin: Number(rest.lateAllowanceMinutes ?? exam.lateAllowanceMinutes ?? 0),
+      });
+    }
+
+    // Exam password: hashed at rest, blank means "keep the current one".
+    if (rest.accessType !== undefined || password !== undefined) {
+      const effectiveAccess = rest.accessType ?? exam.accessType;
+      if (effectiveAccess === 'PASSWORD_PROTECTED') {
+        if (typeof password === 'string' && password.trim()) {
+          updateData.password = hashPassword(password.trim());
+        } else if (!exam.password) {
+          throw new Error('A password is required for password-protected exams.');
+        }
+      } else {
+        updateData.password = null;
+      }
+    }
 
     const updatedExam = await prisma.exam.update({
       where: { id: examId },
-      data: updateData as any,
+      data: updateData,
     });
 
     if (fullSections) {
-      await syncSectionsAndQuestions(exam.id, fullSections, !!updateData.randomizeQuestions);
+      await syncSectionsAndQuestions(exam.id, fullSections, updatedExam.randomizeQuestions, updatedExam.shuffleAnswers);
     }
 
-    return updatedExam;
+    return sanitizeExam(updatedExam);
   }
 
   // -------- Delete Exam --------
   async deleteExam(examId: string, ownerId: string) {
     const exam = await prisma.exam.findUnique({ where: { id: examId } });
     if (!exam) throw new Error('Exam not found');
-    if (exam.ownerId !== ownerId) throw new Error('Access denied');
+    if (exam.ownerId !== ownerId) {
+      await collaborationService.requireAccess(examId, ownerId, 'delete_exam');
+    }
     await prisma.exam.delete({ where: { id: examId } });
     return { message: 'Exam deleted successfully' };
   }
@@ -339,6 +487,7 @@ export class ExamService {
     const exam = await prisma.exam.findUnique({
       where: { id: examId },
       include: {
+        antiCheatRules: true,
         sections: {
           include: {
             questions: {
@@ -359,6 +508,7 @@ export class ExamService {
         description: exam.description,
         subject: exam.subject,
         startDate: exam.startDate,
+        endDate: exam.endDate,
         duration: exam.duration,
         timezone: exam.timezone,
         passingScore: exam.passingScore,
@@ -367,6 +517,17 @@ export class ExamService {
         showResults: exam.showResults,
         accessType: exam.accessType,
         password: exam.password,
+        lateAllowanceMinutes: exam.lateAllowanceMinutes,
+        requireLateApproval: exam.requireLateApproval,
+        autoStart: exam.autoStart,
+        manualStart: exam.manualStart,
+        autoClose: exam.autoClose,
+        autoSubmit: exam.autoSubmit,
+        showCountdown: exam.showCountdown,
+        requireCamera: exam.requireCamera,
+        lockFullscreen: exam.lockFullscreen,
+        browserLockdown: exam.browserLockdown,
+        screenshotIntervalSec: exam.screenshotIntervalSec,
         status: 'DRAFT',
         // Generate a fresh unique code — do NOT copy the original's code
         uniqueCode: generateUniqueCode(),
@@ -395,6 +556,13 @@ export class ExamService {
             difficulty: question.difficulty,
             order: question.order,
             reviewed: question.reviewed,
+            // Without these a copy silently loses the answer key for
+            // fill-in-blank / matching / true-false questions, plus the
+            // question's title, description and required flag.
+            required: question.required,
+            title: question.title,
+            description: question.description,
+            ...(question.metadata ? { metadata: question.metadata as any } : {}),
           },
         });
 
@@ -411,39 +579,56 @@ export class ExamService {
       }
     }
 
-    return prisma.exam.findUnique({
+    if (exam.antiCheatRules.length > 0) {
+      await prisma.examAntiCheatRule.createMany({
+        data: exam.antiCheatRules.map((r) => ({
+          examId: newExam.id,
+          eventType: r.eventType,
+          enabled: r.enabled,
+          action: r.action,
+          threshold: r.threshold,
+        })),
+      });
+    }
+
+    const copy = await prisma.exam.findUnique({
       where: { id: newExam.id },
       include: {
         sections: { include: { questions: { include: { options: true } } } },
       },
     });
+    return copy ? sanitizeExam(copy) : copy;
   }
 
   // -------- Publish Exam --------
   async publishExam(examId: string, ownerId: string) {
     const exam = await prisma.exam.findUnique({ where: { id: examId } });
     if (!exam) throw new Error('Exam not found');
-    if (exam.ownerId !== ownerId) throw new Error('Access denied');
+    if (exam.ownerId !== ownerId) {
+      await collaborationService.requireAccess(examId, ownerId, 'publish_exam');
+    }
     if (exam.status === 'ARCHIVED') throw new Error('Archived exams cannot be published');
 
-    const uniqueCode = generateUniqueCode();
-    const magicLinkToken = generateMagicLinkToken(examId);
+    // Keep the exam's existing code: it's already on the Sharing tab / QR, so
+    // regenerating it on publish would silently break links shared as a draft.
+    const uniqueCode = exam.uniqueCode || generateUniqueCode();
 
     const updated = await prisma.exam.update({
       where: { id: examId },
       data: {
         status: 'PUBLISHED',
         uniqueCode,
-        magicLinkToken,
       },
     });
 
+    // Same link the Sharing tab and QR code use — /join/:code hands the
+    // student straight into the entry flow.
     const frontendBase = process.env.FRONTEND_URL || 'http://localhost:3000';
-    const magicLink = `${frontendBase}/join?token=${magicLinkToken}`;
+    const magicLink = `${frontendBase}/join/${uniqueCode.toLowerCase()}`;
 
     return {
       message: 'Exam published successfully',
-      exam: updated,
+      exam: sanitizeExam(updated),
       access: { uniqueCode, magicLink },
     };
   }
@@ -453,10 +638,69 @@ export class ExamService {
     const exam = await prisma.exam.findUnique({ where: { id: examId } });
     if (!exam) throw new Error('Exam not found');
     if (exam.ownerId !== ownerId) throw new Error('Access denied');
-    return prisma.exam.update({
+    return sanitizeExam(await prisma.exam.update({
       where: { id: examId },
       data: { status: 'ARCHIVED' },
+    }));
+  }
+
+  // -------- Reopen Exam --------
+  // Gives an ended exam a fresh session: waiting room open, scheduled to start
+  // `startsInMinutes` from now. Existing attempts are kept (they were already
+  // submitted when the session ended), and Max Attempts still decides who may
+  // sit it again. The start is deliberately in the future — join closes at the
+  // scheduled start plus the late-entry allowance, so a start of "now" would
+  // lock students out before they could enter the code.
+  async reopenExam(
+    examId: string,
+    ownerId: string,
+    opts: { startsInMinutes: number; endDate?: string | null; endTime?: string | null },
+  ) {
+    const exam = await prisma.exam.findUnique({ where: { id: examId } });
+    if (!exam) throw new Error('Exam not found');
+    if (exam.ownerId !== ownerId) throw new Error('Access denied');
+    if (exam.status !== 'PUBLISHED') throw new Error('Only a published exam can be reopened.');
+    if (exam.sessionState !== 'ENDED') throw new Error('Only an ended exam can be reopened.');
+
+    // Manual-start exams have no schedule to set: reopening just opens the
+    // lobby, and the teacher presses Start when ready.
+    if (exam.manualStart) {
+      const reopened = await prisma.exam.update({
+        where: { id: examId },
+        data: { sessionState: 'WAITING', endDate: null, endDateFixed: false },
+      });
+      return sanitizeExam(reopened);
+    }
+
+    const start = new Date(Date.now() + opts.startsInMinutes * 60_000);
+    const end = resolveEndDate({
+      start,
+      endDate: opts.endDate,
+      endTime: opts.endTime ?? undefined,
+      timezone: exam.timezone || 'UTC',
+      durationMin: exam.duration ?? 0,
+      lateMin: exam.lateAllowanceMinutes ?? 0,
     });
+
+    const updated = await prisma.exam.update({
+      where: { id: examId },
+      data: { sessionState: 'WAITING', startDate: start, endDate: end, endDateFixed: !!opts.endDate },
+    });
+    return sanitizeExam(updated);
+  }
+
+  // -------- Unarchive Exam --------
+  // Restores to DRAFT rather than PUBLISHED: an archived exam may have sat for
+  // a while, so the owner re-checks it and republishes on purpose.
+  async unarchiveExam(examId: string, ownerId: string) {
+    const exam = await prisma.exam.findUnique({ where: { id: examId } });
+    if (!exam) throw new Error('Exam not found');
+    if (exam.ownerId !== ownerId) throw new Error('Access denied');
+    if (exam.status !== 'ARCHIVED') throw new Error('Only archived exams can be unarchived');
+    return sanitizeExam(await prisma.exam.update({
+      where: { id: examId },
+      data: { status: 'DRAFT' },
+    }));
   }
 
   // -------- Preview Exam --------
@@ -476,7 +720,9 @@ export class ExamService {
       },
     });
     if (!exam) throw new Error('Exam not found');
-    if (exam.ownerId !== ownerId) throw new Error('Access denied');
+    if (exam.ownerId !== ownerId && !(await collaborationService.getUserRole(examId, ownerId))) {
+      throw new Error('Access denied');
+    }
 
     const preview = {
       id: exam.id,
@@ -518,7 +764,9 @@ export class ExamService {
   }) {
     const exam = await prisma.exam.findUnique({ where: { id: examId } });
     if (!exam) throw new Error('Exam not found');
-    if (exam.ownerId !== ownerId) throw new Error('Access denied');
+    if (exam.ownerId !== ownerId) {
+      await collaborationService.requireAccess(examId, ownerId, 'update_exam_details');
+    }
 
     const updateData: any = {};
     if (config.duration !== undefined) updateData.duration = config.duration;
@@ -539,7 +787,9 @@ export class ExamService {
   async setExtraTime(examId: string, ownerId: string, studentId: string, extraMinutes: number) {
     const exam = await prisma.exam.findUnique({ where: { id: examId } });
     if (!exam) throw new Error('Exam not found');
-    if (exam.ownerId !== ownerId) throw new Error('Access denied');
+    if (exam.ownerId !== ownerId) {
+      await collaborationService.requireAccess(examId, ownerId, 'update_exam_details');
+    }
 
     // Find the student's active attempt
     const attempt = await prisma.examAttempt.findFirst({
@@ -673,21 +923,21 @@ export class ExamService {
         title: section.title,
         randomization: section.randomization,
         shuffleAnswers: section.shuffleAnswers,
-        questions: section.questions.map((q) => ({
+        questions: orderSectionForStudent(section).map((q, qIndex) => ({
           id: q.id,
           type: q.type,
           text: q.text,
           points: q.points,
           difficulty: q.difficulty,
-          order: q.order,
+          order: qIndex,
           metadata: {
-            pairs: (q.metadata as any)?.pairs,
+            pairs: maskMatchingPairs((q.metadata as any)?.pairs),
             hint: (q.metadata as any)?.hint,
           },
-          options: q.options.map((opt) => ({
+          options: q.options.map((opt, oIndex) => ({
             id: opt.id,
             text: opt.text,
-            order: opt.order,
+            order: oIndex,
             // isCorrect intentionally omitted from student snapshot
           })),
         })),

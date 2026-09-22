@@ -1,6 +1,6 @@
 // backend/src/controllers/auth.controller.ts
 import { Request, Response } from 'express';
-import { AuthService } from '../services/auth.service.js';
+import { AuthService, DEFAULT_NOTIFICATION_PREFS, DEFAULT_PRIVACY_PREFS } from '../services/auth.service.js';
 import { supabase } from '../config/supabase.js';
 
 const authService = new AuthService();
@@ -35,6 +35,108 @@ export const getMe = async (req: Request, res: Response) => {
   }
 };
 
+export const updateProfile = async (req: Request, res: Response) => {
+  try {
+    const user = (req as any).user; // from authMiddleware
+    const { name, phone, institution, department, bio } = req.body;
+    const dbUser = await authService.updateProfile(user.id, { name, phone, institution, department, bio });
+    res.status(200).json({
+      message: 'Profile updated.',
+      user: {
+        id: dbUser.supabaseId,
+        name: dbUser.name,
+        email: dbUser.email,
+        role: dbUser.role,
+        avatarUrl: dbUser.avatarUrl,
+        phone: dbUser.phone,
+        institution: dbUser.institution,
+        department: dbUser.department,
+        bio: dbUser.bio,
+      },
+    });
+  } catch (error: any) {
+    res.status(400).json({ message: error.message });
+  }
+};
+
+export const updateNotificationPrefs = async (req: Request, res: Response) => {
+  try {
+    const user = (req as any).user; // from authMiddleware
+    const prefs = req.body || {};
+    const allowedKeys = Object.keys(DEFAULT_NOTIFICATION_PREFS);
+    const sanitized: Record<string, boolean> = {};
+    for (const key of allowedKeys) {
+      if (typeof prefs[key] === 'boolean') sanitized[key] = prefs[key];
+    }
+    const dbUser = await authService.updateNotificationPrefs(user.id, sanitized);
+    res.status(200).json({
+      message: 'Notification preferences updated.',
+      notificationPrefs: dbUser.notificationPrefs,
+    });
+  } catch (error: any) {
+    res.status(400).json({ message: error.message });
+  }
+};
+
+export const updatePrivacyPrefs = async (req: Request, res: Response) => {
+  try {
+    const user = (req as any).user; // from authMiddleware
+    const prefs = req.body || {};
+    const allowedKeys = Object.keys(DEFAULT_PRIVACY_PREFS);
+    const sanitized: Record<string, boolean> = {};
+    for (const key of allowedKeys) {
+      if (typeof prefs[key] === 'boolean') sanitized[key] = prefs[key];
+    }
+    const dbUser = await authService.updatePrivacyPrefs(user.id, sanitized);
+    res.status(200).json({
+      message: 'Privacy preferences updated.',
+      privacyPrefs: dbUser.privacyPrefs,
+    });
+  } catch (error: any) {
+    res.status(400).json({ message: error.message });
+  }
+};
+
+export const updateAvatar = async (req: Request, res: Response) => {
+  try {
+    const user = (req as any).user; // from authMiddleware
+    const file = (req as any).file; // from uploadAvatar (multer)
+    if (!file) {
+      return res.status(400).json({ message: 'No image file was uploaded.' });
+    }
+    const dbUser = await authService.updateAvatar(user.id, file);
+    res.status(200).json({
+      message: 'Profile photo updated.',
+      user: {
+        id: dbUser.supabaseId,
+        name: dbUser.name,
+        email: dbUser.email,
+        role: dbUser.role,
+        avatarUrl: dbUser.avatarUrl,
+      },
+    });
+  } catch (error: any) {
+    res.status(400).json({ message: error.message });
+  }
+};
+
+export const changePassword = async (req: Request, res: Response) => {
+  try {
+    const user = (req as any).user; // from authMiddleware
+    const { currentPassword, newPassword } = req.body;
+    if (!currentPassword || !newPassword) {
+      return res.status(400).json({ message: 'Current password and new password are required.' });
+    }
+    if (newPassword.length < 8) {
+      return res.status(400).json({ message: 'New password must be at least 8 characters.' });
+    }
+    const result = await authService.changePassword(user.email, currentPassword, newPassword);
+    res.status(200).json(result);
+  } catch (error: any) {
+    res.status(400).json({ message: error.message });
+  }
+};
+
 export const forgotPassword = async (req: Request, res: Response) => {
   try {
     const { email } = req.body;
@@ -47,8 +149,10 @@ export const forgotPassword = async (req: Request, res: Response) => {
 
 export const resetPassword = async (req: Request, res: Response) => {
   try {
-    const { token, newPassword } = req.body;
-    const result = await authService.resetPassword(token, newPassword);
+    // access_token: the session on the reset page's URL (standard Supabase email).
+    // token: the token-hash email format. One of the two is required.
+    const { access_token, token, newPassword } = req.body;
+    const result = await authService.resetPassword({ accessToken: access_token, token, newPassword });
     res.status(200).json(result);
   } catch (error: any) {
     res.status(400).json({ message: error.message });

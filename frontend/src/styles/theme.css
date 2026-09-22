@@ -227,3 +227,727 @@
     animation: none;
   }
 }
+
+/* ── Hero live-monitor mockup ─────────────────────────────────────────── */
+@keyframes hero-window-in {
+  from { opacity: 0; transform: scale(0.97); }
+  to   { opacity: 1; transform: scale(1); }
+}
+
+@keyframes hero-nav-in {
+  from { opacity: 0; transform: translateX(-12px); }
+  to   { opacity: 1; transform: translateX(0); }
+}
+
+@keyframes hero-fade-up {
+  from { opacity: 0; transform: translateY(10px); }
+  to   { opacity: 1; transform: translateY(0); }
+}
+
+@keyframes hero-pop-in {
+  from { opacity: 0; transform: scale(0.5) rotate(-10deg); }
+  to   { opacity: 1; transform: scale(1) rotate(0deg); }
+}
+
+@keyframes hero-toast-tr-in {
+  from { opacity: 0; transform: translate(18px, -14px); }
+  to   { opacity: 1; transform: translate(0, 0); }
+}
+
+@keyframes hero-toast-bl-in {
+  from { opacity: 0; transform: translate(-18px, 14px); }
+  to   { opacity: 1; transform: translate(0, 0); }
+}
+
+@keyframes hero-badge-pulse {
+  0%, 100% { transform: scale(1); }
+  50% { transform: scale(1.18); }
+}
+
+/* Track repeats its card set 6x (see HERO_REPEAT in LandingPage.tsx) so the
+   loop stays seamless even on very wide viewports; each step below moves
+   exactly one repeat-width (100% / 6). */
+@keyframes hero-scroll-left {
+  from { transform: translateX(0%); }
+  to   { transform: translateX(-16.6667%); }
+}
+
+@keyframes hero-scroll-right {
+  from { transform: translateX(-83.3333%); }
+  to   { transform: translateX(-66.6667%); }
+}
+
+/* All entrance animations below are gated behind .hero-mockup.hero-in-view
+   (added/removed by an IntersectionObserver) rather than running
+   unconditionally on mount — the whole reveal plays once when the hero
+   scrolls into view, resets, and replays each time it comes back. */
+.hero-window {
+  opacity: 0;
+  transform: scale(0.97);
+}
+.hero-mockup.hero-in-view .hero-window {
+  animation: hero-window-in 0.6s cubic-bezier(0.2, 0.7, 0.3, 1) both;
+}
+
+.hero-nav-item {
+  opacity: 0;
+  transform: translateX(-12px);
+  transition: background-color 0.35s ease, color 0.35s ease;
+}
+.hero-mockup.hero-in-view .hero-nav-item {
+  animation: hero-nav-in 0.4s ease-out both;
+}
+
+.hero-nav-bullet {
+  opacity: 0;
+  transform: scale(0.4);
+  transition: opacity 0.3s ease, transform 0.3s ease;
+}
+
+.hero-nav-bullet-on {
+  opacity: 1;
+  transform: scale(1);
+}
+
+.hero-fade-up {
+  opacity: 0;
+  transform: translateY(10px);
+}
+.hero-mockup.hero-in-view .hero-fade-up {
+  animation: hero-fade-up 0.5s ease-out both;
+}
+
+.hero-pop-in {
+  opacity: 0;
+  transform: scale(0.5) rotate(-10deg);
+}
+.hero-mockup.hero-in-view .hero-pop-in {
+  animation: hero-pop-in 0.45s cubic-bezier(0.22, 1.4, 0.4, 1) both;
+}
+
+.hero-toast-tr {
+  opacity: 0;
+}
+.hero-mockup.hero-in-view .hero-toast-tr {
+  animation: hero-toast-tr-in 0.45s ease-out both;
+}
+
+.hero-toast-bl {
+  opacity: 0;
+}
+.hero-mockup.hero-in-view .hero-toast-bl {
+  animation: hero-toast-bl-in 0.45s ease-out both;
+}
+
+.hero-badge-pulse {
+  animation: hero-badge-pulse 1.8s ease-in-out infinite;
+}
+
+.hero-marquee-viewport {
+  overflow: hidden;
+  -webkit-mask-image: linear-gradient(to right, transparent, black 6%, black 94%, transparent);
+  mask-image: linear-gradient(to right, transparent, black 6%, black 94%, transparent);
+}
+
+.hero-marquee-track {
+  display: flex;
+  width: max-content;
+  animation: none;
+}
+
+.hero-marquee-stats { transform: translateX(-83.3333%); }
+.hero-marquee-row1 { transform: translateX(0%); }
+.hero-marquee-row2 { transform: translateX(-83.3333%); }
+
+.hero-phase2 .hero-marquee-stats { animation: hero-scroll-right 22s linear infinite; }
+.hero-phase2 .hero-marquee-row1 { animation: hero-scroll-left 26s linear infinite; }
+.hero-phase2 .hero-marquee-row2 { animation: hero-scroll-right 26s linear infinite; }
+
+.hero-mockup:hover .hero-marquee-track {
+  animation-play-state: paused;
+}
+
+.hero-subject {
+  display: inline-block;
+  transition: opacity 0.3s ease;
+}
+
+.hero-subject-swap {
+  opacity: 0;
+}
+
+/* The two camel-toned background shapes behind the hero — drift back and
+   forth on their own loop, forever, so they don't feel mechanically synced. */
+@keyframes hero-bg-drift-a {
+  0%, 100% { transform: translate(0, 0); }
+  50% { transform: translate(-26px, 20px); }
+}
+
+@keyframes hero-bg-drift-b {
+  0%, 100% { transform: translate(0, 0); }
+  50% { transform: translate(20px, -24px); }
+}
+
+.hero-bg-layer-a {
+  animation: hero-bg-drift-a 11s ease-in-out infinite;
+}
+
+.hero-bg-layer-b {
+  animation: hero-bg-drift-b 9s ease-in-out infinite;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .hero-window,
+  .hero-nav-item,
+  .hero-fade-up,
+  .hero-pop-in,
+  .hero-toast-tr,
+  .hero-toast-bl,
+  .hero-badge-pulse,
+  .hero-marquee-track {
+    animation: none !important;
+    opacity: 1 !important;
+    transform: none !important;
+  }
+
+  .hero-bg-layer-a,
+  .hero-bg-layer-b {
+    animation: none !important;
+    transform: none !important;
+  }
+
+  .feature-card,
+  .feature-text-item,
+  .feature-heading .letter {
+    animation: none !important;
+    opacity: 1 !important;
+    transform: none !important;
+    filter: none !important;
+  }
+}
+
+/* ── "Everything in one place" feature grid ───────────────────────────── */
+.feature-card {
+  opacity: 0;
+  transform: translateY(28px) scale(0.94);
+  transition: opacity 0.5s cubic-bezier(0.22, 1, 0.36, 1) var(--reveal-delay, 0s),
+    transform 0.5s cubic-bezier(0.22, 1, 0.36, 1) var(--reveal-delay, 0s),
+    border-color 0.3s ease, box-shadow 0.3s ease;
+}
+
+.feature-card.in-view {
+  opacity: 1;
+  transform: translateY(0) scale(1);
+}
+
+.feature-text-item {
+  opacity: 0;
+  transform: translateY(14px);
+  transition: opacity 0.5s ease-out var(--reveal-delay, 0s), transform 0.5s ease-out var(--reveal-delay, 0s);
+}
+
+.feature-text-col.in-view .feature-text-item {
+  opacity: 1;
+  transform: translateY(0);
+}
+
+/* Heading: each letter fades in, slides up, and un-blurs on its own delay.
+   Letters are grouped in a .word wrapper so line breaks only fall between
+   words, never inside one. */
+.feature-heading .word {
+  display: inline-block;
+  white-space: pre;
+}
+
+.feature-heading .letter {
+  display: inline-block;
+  white-space: pre;
+  opacity: 0;
+  filter: blur(8px);
+  transform: translateY(0.35em);
+  transition: opacity 0.5s ease, filter 0.5s ease, transform 0.5s cubic-bezier(0.22, 1, 0.36, 1);
+  transition-delay: calc(var(--li, 0) * 22ms);
+}
+
+.feature-text-col.in-view .feature-heading .letter {
+  opacity: 1;
+  filter: blur(0);
+  transform: translateY(0);
+}
+
+.feature-icon {
+  background: #F0EDE8;
+  color: #0D1B2A;
+  transition: background-color 0.3s ease, color 0.3s ease, transform 0.3s ease;
+}
+
+.feature-card:hover .feature-icon {
+  background: #C8A97E;
+  color: #ffffff;
+  transform: scale(1.08) rotate(-4deg);
+}
+
+.feature-tag {
+  background: #C8A97E18;
+  color: #C8A97E;
+  transition: background-color 0.3s ease, color 0.3s ease;
+}
+
+.feature-card:hover .feature-tag {
+  background: #0D1B2A;
+  color: #ffffff;
+}
+
+/* ── "Four steps" process rail ────────────────────────────────────────── */
+/* Replays every time the section scrolls into view, and resets (fast) when
+   it scrolls out. Linear timing on the way in = constant speed, so each
+   step's reveal delay (0/1.2/2.4/3.6s) lands it exactly when the light
+   reaches its evenly-spaced position. */
+.steps-rail-fill {
+  position: relative;
+  width: 0;
+  transition: width 0.4s ease; /* fast reset when scrolled back out */
+}
+
+.steps-rail-fill::after {
+  /* the traveling light: pinned to the fill's leading edge, so it rides
+     along automatically as the width grows */
+  content: "";
+  position: absolute;
+  top: 50%;
+  right: 0;
+  width: 9px;
+  height: 9px;
+  border-radius: 50%;
+  background: #C8A97E;
+  transform: translate(50%, -50%);
+  box-shadow: 0 0 0 4px #C8A97E30, 0 0 14px 2px #C8A97E90;
+  opacity: 0;
+  transition: opacity 0.2s linear;
+}
+
+.steps-rail.in-view .steps-rail-fill {
+  width: calc(100% - 64px); /* matches the track's left-8/right-8 inset */
+  transition: width 3.6s linear; /* slow deliberate draw-in when scrolling in */
+}
+
+.steps-rail.in-view .steps-rail-fill::after {
+  opacity: 1;
+}
+
+.steps-card {
+  opacity: 0;
+  transform: translateY(10px) scale(0.4);
+  transition: opacity 0.4s cubic-bezier(0.34, 1.56, 0.64, 1) var(--reveal-delay, 0s),
+    transform 0.5s cubic-bezier(0.34, 1.56, 0.64, 1) var(--reveal-delay, 0s);
+}
+
+.steps-rail.in-view .steps-card {
+  opacity: 1;
+  transform: translateY(0) scale(1);
+}
+
+.steps-marker {
+  background: #F0EDE8;
+  color: #0D1B2A;
+}
+
+/* As the traveling light reaches each marker, it flashes to the accent
+   color and fades back to normal gray — it lights up only in passing. */
+@keyframes steps-marker-flash {
+  0%, 100% { background: #F0EDE8; color: #0D1B2A; }
+  35% { background: #C8A97E; color: #ffffff; }
+}
+
+.steps-rail.in-view .steps-marker {
+  animation: steps-marker-flash 1.4s ease-in-out both;
+  animation-delay: var(--reveal-delay, 0s);
+}
+
+.steps-head-item {
+  opacity: 0;
+  transform: translateY(14px);
+  transition: opacity 0.6s cubic-bezier(0.16, 1, 0.3, 1), transform 0.6s cubic-bezier(0.16, 1, 0.3, 1);
+}
+
+.steps-head.in-view .steps-head-item {
+  opacity: 1;
+  transform: translateY(0);
+}
+
+.steps-head.in-view .steps-head-item:nth-child(2) {
+  transition-delay: 0.1s;
+}
+
+.steps-cta {
+  opacity: 0;
+  transform: translateY(14px) scale(0.9);
+  transition: opacity 0.45s cubic-bezier(0.34, 1.56, 0.64, 1) var(--bd, 0s),
+    transform 0.45s cubic-bezier(0.34, 1.56, 0.64, 1) var(--bd, 0s),
+    background-color 0.15s ease, box-shadow 0.15s ease;
+}
+
+.steps-cta-row.in-view .steps-cta {
+  opacity: 1;
+  transform: translateY(0) scale(1);
+}
+
+.steps-cta:active {
+  transform: scale(0.94) !important;
+  transition: transform 0.1s ease !important;
+}
+
+.steps-cta.pressed {
+  animation: steps-cta-pop 0.35s cubic-bezier(0.34, 1.56, 0.64, 1);
+}
+
+@keyframes steps-cta-pop {
+  0% { transform: scale(0.94); }
+  60% { transform: scale(1.06); }
+  100% { transform: scale(1); }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .steps-rail-fill {
+    transition: none !important;
+    width: calc(100% - 64px) !important;
+  }
+
+  .steps-card,
+  .steps-head-item,
+  .steps-cta {
+    transition: none !important;
+    animation: none !important;
+    opacity: 1 !important;
+    transform: none !important;
+  }
+
+  .steps-marker {
+    animation: none !important;
+  }
+}
+
+/* ── Security section: scroll-scrubbed text drop-in + galaxy heading ──── */
+/* Each line's reveal is driven by scroll position (see useSecurityReveal in
+   LandingPage.tsx), not a timer — scrolling slowly drops them one by one and
+   scrolling back up retracts them in the same order. */
+.security-reveal,
+.security-reveal-heading,
+.security-reveal-desc,
+.security-reveal-check {
+  opacity: 0;
+}
+
+.security-reveal {
+  transform: translateY(-22px);
+  transition: opacity 0.4s cubic-bezier(0.34, 1.56, 0.64, 1), transform 0.4s cubic-bezier(0.34, 1.56, 0.64, 1);
+}
+
+.security-reveal-heading {
+  display: block;
+  transform: translateY(-30px);
+  transition: opacity 0.45s cubic-bezier(0.34, 1.56, 0.64, 1), transform 0.45s cubic-bezier(0.34, 1.56, 0.64, 1);
+}
+
+.security-reveal-desc {
+  transform: translateY(-16px);
+  transition: opacity 0.4s ease, transform 0.4s ease;
+}
+
+.security-reveal-check {
+  transform: translateY(-42px);
+  transition: opacity 1.1s cubic-bezier(0.22, 0.72, 0.28, 1), transform 1.1s cubic-bezier(0.22, 0.72, 0.28, 1);
+}
+
+.security-shown {
+  opacity: 1 !important;
+  transform: translateY(0) !important;
+}
+
+.security-galaxy {
+  position: absolute;
+  left: -60px;
+  top: -80px;
+  width: 560px;
+  height: 560px;
+  max-width: 100%;
+  pointer-events: none;
+  z-index: 0;
+  opacity: 0;
+  transition: opacity 1.2s ease;
+}
+
+.security-galaxy-on {
+  opacity: 1;
+}
+
+.security-nebula {
+  position: absolute;
+  border-radius: 50%;
+  filter: blur(60px);
+}
+
+.security-nebula-a {
+  width: 280px;
+  height: 280px;
+  left: 40px;
+  top: 40px;
+  background: radial-gradient(circle, #C8A97E55, transparent 70%);
+  animation: security-drift-a 14s ease-in-out infinite;
+}
+
+.security-nebula-b {
+  width: 220px;
+  height: 220px;
+  left: 220px;
+  top: 180px;
+  background: radial-gradient(circle, #6d5ba355, transparent 70%);
+  animation: security-drift-b 11s ease-in-out infinite;
+}
+
+@keyframes security-drift-a {
+  0%, 100% { transform: translate(0, 0); }
+  50% { transform: translate(24px, -18px); }
+}
+
+@keyframes security-drift-b {
+  0%, 100% { transform: translate(0, 0); }
+  50% { transform: translate(-20px, 22px); }
+}
+
+.security-star {
+  position: absolute;
+  border-radius: 50%;
+  background: white;
+  animation: security-twinkle 3s ease-in-out infinite;
+}
+
+@keyframes security-twinkle {
+  0%, 100% { opacity: 0.15; transform: scale(0.8); }
+  50% { opacity: 1; transform: scale(1.15); }
+}
+
+/* ── Security section: proctoring grid scan ───────────────────────────── */
+/* A light-red line sweeps across each card in turn, one at a time, forever —
+   top row sweeps right-to-left, bottom row sweeps left-to-right, so the two
+   directions chain into one continuous snake across all 8 cards. Each
+   card's circle flashes red in sync via the same --i-based delay. */
+.security-proc-card {
+  animation: security-card-flash 3.6s ease-in-out infinite;
+  animation-delay: calc(var(--i, 0) * 0.45s);
+}
+
+.security-proc-circle {
+  background: #374151;
+  animation: security-circle-flash 3.6s ease-in-out infinite;
+  animation-delay: calc(var(--i, 0) * 0.45s);
+}
+
+.security-proc-card::before {
+  content: "";
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  width: 3px;
+  border-radius: 2px;
+  background: #ef4444;
+  box-shadow: 0 0 14px 4px rgba(239, 68, 68, 0.85), 0 0 2px rgba(255, 255, 255, 0.7);
+  opacity: 0;
+  left: -5%;
+  pointer-events: none;
+  animation-duration: 3.6s;
+  animation-timing-function: linear;
+  animation-iteration-count: infinite;
+  animation-delay: calc(var(--i, 0) * 0.45s);
+}
+
+.security-proc-card[data-row="1"]::before { animation-name: security-bar-left; }
+.security-proc-card[data-row="2"]::before { animation-name: security-bar-right; }
+
+@keyframes security-card-flash {
+  0%, 100% { border-color: rgba(255,255,255,0.1); background: rgba(0,0,0,0.4); box-shadow: none; }
+  4% { border-color: #ef4444; background: rgba(127,29,29,0.35); box-shadow: 0 0 0 1px rgba(239,68,68,0.45), 0 0 20px 2px rgba(239,68,68,0.35); }
+  16% { border-color: rgba(255,255,255,0.1); background: rgba(0,0,0,0.4); box-shadow: none; }
+}
+
+@keyframes security-circle-flash {
+  0%, 100% { background: #374151; }
+  4% { background: #ef4444; }
+  16% { background: #374151; }
+}
+
+@keyframes security-bar-left {
+  0%, 3% { opacity: 0; left: 100%; }
+  5% { opacity: 1; }
+  13% { opacity: 1; left: -5%; }
+  15%, 100% { opacity: 0; left: -5%; }
+}
+
+@keyframes security-bar-right {
+  0%, 3% { opacity: 0; left: -5%; }
+  5% { opacity: 1; }
+  13% { opacity: 1; left: 100%; }
+  15%, 100% { opacity: 0; left: 100%; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .security-reveal,
+  .security-reveal-heading,
+  .security-reveal-desc,
+  .security-reveal-check {
+    transition: none !important;
+    opacity: 1 !important;
+    transform: none !important;
+  }
+
+  .security-galaxy {
+    transition: none !important;
+    opacity: 1 !important;
+  }
+
+  .security-nebula-a,
+  .security-nebula-b,
+  .security-star {
+    animation: none !important;
+  }
+
+  .security-proc-card,
+  .security-proc-circle,
+  .security-proc-card::before {
+    animation: none !important;
+  }
+
+  .security-proc-card::before {
+    opacity: 0 !important;
+  }
+}
+
+/* ── Testimonials ──────────────────────────────────────────────────────── */
+/* Replays every time the section scrolls into view (matches Features/Steps). */
+.testi-text > * {
+  opacity: 0;
+  transform: translateX(-60px);
+  transition: opacity 1s cubic-bezier(0.16, 1, 0.3, 1), transform 1s cubic-bezier(0.16, 1, 0.3, 1);
+}
+
+.testi-text.in-view > * {
+  opacity: 1;
+  transform: translateX(0);
+}
+
+.testi-text.in-view > *:nth-child(2) {
+  transition-delay: 0.15s;
+}
+
+.testi-text.in-view > *:nth-child(3) {
+  transition-delay: 0.3s;
+}
+
+.testi-card {
+  opacity: 0;
+  transform: translateY(-40px);
+  transition: opacity 0.9s cubic-bezier(0.16, 1, 0.3, 1) var(--reveal-delay, 0s),
+    transform 0.9s cubic-bezier(0.16, 1, 0.3, 1) var(--reveal-delay, 0s),
+    border-color 0.2s ease, box-shadow 0.2s ease;
+}
+
+.testi-cards.in-view .testi-card {
+  opacity: 1;
+  transform: translateY(0);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .testi-text > *,
+  .testi-card {
+    transition: none !important;
+    opacity: 1 !important;
+    transform: none !important;
+  }
+}
+
+/* ── CTA highlight reel ───────────────────────────────────────────────── */
+/* A 10s looping illustrated sequence (not real video) echoing the "Four
+   steps" beats, plus a 3-layer parallax starfield, both sitting behind the
+   CTA card's text as ambient background — low-opacity, tucked into the
+   corners, never competing with the copy. */
+.cta-stars {
+  position: absolute;
+  inset: 0;
+  overflow: hidden;
+  pointer-events: none;
+}
+
+.cta-stars i {
+  position: absolute;
+  top: 0;
+  left: 0;
+  width: 1.5px;
+  height: 1.5px;
+  background: transparent;
+  border-radius: 50%;
+}
+
+.cta-stars-sm i { animation: cta-star-drift 65s linear infinite; opacity: 0.35; }
+.cta-stars-md i { width: 2.5px; height: 2.5px; animation: cta-star-drift 42s linear infinite; opacity: 0.5; }
+.cta-stars-lg i { width: 3.5px; height: 3.5px; animation: cta-star-drift 26s linear infinite; opacity: 0.7; }
+
+/* dots are drawn via box-shadow at y=[0,600] plus a duplicate set at
+   y=[600,1200] (see CtaHighlightReel's star generator) — translating by
+   exactly -600px loops seamlessly; a %-based value would be wrong here
+   since the element's own box is ~1px regardless of where its shadows land */
+@keyframes cta-star-drift {
+  from { transform: translateY(0); }
+  to { transform: translateY(-600px); }
+}
+
+.cta-reel { position: absolute; inset: 0; overflow: hidden; pointer-events: none; }
+.cta-scene { position: absolute; width: 230px; height: 230px; opacity: 0; }
+.cta-scene svg { width: 100%; height: 100%; }
+.cta-scene-1 { top: 8%; right: 6%; animation: cta-scene-1 10s linear infinite; }
+.cta-scene-2 { bottom: 6%; right: 14%; animation: cta-scene-2 10s linear infinite; }
+.cta-scene-3 { top: 10%; left: 5%; animation: cta-scene-3 10s linear infinite; }
+.cta-scene-4 { bottom: 8%; left: 12%; animation: cta-scene-4 10s linear infinite; }
+
+@keyframes cta-scene-1 {
+  0%, 2%, 78%, 100% { opacity: 0; transform: scale(0.88) rotate(-3deg); }
+  8%, 18% { opacity: 0.22; transform: scale(1) rotate(0deg); }
+  24% { opacity: 0; transform: scale(1.05) rotate(2deg); }
+}
+@keyframes cta-scene-2 {
+  0%, 24%, 100% { opacity: 0; transform: scale(0.88) rotate(3deg); }
+  30%, 43% { opacity: 0.22; transform: scale(1) rotate(0deg); }
+  49% { opacity: 0; transform: scale(1.05) rotate(-2deg); }
+}
+@keyframes cta-scene-3 {
+  0%, 49%, 100% { opacity: 0; transform: scale(0.88) rotate(-3deg); }
+  55%, 68% { opacity: 0.22; transform: scale(1) rotate(0deg); }
+  74% { opacity: 0; transform: scale(1.05) rotate(2deg); }
+}
+@keyframes cta-scene-4 {
+  0%, 74%, 100% { opacity: 0; transform: scale(0.88) rotate(3deg); }
+  80%, 93% { opacity: 0.24; transform: scale(1) rotate(0deg); }
+  99% { opacity: 0; transform: scale(1.05) rotate(-2deg); }
+}
+
+.cta-ring { animation: cta-spin 6s linear infinite; transform-origin: 50% 50%; transform-box: fill-box; }
+@keyframes cta-spin { to { transform: rotate(360deg); } }
+
+.cta-scan { animation: cta-scan-sweep 2.4s ease-in-out infinite; }
+@keyframes cta-scan-sweep {
+  0%, 100% { transform: translateY(-40px); opacity: 0; }
+  50% { transform: translateY(40px); opacity: 0.9; }
+}
+
+.cta-pop { animation: cta-pop-in 2.4s cubic-bezier(0.34, 1.56, 0.64, 1) infinite; }
+@keyframes cta-pop-in {
+  0%, 20% { transform: scale(0); opacity: 0; }
+  35%, 80% { transform: scale(1); opacity: 1; }
+  100% { transform: scale(1); opacity: 1; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .cta-scene, .cta-ring, .cta-scan, .cta-pop { animation: none !important; }
+  .cta-scene-1, .cta-scene-3 { opacity: 0.18; }
+  .cta-scene-2, .cta-scene-4 { opacity: 0; }
+  .cta-stars i { animation: none !important; }
+}

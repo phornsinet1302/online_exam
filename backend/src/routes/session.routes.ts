@@ -6,6 +6,7 @@ import {
   getSessionState,
   liveSessionStream,
   liveTeacherStream,
+  issueTeacherStreamToken,
   startSession,
   endSession,
   saveProgress,
@@ -138,6 +139,32 @@ router.get('/session/:examId/live', liveSessionStream);
  *       - `violation` when a student triggers an anti-cheat event
  *       - `student_auto_submitted` when a student is auto-submitted
  *       - `exam_started` / `exam_ended`
+ *       Auth: EventSource can't send headers, so pass the `token` query param
+ *       obtained from POST /api/session/{examId}/teacher-live-token.
+ *     parameters:
+ *       - in: path
+ *         name: examId
+ *         required: true
+ *         schema: { type: string }
+ *       - in: query
+ *         name: token
+ *         required: true
+ *         schema: { type: string }
+ *     responses:
+ *       200:
+ *         description: text/event-stream
+ *       401:
+ *         description: Missing/invalid stream token
+ */
+router.get('/session/:examId/teacher-live', liveTeacherStream);
+
+/**
+ * @openapi
+ * /api/session/{examId}/teacher-live-token:
+ *   post:
+ *     tags: [Student Session]
+ *     summary: Get a token for the teacher live SSE stream
+ *     description: Owner, Collaborator and Invigilator (anyone with monitor_students) may request one.
  *     security: [{ bearerAuth: [] }]
  *     parameters:
  *       - in: path
@@ -146,9 +173,11 @@ router.get('/session/:examId/live', liveSessionStream);
  *         schema: { type: string }
  *     responses:
  *       200:
- *         description: text/event-stream
+ *         description: "{ token }"
+ *       403:
+ *         description: No monitoring access to this exam
  */
-router.get('/session/:examId/teacher-live', liveTeacherStream);
+router.post('/session/:examId/teacher-live-token', authMiddleware, issueTeacherStreamToken);
 
 /**
  * @openapi

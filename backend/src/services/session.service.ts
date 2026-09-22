@@ -1,6 +1,11 @@
 // src/services/session.service.ts
 import prisma from '../config/database.js';
+import { verifyPassword } from '../utils/password.js';
+import { maskMatchingPairs } from '../utils/snapshot.js';
+import { orderSectionForStudent } from '../utils/studentOrdering.js';
 import jwt from 'jsonwebtoken';
+import { v4 as uuidv4 } from 'uuid';
+import { GradingService } from './grading.service.js';
 import { ExamSessionState } from '@prisma/client';
 
 // ─── SSE client registry ──────────────────────────────────────────────────────
@@ -30,6 +35,20 @@ function computeEndDate(exam: {
   return new Date(exam.startDate.getTime() + extra);
 }
 
+// End of a session that starts at `now`: start + duration + late allowance,
+// but never past a teacher-set end date (an explicit end is a hard stop).
+function computeSessionEnd(
+  exam: { duration: number | null; lateAllowanceMinutes: number | null; endDate: Date | null; endDateFixed: boolean },
+  now: Date,
+): Date | null {
+  const durationMin = exam.duration ?? 0;
+  const derived = durationMin > 0
+    ? new Date(now.getTime() + (durationMin + (exam.lateAllowanceMinutes ?? 0)) * 60_000)
+    : exam.endDate;
+  if (exam.endDateFixed && exam.endDate && derived && exam.endDate < derived) return exam.endDate;
+  return derived;
+}
+
 // ─── Auto-start scheduler ─────────────────────────────────────────────────────
 // Keeps NodeJS timer handles so we can cancel them if needed
 const autoStartTimers = new Map<string, ReturnType<typeof setTimeout>>();
@@ -50,14 +69,10 @@ export function scheduleAutoStart(examId: string, startDate: Date) {
     autoStartTimers.delete(examId);
     try {
       const exam = await prisma.exam.findUnique({ where: { id: examId } });
-      if (!exam || exam.sessionState !== ExamSessionState.WAITING) return;
+      if (!exam || exam.manualStart || exam.sessionState !== ExamSessionState.WAITING) return;
 
       const now = new Date();
-      const durationMin = exam.duration ?? 0;
-      const lateMin = exam.lateAllowanceMinutes ?? 0;
-      const newEndDate = durationMin > 0
-        ? new Date(now.getTime() + (durationMin + lateMin) * 60_000)
-        : exam.endDate;
+      const newEndDate = computeSessionEnd(exam, now);
 
       await prisma.exam.update({
         where: { id: examId },
@@ -93,6 +108,7 @@ export async function restoreAutoStartSchedules() {
       where: {
         status: 'PUBLISHED',
         sessionState: ExamSessionState.WAITING,
+        manualStart: false,
         startDate: { gt: now },
       },
       select: { id: true, startDate: true, title: true },
@@ -201,13 +217,35 @@ export function broadcastToTeacher(examId: string, event: string, data: object) 
 
 const STUDENT_TOKEN_SECRET = process.env.JWT_SECRET || 'fallback-secret';
 
-export function signStudentToken(payload: { attemptId: string; examId: string; studentId: string }) {
+export function signStudentToken(payload: { attemptId: string; examId: string; studentId: string; name?: string }) {
   return jwt.sign(payload, STUDENT_TOKEN_SECRET, { expiresIn: '12h' });
 }
 
 export function verifyStudentToken(token: string): { attemptId: string; examId: string; studentId: string } {
   return jwt.verify(token, STUDENT_TOKEN_SECRET) as any;
 }
+
+// ─── Teacher live-stream token ───────────────────────────────────────────────
+// The browser's EventSource can't send an Authorization header, so the teacher
+// SSE endpoint authenticates with a signed, exam-scoped token in the query
+// string instead. Issued only to users who may monitor the exam (see
+// issueTeacherStreamToken in session.controller.ts).
+export function signTeacherStreamToken(payload: { examId: string; userId: string }) {
+  return jwt.sign({ ...payload, type: 'teacher-stream' }, STUDENT_TOKEN_SECRET, { expiresIn: '12h' });
+}
+
+export function verifyTeacherStreamToken(token: string): { examId: string; userId: string } {
+  const payload = jwt.verify(token, STUDENT_TOKEN_SECRET) as any;
+  if (payload?.type !== 'teacher-stream') throw new Error('Invalid stream token');
+  return { examId: payload.examId, userId: payload.userId };
+}
+
+// ─── Exam-password brute-force throttle ──────────────────────────────────────
+// In-memory, per exam + client — enough to make guessing a password impractical
+// without needing extra infrastructure.
+const MAX_PASSWORD_FAILURES = 8;
+const PASSWORD_LOCK_MS = 10 * 60_000;
+const passwordFailures = new Map<string, { count: number; resetAt: number }>();
 
 // ─── Service class ────────────────────────────────────────────────────────────
 
@@ -232,7 +270,12 @@ export class SessionService {
     const now = new Date();
     const derivedEndDate = exam.endDate || (exam.startDate && exam.duration ? new Date(exam.startDate.getTime() + (exam.duration + exam.lateAllowanceMinutes) * 60_000) : null);
 
-    if (exam.sessionState === 'ENDED' || (derivedEndDate && now >= derivedEndDate)) {
+    // A manual-start exam that hasn't been started has no clock running: its
+    // dates are just a plan, so they must not close the lobby. Once the teacher
+    // starts it, startSession() records the real start and the normal rules apply.
+    const awaitingManualStart = exam.manualStart && exam.sessionState === 'WAITING';
+
+    if (exam.sessionState === 'ENDED' || (!awaitingManualStart && derivedEndDate && now >= derivedEndDate)) {
       throw new Error('This exam has already concluded.');
     }
 
@@ -240,7 +283,7 @@ export class SessionService {
       ? new Date(exam.startDate.getTime() + exam.lateAllowanceMinutes * 60_000)
       : null;
 
-    if (lateDeadline && now > lateDeadline) {
+    if (!awaitingManualStart && lateDeadline && now > lateDeadline) {
       throw new Error('The late-join window for this exam has closed.');
     }
 
@@ -259,13 +302,24 @@ export class SessionService {
       sessionState: exam.sessionState,
       totalQuestions,
       sectionCount: exam.sections.length,
+      // Lets the entry form ask for the password up front. The password
+      // itself never leaves the server.
+      accessType: exam.accessType,
+      requiresPassword: exam.accessType === 'PASSWORD_PROTECTED',
     };
   }
 
   /**
    * Register a student, create an attempt, return studentToken + snapshot.
    */
-  async registerStudent(examId: string, studentInfo: { name: string; studentId: string; email: string }) {
+  async registerStudent(
+    examId: string,
+    // email is optional: a student can join with just a full name and Student ID.
+    // Only Google sign-in gives a verified email (needed for private exams).
+    studentInfo: { name: string; studentId: string; email?: string },
+    // resumeAttemptId: the attempt the caller already holds a valid token for
+    opts: { password?: string; clientKey?: string; resumeAttemptId?: string } = {},
+  ) {
     const exam = await prisma.exam.findUnique({
       where: { id: examId },
       include: {
@@ -284,7 +338,42 @@ export class SessionService {
     const now = new Date();
     const effectiveEnd = computeEndDate(exam);
     if (exam.sessionState === 'ENDED') throw new Error('This exam has ended. Registration is closed.');
-    if (effectiveEnd && now >= effectiveEnd) throw new Error('This exam has already concluded.');
+    const awaitingManualStart = exam.manualStart && exam.sessionState === 'WAITING';
+    if (!awaitingManualStart && effectiveEnd && now >= effectiveEnd) throw new Error('This exam has already concluded.');
+
+    // ── Exam privacy (SRS 3.3) ───────────────────────────────────────────────
+    const studentEmail = (studentInfo.email || '').toLowerCase().trim();
+    // Who this student is. A verified email when they signed in with Google;
+    // otherwise the Student ID they typed (prefixed so it can never collide with an email).
+    const identity = studentEmail || `id:${studentInfo.studentId.trim().toLowerCase()}`;
+    studentInfo = { name: studentInfo.name.trim(), studentId: studentInfo.studentId.trim(), email: studentEmail };
+    if (exam.accessType === 'PRIVATE') {
+      // Private = invitation only, checked against the Roster by email — which a
+      // typed name and ID can't prove, so those students must sign in with Google.
+      if (!studentEmail) {
+        throw new Error('This is a private exam. Please continue with Google, using the email your teacher invited.');
+      }
+      const invited = await prisma.enrolledStudent.findFirst({
+        where: { examId: exam.id, email: studentEmail },
+        select: { id: true },
+      });
+      if (!invited) {
+        throw new Error("This is a private exam and your email hasn't been invited. Please ask your teacher to add you.");
+      }
+    } else if (exam.accessType === 'PASSWORD_PROTECTED') {
+      const throttleKey = `${exam.id}:${opts.clientKey || studentEmail}`;
+      const failures = passwordFailures.get(throttleKey);
+      if (failures && failures.resetAt > Date.now() && failures.count >= MAX_PASSWORD_FAILURES) {
+        throw new Error('Too many incorrect passwords. Please wait a few minutes and try again.');
+      }
+      if (!opts.password || !verifyPassword(opts.password, exam.password)) {
+        const entry = failures && failures.resetAt > Date.now() ? failures : { count: 0, resetAt: Date.now() + PASSWORD_LOCK_MS };
+        entry.count++;
+        passwordFailures.set(throttleKey, entry);
+        throw new Error(opts.password ? 'Incorrect exam password.' : 'This exam requires a password.');
+      }
+      passwordFailures.delete(throttleKey);
+    }
 
     // Build snapshot (no isCorrect exposed)
     const snapshot = {
@@ -299,20 +388,20 @@ export class SessionService {
         title: section.title,
         randomization: section.randomization,
         shuffleAnswers: section.shuffleAnswers,
-        questions: section.questions.map((q) => ({
+        questions: orderSectionForStudent(section).map((q, qIndex) => ({
           id: q.id,
           type: q.type,
           text: q.text,
           points: q.points,
-          order: q.order,
+          order: qIndex,
           metadata: {
-            pairs: (q.metadata as any)?.pairs,
+            pairs: maskMatchingPairs((q.metadata as any)?.pairs),
             hint: (q.metadata as any)?.hint,
           },
-          options: q.options.map((opt) => ({
+          options: q.options.map((opt, oIndex) => ({
             id: opt.id,
             text: opt.text,
-            order: opt.order,
+            order: oIndex,
           })),
         })),
       })),
@@ -334,17 +423,35 @@ export class SessionService {
       })
     );
 
-    const studentIdStr = studentInfo.email.toLowerCase().trim();
+    const studentIdStr = identity;
 
-    // Check if an attempt already exists for this email
-    let attempt = await prisma.examAttempt.findFirst({
-      where: {
-        examId: exam.id,
-        studentId: studentIdStr,
-      },
+    // Attempts already made by this student, newest first
+    const previousAttempts = await prisma.examAttempt.findMany({
+      where: { examId: exam.id, studentId: studentIdStr },
+      orderBy: { startedAt: 'desc' },
     });
+    let attempt: (typeof previousAttempts)[number] | null = previousAttempts[0] ?? null;
 
+    // A finished attempt only counts against Max Attempts (null = unlimited);
+    // with attempts left the student gets a fresh one, otherwise they're done.
+    if (attempt?.submittedAt) {
+      const limit = exam.maxAttempts;
+      if (limit !== null && previousAttempts.length >= limit) {
+        throw new Error(`You have already used ${limit === 1 ? 'your only attempt' : `all ${limit} attempts`} for this exam.`);
+      }
+      attempt = null;
+    }
+
+    // An unfinished attempt is resumed rather than duplicated
     if (attempt) {
+      // With only a typed Student ID there is nothing to prove who is asking, so
+      // resuming needs the token this device got when it first joined. Otherwise
+      // typing a classmate's ID would hand over their attempt. (Emails are
+      // verified by Google, so those resume freely.) The teacher can remove the
+      // student from the session to let a locked-out student back in.
+      if (!studentEmail && opts.resumeAttemptId !== attempt.id) {
+        throw new Error('This Student ID has already joined this exam from another device or browser. If that was you, ask your teacher to remove you from the session, then join again.');
+      }
       // Update the attempt with the latest studentInfo so they can fix typos in their Student ID
       const currentAnswers = (attempt.answers as any) || {};
       await prisma.examAttempt.update({
@@ -359,6 +466,7 @@ export class SessionService {
         attemptId: attempt.id,
         examId: exam.id,
         studentId: studentIdStr,
+        name: studentInfo.name,
       });
       return { token, attemptId: attempt.id, snapshot: attempt.snapshot, isApproved: attempt.isApproved };
     }
@@ -382,6 +490,7 @@ export class SessionService {
       attemptId: attempt.id,
       examId: exam.id,
       studentId: studentIdStr,
+      name: studentInfo.name,
     });
 
     // Broadcast student joined event
@@ -446,19 +555,23 @@ export class SessionService {
     const exam = await prisma.exam.findUnique({ where: { id: examId } });
     if (!exam) throw new Error('Exam not found.');
     if (exam.ownerId !== ownerId) throw new Error('Access denied.');
+    if (exam.status !== 'PUBLISHED') throw new Error('Publish the exam before starting it.');
+    // Restarting a running session would reset every student's timer, and an
+    // ended one has to go through Reopen so its schedule is set deliberately.
+    if (exam.sessionState === ExamSessionState.ACTIVE) throw new Error('This exam has already started.');
+    if (exam.sessionState === ExamSessionState.ENDED) throw new Error('This exam has ended. Reopen it to run it again.');
 
     const now = new Date();
-    const durationMin = exam.duration ?? 0;
-    const lateMin = exam.lateAllowanceMinutes ?? 0;
-    const newEndDate = durationMin > 0
-      ? new Date(now.getTime() + (durationMin + lateMin) * 60_000)
-      : exam.endDate;
+    const newEndDate = computeSessionEnd(exam, now);
 
     await prisma.exam.update({
       where: { id: examId },
       data: {
         sessionState: ExamSessionState.ACTIVE,
         endDate: newEndDate,
+        // For a manual-start exam the start date is when the teacher pressed
+        // Start — the late-join window is measured from it.
+        ...(exam.manualStart ? { startDate: now } : {}),
       },
     });
 
@@ -492,11 +605,27 @@ export class SessionService {
       data: { sessionState: ExamSessionState.ENDED },
     });
 
-    // Auto-submit all remaining attempts
-    await prisma.examAttempt.updateMany({
+    // Auto-submit all remaining attempts via GradingService
+    const remaining = await prisma.examAttempt.findMany({
       where: { examId, submittedAt: null },
-      data: { submittedAt: new Date(), autoSubmitted: true },
+      select: { id: true },
     });
+    const gradingService = new GradingService();
+    for (const a of remaining) {
+      await prisma.examAttempt.update({
+        where: { id: a.id },
+        data: { autoSubmitted: true },
+      });
+      try {
+        await gradingService.submitAndGradeFromAutosave(a.id);
+      } catch (err) {
+        console.error(`[endSession] Failed to auto-grade attempt ${a.id}:`, err);
+        await prisma.examAttempt.update({
+          where: { id: a.id },
+          data: { submittedAt: new Date() },
+        });
+      }
+    }
 
     const endPayload = { examId, endedAt: new Date().toISOString() };
     broadcast(examId, 'exam_ended', endPayload);
@@ -629,6 +758,7 @@ export class SessionService {
         attemptId: attempt.id,
         examId: attempt.examId,
         studentId: attempt.studentId || '',
+        name: (attempt.answers as any)?.studentInfo?.name,
       });
 
       return { token: newToken };
@@ -671,16 +801,13 @@ async function runSweep() {
     where: {
       status: 'PUBLISHED',
       sessionState: ExamSessionState.WAITING,
+      manualStart: false,
       startDate: { lte: now },
     },
-    select: { id: true, startDate: true, duration: true, lateAllowanceMinutes: true, endDate: true },
+    select: { id: true, startDate: true, duration: true, lateAllowanceMinutes: true, endDate: true, endDateFixed: true },
   });
   for (const exam of toStart) {
-    const durationMin = exam.duration ?? 0;
-    const lateMin = exam.lateAllowanceMinutes ?? 0;
-    const newEndDate = durationMin > 0
-      ? new Date(now.getTime() + (durationMin + lateMin) * 60_000)
-      : exam.endDate;
+    const newEndDate = computeSessionEnd(exam, now);
 
     await prisma.exam.update({
       where: { id: exam.id },
@@ -705,11 +832,21 @@ async function runSweep() {
     },
     select: { id: true, examId: true },
   });
+  const gradingService = new GradingService();
   for (const a of expired) {
     await prisma.examAttempt.update({
       where: { id: a.id },
-      data: { submittedAt: now, autoSubmitted: true },
+      data: { autoSubmitted: true },
     });
+    try {
+      await gradingService.submitAndGradeFromAutosave(a.id);
+    } catch (err) {
+      console.error(`[Sweep] Failed to auto-grade attempt ${a.id}:`, err);
+      await prisma.examAttempt.update({
+        where: { id: a.id },
+        data: { submittedAt: now },
+      });
+    }
     broadcast(a.examId, 'attempt_auto_submitted', { attemptId: a.id });
     broadcastToTeacher(a.examId, 'attempt_auto_submitted', { attemptId: a.id });
     console.log(`[Sweep] Auto-submitted attempt ${a.id}`);
@@ -735,11 +872,26 @@ async function runSweep() {
       where: { id: exam.id },
       data: { sessionState: ExamSessionState.ENDED },
     });
-    // Submit all remaining attempts
-    await prisma.examAttempt.updateMany({
+    // Submit all remaining attempts via GradingService
+    const remaining = await prisma.examAttempt.findMany({
       where: { examId: exam.id, submittedAt: null },
-      data: { submittedAt: now, autoSubmitted: true },
+      select: { id: true }
     });
+    for (const a of remaining) {
+      await prisma.examAttempt.update({
+        where: { id: a.id },
+        data: { autoSubmitted: true },
+      });
+      try {
+        await gradingService.submitAndGradeFromAutosave(a.id);
+      } catch (err) {
+        console.error(`[Sweep] Failed to auto-grade attempt ${a.id} on close:`, err);
+        await prisma.examAttempt.update({
+          where: { id: a.id },
+          data: { submittedAt: now },
+        });
+      }
+    }
     const p = { examId: exam.id, endedAt: now.toISOString(), autoClosed: true };
     broadcast(exam.id, 'exam_ended', p);
     broadcastToTeacher(exam.id, 'exam_ended', p);
