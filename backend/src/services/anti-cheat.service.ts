@@ -75,47 +75,7 @@ const DEFAULT_RULES: Omit<RuleInput, never>[] = [
 // ─── Service ──────────────────────────────────────────────────────────────────
 
 export class AntiCheatService {
-  private lastAlertAt = new Map<string, number>();
 
-  /**
-   * Persistent in-app alert (the header bell) for everyone watching this exam,
-   * so a flagged student is noticed even when the Live Monitor isn't open.
-   * Owner and accepted collaborators/invigilators all hold `receive_alerts`;
-   * each can opt out with the "Proctoring flags" notification preference.
-   */
-  private async notifyTeachers(
-    examId: string, attemptId: string, eventType: EventType, actionTaken: string,
-    studentName: string, examTitle: string, occurrence: number,
-  ) {
-    const key = `${attemptId}:${eventType}:${actionTaken}`;
-    const now = Date.now();
-    if (now - (this.lastAlertAt.get(key) ?? 0) < ALERT_COOLDOWN_MS) return;
-    this.lastAlertAt.set(key, now);
-
-    const exam = await prisma.exam.findUnique({ where: { id: examId }, select: { ownerId: true } });
-    if (!exam) return;
-    const collaborators = await prisma.collaborator.findMany({
-      where: { examId, status: 'ACCEPTED' },
-      select: { userId: true },
-    });
-    const users = await prisma.user.findMany({
-      where: { supabaseId: { in: [exam.ownerId, ...collaborators.map(c => c.userId)] } },
-      select: { supabaseId: true },
-    });
-
-    const outcome: Record<string, string> = {
-      flagged:        'was flagged for review',
-      blocked:        'was blocked (exam screen locked)',
-      auto_submitted: 'caused the exam to be auto-submitted',
-    };
-    const title = `${studentName}: ${EVENT_LABELS[eventType]}`;
-    const body  = `In "${examTitle}" — this ${outcome[actionTaken] ?? 'was recorded'} (occurrence #${occurrence}).`;
-
-    await Promise.all(
-      users
-        .map(u => notificationService.create(u.supabaseId, 'alert', title, body).catch(() => {})),
-    );
-  }
 
   /** What a student's exam page needs to know to enforce the teacher's rules. */
   async getStudentConfig(examId: string) {
@@ -123,16 +83,6 @@ export class AntiCheatService {
     return {
       rules: rules.map(({ eventType, enabled, action, threshold }) => ({ eventType, enabled, action, threshold })),
     };
-  }
-
-  // ── Access guards ────────────────────────────────────────────────────────
-  // Owner, Collaborator and Invigilator all have `monitor_students` per SRS
-  // 3.10 — proctoring visibility is the one thing every role gets.
-  private async assertCanMonitor(examId: string, requesterId: string) {
-    const exam = await prisma.exam.findUnique({ where: { id: examId }, select: { ownerId: true } });
-    if (!exam) throw new Error('Exam not found.');
-    if (exam.ownerId === requesterId) return;
-    await collaborationService.requireAccess(examId, requesterId, 'monitor_students');
   }
 
   // ── Rules ──────────────────────────────────────────────────────────────────
