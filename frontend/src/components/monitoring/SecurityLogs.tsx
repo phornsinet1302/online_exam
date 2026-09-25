@@ -29,7 +29,7 @@ export function SecurityLogs() {
   const load = () => {
     setLoading(true);
     setError("");
-    violationsApi.list({ pageSize: 500 })
+    violationsApi.list({ pageSize: 200 })
       .then(({ logs, exams }) => { setLogs(logs); setExams(exams); })
       .catch(e => setError(e instanceof Error && e.message ? e.message : "Failed to load security logs. Please try again."))
       .finally(() => setLoading(false));
