@@ -183,8 +183,9 @@ export const unarchiveExam = async (req: Request, res: Response) => {
 };
 
 const reopenSchema = z.object({
-  // Minutes from now until the (re)scheduled start; at least 1 so students can still join.
-  startsInMinutes: z.number().int().min(1).max(60 * 24 * 14).default(5),
+  // Minutes from now until the (re)scheduled start. 0 means start immediately.
+  startsInMinutes: z.number().int().min(0).max(60 * 24 * 14).default(0),
+  duration: z.number().int().min(1).optional(),
   endDate: z.string().regex(/^\d{2}\/\d{2}\/\d{4}$/, 'Format must be MM/dd/yyyy').nullable().optional(),
   endTime: z.string().regex(/^\d{2}:\d{2} (AM|PM)$/, 'Format must be hh:mm AM/PM').nullable().optional(),
 });

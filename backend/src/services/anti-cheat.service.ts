@@ -170,6 +170,7 @@ export class AntiCheatService {
     await collaborationService.requireAccess(examId, requesterId, 'monitor_students');
   }
 
+
   // ── Rules ──────────────────────────────────────────────────────────────────
 
   /**

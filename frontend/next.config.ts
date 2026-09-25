@@ -7,6 +7,10 @@ const nextConfig: NextConfig = {
   turbopack: {
     root: path.resolve(__dirname),
   },
+
+  experimental: {
+    optimizePackageImports: ["lucide-react", "@mui/material"],
+  },
 };
 
 export default nextConfig;
