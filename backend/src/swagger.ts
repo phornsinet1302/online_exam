@@ -4,7 +4,7 @@ const options = {
   definition: {
     openapi: '3.0.0',
     info: {
-      title: 'Online Exam Platform - Auth API',
+      title: 'Cheating.me - Auth API',
       version: '1.0.0',
       description: 'Authentication endpoints for teachers',
     },

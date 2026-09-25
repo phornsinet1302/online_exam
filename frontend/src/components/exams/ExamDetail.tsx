@@ -3,32 +3,162 @@
 import { useState, useEffect, useRef } from "react";
 import { useParams, useNavigate } from "@/lib/hooks";
 import { DashboardLayout, StatusBadge, CopyField, Toggle } from "@/components/dashboard/DashboardShared";
-import { Pencil, ChevronRight, Download, Clock, Users, Play, StopCircle, Wifi, WifiOff, Loader2 } from "lucide-react";
+import { Pencil, ChevronRight, Download, Clock, Users, Play, StopCircle, Wifi, WifiOff, Loader2, UserX, ClipboardList, AlertTriangle, RotateCcw, X, Upload } from "lucide-react";
 import { QRCodeCanvas } from "qrcode.react";
 import { examsApi } from "@/lib/api/exams";
-import { startExamSession, endExamSession } from "@/lib/api/session";
+import { startExamSession, endExamSession, getTeacherStreamUrl } from "@/lib/api/session";
+import { RulesConfig } from "@/components/monitoring/RulesConfig";
 import { API_URL } from "@/lib/api/client";
+import { to12h } from "@/lib/datetime";
 import { U, I, INK, CAMEL } from "@/lib/tokens";
 import { AntiCheatRuleEditor } from "@/components/monitoring/AntiCheatRuleEditor";
 
 const S = "#059669";
 const SL = "#ecfdf5";
 
+// ─── Reopen Exam dialog ───────────────────────────────────────────────────────
+const REOPEN_PRESETS = [0, 5, 10, 15, 30, 60];
+
+function ReopenDialog({ exam, onClose, onReopened }: { exam: any; onClose: () => void; onReopened: (exam: any) => void }) {
+  const [minutes, setMinutes] = useState(0);
+  const [newDuration, setNewDuration] = useState(exam.duration || 10);
+  const [hardClose, setHardClose] = useState(false);
+  const [endDate, setEndDate] = useState("");
+  const [endTime, setEndTime] = useState("23:59");
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState("");
+
+  const tz = exam.timezone || "UTC";
+  const fmt = (d: Date) => {
+    const opts: Intl.DateTimeFormatOptions = { weekday: "short", day: "numeric", month: "short", hour: "numeric", minute: "2-digit" };
+    try { return new Intl.DateTimeFormat("en-GB", { ...opts, timeZone: tz }).format(d); }
+    catch { return new Intl.DateTimeFormat("en-GB", opts).format(d); }
+  };
+  const start = new Date(Date.now() + Math.max(0, minutes) * 60_000);
+  const end = new Date(start.getTime() + newDuration * 60_000);
+
+  const manual = !!exam.manualStart;
+
+  const submit = async () => {
+    setError("");
+    if (!manual && (!Number.isInteger(minutes) || minutes < 0)) { setError("Enter a valid start time."); return; }
+    if (!manual && (!Number.isInteger(newDuration) || newDuration < 1)) { setError("Enter a valid duration."); return; }
+    let endParams: { endDate: string; endTime: string } | null = null;
+    if (!manual && hardClose) {
+      if (!endDate) { setError("Pick the date the exam should close, or turn the hard close off."); return; }
+      const [y, m, d] = endDate.split("-");
+      endParams = { endDate: `${m}/${d}/${y}`, endTime: to12h(endTime || "23:59") };
+    }
+    setBusy(true);
+    try {
+      const updated = await examsApi.reopen(exam.id, { startsInMinutes: minutes, duration: newDuration, ...(endParams ?? {}) });
+      onReopened(updated);
+    } catch (e: any) {
+      setError(e?.message || "Couldn't reopen the exam. Please try again.");
+      setBusy(false);
+    }
+  };
+
+  return (
+    <div className="fixed inset-0 z-[100] flex items-center justify-center px-4" style={{ background: "rgba(13,27,42,0.55)", backdropFilter: "blur(8px)" }} onClick={busy ? undefined : onClose}>
+      <div className="bg-white rounded-2xl w-full max-w-md shadow-2xl overflow-hidden" onClick={e => e.stopPropagation()}>
+        <div className="h-1 w-full" style={{ background: `linear-gradient(90deg,${INK},${CAMEL})` }} />
+        <div className="p-7">
+          <div className="flex items-center justify-between mb-1">
+            <h3 className="text-lg font-black" style={{ fontFamily: U, color: INK }}>Reopen exam</h3>
+            <button onClick={onClose} disabled={busy} className="w-8 h-8 rounded-full bg-gray-100 flex items-center justify-center text-gray-500 disabled:opacity-50"><X size={15} /></button>
+          </div>
+          <p className="text-xs text-gray-500 mb-5 leading-relaxed" style={{ fontFamily: I }}>
+            {manual
+              ? <>Opens the waiting room for <strong>{exam.title?.trim()}</strong> again. Nothing is scheduled: students wait in the lobby and the exam starts when you press Start. Earlier results are kept, and Max Attempts still applies.</>
+              : <>Starts a new session for <strong>{exam.title?.trim()}</strong>. The waiting room opens right away, so students can enter the code before it starts. Earlier results are kept, and Max Attempts still applies.</>}
+          </p>
+
+          {!manual && <>
+          <div className="grid grid-cols-2 gap-5 mb-5">
+            <div>
+              <p className="text-xs font-bold text-gray-500 uppercase tracking-wider mb-2" style={{ fontFamily: U }}>Start in</p>
+              <div className="flex flex-wrap items-center gap-2">
+                {REOPEN_PRESETS.map(m => (
+                  <button key={m} onClick={() => setMinutes(m)} className={`text-xs font-bold px-3 py-2 rounded-xl border transition-all ${minutes === m ? "text-white border-transparent" : "border-gray-200 text-gray-500 hover:border-gray-300"}`} style={{ background: minutes === m ? INK : undefined, fontFamily: U }}>{m === 0 ? 'Now' : `${m}m`}</button>
+                ))}
+                <input type="number" min={0} max={20160} value={minutes} onChange={e => setMinutes(parseInt(e.target.value, 10) || 0)}
+                  className="w-16 border border-gray-200 rounded-xl px-2 py-2 text-xs text-gray-800 focus:outline-none focus:border-gray-400" style={{ fontFamily: I }} aria-label="Custom minutes" />
+              </div>
+            </div>
+            
+            <div>
+              <p className="text-xs font-bold text-gray-500 uppercase tracking-wider mb-2" style={{ fontFamily: U }}>New Duration</p>
+              <div className="flex items-center gap-2">
+                <input type="number" min={1} max={1440} value={newDuration} onChange={e => setNewDuration(parseInt(e.target.value, 10) || 0)}
+                  className="w-20 border border-gray-200 rounded-xl px-3 py-2 text-xs text-gray-800 focus:outline-none focus:border-gray-400" style={{ fontFamily: I }} />
+                <span className="text-xs font-semibold text-gray-500">minutes</span>
+              </div>
+            </div>
+          </div>
+
+          <label className="flex items-center justify-between gap-3 mb-3 cursor-pointer">
+            <div>
+              <p className="text-sm font-semibold text-gray-700" style={{ fontFamily: U }}>Set a hard close time</p>
+              <p className="text-[11px] text-gray-400" style={{ fontFamily: I }}>Otherwise it closes {newDuration} min after it starts.</p>
+            </div>
+            <Toggle on={hardClose} onChange={() => setHardClose(h => !h)} />
+          </label>
+          {hardClose && (
+            <div className="grid grid-cols-2 gap-3 mb-3">
+              <input type="date" value={endDate} onChange={e => setEndDate(e.target.value)} className="border border-gray-200 rounded-xl px-3 py-2.5 text-sm text-gray-900 focus:outline-none focus:border-gray-400" style={{ fontFamily: I }} />
+              <input type="time" value={endTime} onChange={e => setEndTime(e.target.value)} className="border border-gray-200 rounded-xl px-3 py-2.5 text-sm text-gray-900 focus:outline-none focus:border-gray-400" style={{ fontFamily: I }} />
+            </div>
+          )}
+
+          <div className="rounded-xl bg-gray-50 px-4 py-3 mb-5 text-xs text-gray-600 space-y-1" style={{ fontFamily: I }}>
+            <p>Starts <strong>{fmt(start)}</strong></p>
+            <p>{hardClose && endDate ? <>Closes <strong>{endDate} {endTime}</strong></> : <>Closes <strong>{fmt(end)}</strong></>} <span className="text-gray-400">({tz})</span></p>
+          </div>
+          </>}
+
+          {error && <p className="text-xs text-red-500 mb-3 leading-relaxed" style={{ fontFamily: I }}>{error}</p>}
+          <button onClick={submit} disabled={busy} className="w-full flex items-center justify-center gap-2 text-white font-bold py-3.5 rounded-xl text-sm hover:opacity-90 disabled:opacity-50" style={{ background: INK, fontFamily: U }}>
+            {busy ? <><Loader2 size={14} className="animate-spin" />Reopening…</> : <><RotateCcw size={14} />Reopen exam</>}
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
 // ─── Live Session Panel ───────────────────────────────────────────────────────
-function LiveSessionPanel({ examId, sessionState, onSessionChange }: {
+function LiveSessionPanel({ examId, exam, sessionState, onSessionChange, onReopened, canControl }: {
   examId: string;
+  exam: any;
   sessionState: string;
   onSessionChange: (state: string) => void;
+  onReopened: (exam: any) => void;
+  // Starting/ending/reopening the session is owner-only; everyone else just watches.
+  canControl: boolean;
 }) {
+  const [showReopen, setShowReopen] = useState(false);
   const [waitingStudents, setWaitingStudents] = useState<any[]>([]);
   const [starting, setStarting] = useState(false);
   const [ending, setEnding] = useState(false);
   const [connected, setConnected] = useState(false);
   const esRef = useRef<EventSource | null>(null);
 
+  const [streamUrl, setStreamUrl] = useState<string | null>(null);
+
   useEffect(() => {
     if (!examId) return;
-    const es = new EventSource(`${API_URL}/session/${examId}/teacher-live`);
+    let cancelled = false;
+    setStreamUrl(null);
+    getTeacherStreamUrl(examId)
+      .then(url => { if (!cancelled) setStreamUrl(url); })
+      .catch(() => { if (!cancelled) setConnected(false); });
+    return () => { cancelled = true; };
+  }, [examId]);
+
+  useEffect(() => {
+    if (!examId || !streamUrl) return;
+    const es = new EventSource(streamUrl);
     esRef.current = es;
 
     es.onopen = () => setConnected(true);
@@ -93,9 +223,11 @@ function LiveSessionPanel({ examId, sessionState, onSessionChange }: {
     });
 
     return () => { es.close(); esRef.current = null; };
-  }, [examId]);
+  }, [examId, streamUrl]);
 
   const handleStart = async () => {
+    const n = waitingStudents.length;
+    if (!confirm(`Start the exam now? ${n === 0 ? "No students are in the waiting room yet." : `${n} student${n === 1 ? "" : "s"} in the waiting room will begin immediately.`} The timer starts for everyone.`)) return;
     setStarting(true);
     try {
       await startExamSession(examId);
@@ -148,7 +280,7 @@ function LiveSessionPanel({ examId, sessionState, onSessionChange }: {
               ? `${waitingStudents.length} student${waitingStudents.length !== 1 ? "s" : ""} currently in the exam`
               : isEnded
                 ? "This exam session has ended"
-                : `${waitingStudents.length} student${waitingStudents.length !== 1 ? "s" : ""} waiting to start`}
+                : `${waitingStudents.length} student${waitingStudents.length !== 1 ? "s" : ""} waiting${exam.manualStart ? " — press Start whenever you're ready" : " to start"}`}
           </p>
         </div>
         <div className="flex items-center gap-2">
@@ -158,15 +290,15 @@ function LiveSessionPanel({ examId, sessionState, onSessionChange }: {
             {connected ? <Wifi size={11} /> : <WifiOff size={11} />}
             {connected ? "Live" : "Reconnecting..."}
           </span>
-          {!isActive && !isEnded && (
+          {canControl && !isActive && !isEnded && (
             <button onClick={handleStart} disabled={starting}
               className="flex items-center gap-2 px-5 py-2.5 rounded-xl text-sm font-black text-white hover:opacity-90 transition-all disabled:opacity-60"
               style={{ background: S, fontFamily: U }}>
               {starting ? <Loader2 size={14} className="animate-spin" /> : <Play size={14} />}
-              {starting ? "Starting..." : "Start Exam Now"}
+              {starting ? "Starting..." : exam.manualStart ? "Start Exam" : "Start Exam Now"}
             </button>
           )}
-          {isActive && (
+          {canControl && isActive && (
             <button onClick={handleEnd} disabled={ending}
               className="flex items-center gap-2 px-5 py-2.5 rounded-xl text-sm font-black text-white hover:opacity-90 transition-all disabled:opacity-60"
               style={{ background: "#ef4444", fontFamily: U }}>
@@ -244,10 +376,37 @@ function LiveSessionPanel({ examId, sessionState, onSessionChange }: {
           <p className="text-xs text-gray-400 mt-1" style={{ fontFamily: I }}>
             Student results are available in the Overview tab
           </p>
+          {canControl && (
+            <button onClick={() => setShowReopen(true)}
+              className="mt-5 inline-flex items-center gap-2 px-5 py-2.5 rounded-xl text-sm font-black text-white hover:opacity-90 transition-all" style={{ background: INK, fontFamily: U }}>
+              <RotateCcw size={14} />Reopen exam
+            </button>
+          )}
         </div>
+      )}
+
+      {showReopen && (
+        <ReopenDialog exam={exam} onClose={() => setShowReopen(false)}
+          onReopened={updated => { setShowReopen(false); onReopened(updated); }} />
       )}
     </div>
   );
+}
+
+// ─── Roster Panel ─────────────────────────────────────────────────────────────
+// ─── Shared UI Helpers ────────────────────────────────────────────────────────
+function DetailRow({ label, value, note }: { label: string; value: React.ReactNode; note?: string }) {
+  return (
+    <div className="py-4 border-b border-gray-50 last:border-0">
+      <p className="text-[10px] font-black uppercase tracking-wider text-gray-400 mb-1" style={{ fontFamily: U }}>{label}</p>
+      <div className="text-sm text-gray-800 font-medium" style={{ fontFamily: I }}>{value}</div>
+      {note && <p className="text-xs text-gray-400 mt-1" style={{ fontFamily: I }}>{note}</p>}
+    </div>
+  );
+}
+
+function copyToClipboard(text: string) {
+  navigator.clipboard.writeText(text).catch(() => {});
 }
 
 // ─── Main Component ───────────────────────────────────────────────────────────
@@ -264,6 +423,8 @@ export function ExamDetail() {
       examsApi.getById(id as string).then(data => {
         setExam(data);
         setSessionState(data.sessionState || "WAITING");
+        setPrivacy(data.accessType === "PRIVATE" ? "private" : data.accessType === "PASSWORD_PROTECTED" ? "password" : "public");
+        setShuffleQ(!!data.randomizeQuestions);
       }).catch(() => setExam(null)).finally(() => setLoading(false));
     } else {
       setLoading(false);
@@ -282,9 +443,12 @@ export function ExamDetail() {
     }
   }, []);
 
+  // Settings tab — initialised from the exam once it loads
   const [privacy, setPrivacy] = useState("public");
-  const [proctoring, setProctoring] = useState(true);
-  const [shuffleQ, setShuffleQ] = useState(true);
+  const [shuffleQ, setShuffleQ] = useState(false);
+  const [settingsPassword, setSettingsPassword] = useState("");
+  const [settingsSaving, setSettingsSaving] = useState(false);
+  const [settingsMsg, setSettingsMsg] = useState<{ ok: boolean; text: string } | null>(null);
 
   const magicLink = exam && typeof window !== "undefined"
     ? `${window.location.origin}/join/${(exam.uniqueCode || "").toLowerCase()}`
@@ -312,12 +476,41 @@ export function ExamDetail() {
     }
   };
 
-  const tabs = ["session", "overview", "sharing", "rules", "preview"];
+  // Role-aware UI: the backend enforces these rules; this just avoids showing
+  // controls that would only 403. Rules + sharing are owner-only, and an
+  // Invigilator is read-only (can't edit the exam).
+  const isOwner = exam?.myRole === "OWNER";
+  const canEdit = exam?.myRole === "OWNER" || exam?.myRole === "COLLABORATOR";
+  const tabs = ["session", "overview", "sharing", "rules", "preview"]
+    .filter(t => isOwner || (t !== "rules" && t !== "sharing"));
 
   const sessionStateLabel: Record<string, string> = {
     WAITING: "Waiting",
     ACTIVE: "Active",
     ENDED: "Ended",
+  };
+
+  const saveSettings = async () => {
+    if (privacy === "password" && !settingsPassword.trim() && !exam.hasPassword) {
+      setSettingsMsg({ ok: false, text: "Enter a password for this password-protected exam." });
+      return;
+    }
+    setSettingsSaving(true);
+    setSettingsMsg(null);
+    try {
+      const updated = await examsApi.update(exam.id, {
+        accessType: privacy === "private" ? "PRIVATE" : privacy === "password" ? "PASSWORD_PROTECTED" : "PUBLIC",
+        randomizeQuestions: shuffleQ,
+        ...(privacy === "password" && settingsPassword.trim() ? { password: settingsPassword.trim() } : {}),
+      });
+      setExam((prev: any) => ({ ...prev, ...updated }));
+      setSettingsPassword("");
+      setSettingsMsg({ ok: true, text: "Settings saved." });
+    } catch (e: any) {
+      setSettingsMsg({ ok: false, text: e?.message || "Failed to save settings." });
+    } finally {
+      setSettingsSaving(false);
+    }
   };
 
   if (loading) return <div className="p-10 text-center"><Loader2 className="animate-spin mx-auto text-gray-400" size={28} /></div>;
@@ -337,7 +530,7 @@ export function ExamDetail() {
             ● {sessionStateLabel[sessionState] || sessionState}
           </span>
         )}
-        {sessionState !== "ENDED" && (
+        {canEdit && sessionState !== "ENDED" && (
           <button onClick={() => navigate(`/dashboard/exams/${exam.id}/edit`)} className="flex items-center gap-2 text-white text-xs font-bold px-4 py-2 rounded-xl hover:opacity-90" style={{ background: INK, fontFamily: U }}><Pencil size={13} />Edit</button>
         )}
       </>}>
@@ -366,8 +559,14 @@ export function ExamDetail() {
       {tab === "session" && exam.status === "PUBLISHED" && (
         <LiveSessionPanel
           examId={exam.id}
+          exam={exam}
           sessionState={sessionState}
           onSessionChange={setSessionState}
+          onReopened={updated => {
+            setExam((prev: any) => ({ ...prev, ...updated }));
+            setSessionState(updated.sessionState || "WAITING");
+          }}
+          canControl={isOwner}
         />
       )}
       {tab === "session" && exam.status !== "PUBLISHED" && (
@@ -487,12 +686,20 @@ export function ExamDetail() {
                     <span className="text-xs text-gray-400" style={{ fontFamily: I }}>{q.type.replace(/_/g, " ")}</span>
                   </div>
                   <p className="text-sm text-gray-800 mb-4 font-medium" style={{ fontFamily: I }}>{q.text}</p>
-                  {(q.type === 'MCQ' || q.type === 'MULTIPLE_SELECT' || q.type === 'TRUE_FALSE') && q.options ? (
+                  {(q.type === 'MCQ' || q.type === 'MULTIPLE_SELECT') && q.options ? (
                     <div className="space-y-2">
                       {q.options.map((o: any) => (
                         <div key={o.id} className="flex items-center gap-3 px-4 py-3 rounded-lg border border-gray-200 hover:bg-gray-50 cursor-pointer text-sm text-gray-700" style={{ fontFamily: I }}>
                           <div className={`w-4 h-4 flex-shrink-0 border-2 border-gray-300 ${q.type === 'MULTIPLE_SELECT' ? 'rounded' : 'rounded-full'}`} />
                           {o.text}
+                        </div>
+                      ))}
+                    </div>
+                  ) : q.type === 'TRUE_FALSE' ? (
+                    <div className="grid grid-cols-2 gap-3">
+                      {["True", "False"].map(v => (
+                        <div key={v} className="rounded-xl border-2 border-gray-200 text-gray-600 py-3 text-sm font-bold text-center" style={{ fontFamily: U }}>
+                          {v}
                         </div>
                       ))}
                     </div>
@@ -517,6 +724,11 @@ export function ExamDetail() {
                           </div>
                         ))}
                       </div>
+                    </div>
+                  ) : q.type === 'FILE_UPLOAD' ? (
+                    <div className="rounded-xl border-2 border-dashed border-gray-200 px-4 py-6 text-center text-sm text-gray-500" style={{ fontFamily: I }}>
+                      <Upload size={18} className="mx-auto mb-2 text-gray-400" />
+                      Upload up to {q.maxFiles || "1"} file(s) — {q.fileTypes || "any type"}
                     </div>
                   ) : (
                     <textarea rows={3} placeholder="Type your answer here…" className="w-full border border-gray-200 rounded-lg px-4 py-3 text-sm text-gray-700 focus:outline-none resize-none" style={{ fontFamily: I }} />

@@ -14,8 +14,10 @@ import sessionRoutes from './routes/session.routes.js';
 import collaborationRoutes from './routes/collaboration.routes.js';
 import reportRoutes from './routes/report.routes.js';
 import studentRoutes from './routes/student.routes.js';
-import multer from 'multer'; 
+import multer from 'multer';
 import antiCheatRoutes from './routes/anti-cheat.routes.js';
+import notificationRoutes from './routes/notification.routes.js';
+import rosterRoutes from './routes/roster.routes.js';
 
 const app = express();
 
@@ -56,17 +58,25 @@ app.use('/api', examRoutes);
 app.use('/api', antiCheatRoutes);
 app.use('/api', collaborationRoutes);
 app.use('/api', reportRoutes);
+app.use('/api', notificationRoutes);
+app.use('/api', rosterRoutes);
 
 
 // Global error handler
 app.use((err: any, req: any, res: any, next: any) => {
   console.error(err);
-  res.status(500).json({ message: 'Internal server error' });
+
+  if (res.headersSent) return next(err);
 
   if (err instanceof multer.MulterError) {
-    // Multer-specific errors (like file size, unexpected field)
+    if (err.code === 'LIMIT_FILE_SIZE') {
+      return res.status(400).json({ error: 'That file is too large. The limit is 10MB.' });
+    }
+    // Other Multer-specific errors (unexpected field, wrong file type, etc.)
     return res.status(400).json({ error: err.message });
   }
+
+  res.status(err.status || err.statusCode || 500).json({ message: err.message || 'Internal server error' });
 });
 
 

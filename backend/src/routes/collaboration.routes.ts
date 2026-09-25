@@ -7,6 +7,8 @@ import {
   removeCollaborator,
   acceptInvitation,
   declineInvitation,
+  getInviteLink,
+  acceptInviteLink,
   getMyCollaborations,
 } from '../controllers/collaboration.controller.js';
 import { authMiddleware } from '../middleware/auth.middleware.js';
@@ -135,6 +137,53 @@ router.get('/exams/:examId/collaborators', getCollaborators);
  */
 router.put('/exams/:examId/collaborators/:id', updateCollaboratorRole);
 router.delete('/exams/:examId/collaborators/:id', removeCollaborator);
+
+/**
+ * @openapi
+ * /api/exams/{examId}/invite-link:
+ *   get:
+ *     tags: [Collaboration]
+ *     summary: Get (or create) a shareable, expiring invite link for a role
+ *     description: Owner-only. Returns an existing non-expired link for the exam+role pair if one exists, otherwise creates a new one that expires in 7 days.
+ *     security: [{ bearerAuth: [] }]
+ *     parameters:
+ *       - in: path
+ *         name: examId
+ *         required: true
+ *         schema: { type: string }
+ *       - in: query
+ *         name: role
+ *         required: true
+ *         schema: { type: string, enum: [COLLABORATOR, INVIGILATOR] }
+ *     responses:
+ *       200:
+ *         description: Invite link
+ */
+router.get('/exams/:examId/invite-link', getInviteLink);
+
+/**
+ * @openapi
+ * /api/collaborations/accept-link:
+ *   post:
+ *     tags: [Collaboration]
+ *     summary: Accept a shareable invite link, joining the exam immediately
+ *     security: [{ bearerAuth: [] }]
+ *     requestBody:
+ *       required: true
+ *       content:
+ *         application/json:
+ *           schema:
+ *             type: object
+ *             required: [token]
+ *             properties:
+ *               token: { type: string }
+ *     responses:
+ *       200:
+ *         description: Joined the exam
+ *       400:
+ *         description: Invalid, expired, or revoked link
+ */
+router.post('/collaborations/accept-link', acceptInviteLink);
 
 /**
  * @openapi

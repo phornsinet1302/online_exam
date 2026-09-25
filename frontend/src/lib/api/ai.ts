@@ -6,7 +6,7 @@ export const aiApi = {
       message: string;
       count: number;
       questions: any[];
-    }>("/ai/generate-from-pdf", {
+    }>("/generate-from-pdf", {
       method: "POST",
       body: data,
     });

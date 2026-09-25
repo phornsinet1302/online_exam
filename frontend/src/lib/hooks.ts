@@ -1,17 +1,22 @@
 "use client";
 
+import { useCallback, useEffect, useState } from "react";
 import { useRouter, usePathname } from "next/navigation";
+import { notificationsApi } from "@/lib/api/notifications";
 
 /** Thin wrapper so components can navigate without importing next/navigation directly */
 export function useNavigate() {
   const router = useRouter();
-  return (path: string, options?: { replace?: boolean }) => {
+  // Memoised on purpose: callers list `navigate` in useEffect dependency arrays,
+  // and a new function each render made those effects re-run after every state
+  // update — e.g. the student entry form re-called the server ~5 times a second.
+  return useCallback((path: string, options?: { replace?: boolean }) => {
     if (options?.replace) {
       router.replace(path);
     } else {
       router.push(path);
     }
-  };
+  }, [router]);
 }
 
 /** Extracts dynamic route params from the pathname */
@@ -51,4 +56,24 @@ export function authHeaders(): HeadersInit {
     "Content-Type": "application/json",
     ...(token ? { Authorization: `Bearer ${token}` } : {}),
   };
+}
+
+/** Number of unread notifications for the logged-in teacher, for the header/sidebar bell badges */
+export function useUnreadNotificationCount(): number {
+  const [count, setCount] = useState(0);
+
+  useEffect(() => {
+    let cancelled = false;
+    notificationsApi
+      .list("all")
+      .then((notifs) => {
+        if (!cancelled) setCount(notifs.filter((n) => !n.read).length);
+      })
+      .catch(() => {});
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
+  return count;
 }

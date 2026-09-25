@@ -310,11 +310,18 @@ export async function submitExam(attemptId: string) {
     console.error('Failed to broadcast student_submitted:', err);
   }
 
+  // "Show results after submission" is the teacher's choice — when it's off,
+  // the score/breakdown must not be in the response at all (hiding it only in
+  // the UI would still leave it visible in the network tab).
+  const visibleGrading = exam.showResults
+    ? grading
+    : { status: grading.status, hidden: true };
+
   return {
     message: 'Exam submitted successfully.',
     attemptId: updated.id,
     submittedAt: updated.submittedAt,
-    grading,
+    grading: visibleGrading,
     showResults: exam.showResults,
   };
 }

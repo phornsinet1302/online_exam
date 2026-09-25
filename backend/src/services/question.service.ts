@@ -2,18 +2,20 @@
 import prisma from '../config/database.js';
 import { ExamStatus, QuestionType, Difficulty } from '@prisma/client';
 import { v4 as uuidv4 } from 'uuid';
-import { processFileImport } from '../utils/fileProcessor.js';
+import { processFileImport, ParsedQuestion } from '../utils/fileProcessor.js';
 import { AIGenerationService } from './ai/generation.service.js';
+import { CollaborationService } from './collaboration.service.js';
 
-// This interface should match what processFileImport returns
-// We'll make all fields optional except the required ones.
-interface ParsedQuestion {
-  type: string; // will be mapped to QuestionType
-  text: string;
-  points?: number;
-  difficulty?: Difficulty;
-  order?: number;
-  options?: { text: string; isCorrect: boolean }[];
+const collaborationService = new CollaborationService();
+
+// Owner or a collaborator with the given permission may proceed — invigilators
+// (and anyone uninvolved with the exam) are rejected. Reused across every
+// question/section mutation, since none of them checked access before.
+async function requireExamAccess(examId: string, requesterId: string, action: string) {
+  const exam = await prisma.exam.findUnique({ where: { id: examId }, select: { ownerId: true } });
+  if (!exam) throw new Error('Exam not found');
+  if (exam.ownerId === requesterId) return;
+  await collaborationService.requireAccess(examId, requesterId, action);
 }
 
 const normalizeDifficulty = (value: unknown): Difficulty | undefined => {
@@ -29,9 +31,10 @@ export class QuestionService {
   private aiGenerationService = new AIGenerationService();
 
   // -------- Section Management --------
-  async createSection(examId: string, title: string, order?: number, randomization = false, shuffleAnswers = false) {
+  async createSection(examId: string, requesterId: string, title: string, order?: number, randomization = false, shuffleAnswers = false) {
     const exam = await prisma.exam.findUnique({ where: { id: examId } });
     if (!exam) throw new Error('Exam not found');
+    await requireExamAccess(examId, requesterId, 'update_exam_details');
 
     if (order === undefined) {
       const lastSection = await prisma.section.findFirst({
@@ -52,9 +55,10 @@ export class QuestionService {
     });
   }
 
-  async reorderSections(examId: string, sectionOrder: { id: string; order: number }[]) {
+  async reorderSections(examId: string, requesterId: string, sectionOrder: { id: string; order: number }[]) {
     const exam = await prisma.exam.findUnique({ where: { id: examId } });
     if (!exam) throw new Error('Exam not found');
+    await requireExamAccess(examId, requesterId, 'update_exam_details');
     // if (exam.status !== 'DRAFT') throw new Error('Cannot modify a published or archived exam');
 
     const sectionIds = sectionOrder.map(s => s.id);
@@ -76,6 +80,7 @@ export class QuestionService {
   // -------- Question Management --------
   async createQuestion(
     sectionId: string,
+    requesterId: string,
     type: string,
     text: string,
     points: number,
@@ -91,6 +96,7 @@ export class QuestionService {
       include: { exam: true },
     });
     if (!section) throw new Error('Section not found');
+    await requireExamAccess(section.examId, requesterId, 'add_questions');
 
     const lastQuestion = await prisma.question.findFirst({
       where: { sectionId },
@@ -103,7 +109,7 @@ export class QuestionService {
       throw new Error(`Invalid question type: ${type}`);
     }
 
-    const typesRequiringOptions = ['MCQ', 'MULTIPLE_SELECT', 'TRUE_FALSE', 'CHECKBOX'];
+    const typesRequiringOptions = ['MCQ', 'MULTIPLE_SELECT', 'TRUE_FALSE', 'CHECKBOX', 'DROPDOWN'];
     if (typesRequiringOptions.includes(type) && (!options || options.length === 0)) {
       throw new Error(`Options are required for ${type}`);
     }
@@ -149,12 +155,13 @@ export class QuestionService {
     });
   }
 
-  async updateQuestion(questionId: string, data: any) {
+  async updateQuestion(questionId: string, requesterId: string, data: any) {
     const question = await prisma.question.findUnique({
       where: { id: questionId },
       include: { options: true, section: { include: { exam: true } } },
     });
     if (!question) throw new Error('Question not found');
+    await requireExamAccess(question.section.examId, requesterId, 'edit_questions');
     // if (question.section.exam.status !== 'DRAFT') throw new Error('Cannot modify a published or archived exam');
 
     const { options, ...questionData } = data;
@@ -165,7 +172,7 @@ export class QuestionService {
       throw new Error(`Invalid question type: ${effectiveType}`);
     }
 
-    const typesRequiringOptions = ['MCQ', 'MULTIPLE_SELECT', 'TRUE_FALSE', 'CHECKBOX'];
+    const typesRequiringOptions = ['MCQ', 'MULTIPLE_SELECT', 'TRUE_FALSE', 'CHECKBOX', 'DROPDOWN'];
     const requiresOptions = typesRequiringOptions.includes(effectiveType);
 
     let optionsUpdate: any = undefined;
@@ -222,12 +229,13 @@ export class QuestionService {
     });
   }
 
-  async deleteQuestion(questionId: string) {
+  async deleteQuestion(questionId: string, requesterId: string) {
     const question = await prisma.question.findUnique({
       where: { id: questionId },
       include: { section: { include: { exam: true } } },
     });
     if (!question) throw new Error('Question not found');
+    await requireExamAccess(question.section.examId, requesterId, 'remove_questions');
     // if (question.section.exam.status !== 'DRAFT') throw new Error('Cannot modify a published or archived exam');
 
     await prisma.question.delete({ where: { id: questionId } });
@@ -235,54 +243,60 @@ export class QuestionService {
   }
 
   // -------- Import Questions from File --------
-  async importQuestions(examId: string, fileBuffer: Buffer, fileName: string) {
+  async importQuestions(examId: string, requesterId: string, fileBuffer: Buffer, fileName: string, sectionId?: string) {
     const exam = await prisma.exam.findUnique({ where: { id: examId } });
     if (!exam) throw new Error('Exam not found');
-    // if (exam.status !== 'DRAFT') throw new Error('Cannot modify a published or archived exam');
+    await requireExamAccess(examId, requesterId, 'add_questions');
 
+    // Parse (and validate) the whole file first so a bad row imports nothing.
     const parsedQuestions: ParsedQuestion[] = await processFileImport(fileBuffer, fileName);
 
-    let section = await prisma.section.findFirst({ where: { examId }, orderBy: { order: 'asc' } });
+    let section = sectionId
+      ? await prisma.section.findFirst({ where: { id: sectionId, examId } })
+      : await prisma.section.findFirst({ where: { examId }, orderBy: { order: 'asc' } });
+    if (sectionId && !section) throw new Error('Section not found');
     if (!section) {
       section = await prisma.section.create({
         data: { examId, title: 'Imported Questions', order: 0 },
       });
     }
 
-    const created = [];
-    for (const q of parsedQuestions) {
-      // Validate type
-      if (!Object.values(QuestionType).includes(q.type as QuestionType)) {
-        throw new Error(`Invalid question type: ${q.type}`);
-      }
+    // Append after whatever the section already holds.
+    const last = await prisma.question.findFirst({ where: { sectionId: section.id }, orderBy: { order: 'desc' } });
+    const firstOrder = last ? last.order + 1 : 0;
+    const targetSectionId = section.id;
 
-      const question = await prisma.question.create({
-        data: {
-          sectionId: section.id,
-          type: q.type as QuestionType,
-          text: q.text,
-          points: q.points ?? 1,
-          difficulty: q.difficulty || Difficulty.MEDIUM,
-          order: q.order ?? 0,
-          options: q.options
-            ? {
-                create: q.options.map((opt, idx) => ({
-                  text: opt.text,
-                  isCorrect: opt.isCorrect,
-                  order: idx,
-                })),
-              }
-            : undefined,
-        },
-      });
-      created.push(question);
-    }
+    const created = await prisma.$transaction(
+      parsedQuestions.map((q, idx) => {
+        if (!Object.values(QuestionType).includes(q.type as QuestionType)) {
+          throw new Error(`Invalid question type: ${q.type}`);
+        }
+        return prisma.question.create({
+          data: {
+            sectionId: targetSectionId,
+            type: q.type as QuestionType,
+            text: q.text,
+            points: q.points,
+            difficulty: normalizeDifficulty(q.difficulty) || Difficulty.MEDIUM,
+            order: firstOrder + idx,
+            metadata: q.metadata as any,
+            options: q.options
+              ? { create: q.options.map((opt, i) => ({ text: opt.text, isCorrect: opt.isCorrect, order: i })) }
+              : undefined,
+          },
+        });
+      })
+    );
 
-    return { message: `Imported ${created.length} questions`, count: created.length };
+    return { message: `Imported ${created.length} questions`, count: created.length, sectionId: targetSectionId };
   }
 
   // -------- AI Question Generation --------
-  async uploadMaterial(examId: string, materialText: string, fileBuffer?: Buffer) {
+  async uploadMaterial(examId: string, requesterId: string, materialText: string, fileBuffer?: Buffer) {
+    const exam = await prisma.exam.findUnique({ where: { id: examId } });
+    if (!exam) throw new Error('Exam not found');
+    await requireExamAccess(examId, requesterId, 'add_questions');
+
     let content = materialText;
     if (fileBuffer && !content) {
       try {
@@ -304,6 +318,7 @@ export class QuestionService {
 
   async generateAIQuestions(
     examId: string,
+    requesterId: string,
     materialId: string,
     count: number,
     language: string,
@@ -314,6 +329,7 @@ export class QuestionService {
 
     const exam = await prisma.exam.findUnique({ where: { id: examId } });
     if (!exam) throw new Error('Exam not found');
+    await requireExamAccess(examId, requesterId, 'add_questions');
     // if (exam.status !== 'DRAFT') throw new Error('Cannot modify a published or archived exam');
     let section = await prisma.section.findFirst({
       where: { examId, title: { contains: 'AI Generated' } },
@@ -394,7 +410,16 @@ export class QuestionService {
   }
 
   // -------- Bulk Review --------
-  async batchReviewQuestions(questionIds: string[], action: 'accept' | 'reject') {
+  async batchReviewQuestions(questionIds: string[], requesterId: string, action: 'accept' | 'reject') {
+    const questions = await prisma.question.findMany({
+      where: { id: { in: questionIds } },
+      select: { section: { select: { examId: true } } },
+    });
+    const examIds = [...new Set(questions.map(q => q.section.examId))];
+    await Promise.all(examIds.map(examId =>
+      requireExamAccess(examId, requesterId, action === 'reject' ? 'remove_questions' : 'add_questions')
+    ));
+
     if (action === 'reject') {
       await prisma.question.deleteMany({
         where: { id: { in: questionIds } },
@@ -410,12 +435,13 @@ export class QuestionService {
   }
 
   // backend/src/services/question.service.ts (partial)
-  async duplicateQuestion(questionId: string) {
+  async duplicateQuestion(questionId: string, requesterId: string) {
     const question = await prisma.question.findUnique({
       where: { id: questionId },
-      include: { options: true }
+      include: { options: true, section: { select: { examId: true } } },
     });
     if (!question) throw new Error('Question not found');
+    await requireExamAccess(question.section.examId, requesterId, 'add_questions');
 
     // Build new data – omit metadata if null/undefined
     const newData: any = {
@@ -448,9 +474,10 @@ export class QuestionService {
     });
   }
 
-  async reorderQuestions(sectionId: string, questionOrder: { id: string; order: number }[]) {
+  async reorderQuestions(sectionId: string, requesterId: string, questionOrder: { id: string; order: number }[]) {
   const section = await prisma.section.findUnique({ where: { id: sectionId } });
   if (!section) throw new Error('Section not found');
+  await requireExamAccess(section.examId, requesterId, 'edit_questions');
 
   const ids = questionOrder.map(q => q.id);
   const questions = await prisma.question.findMany({
@@ -471,12 +498,18 @@ export class QuestionService {
   return { message: 'Questions reordered successfully' };
 }
 
-  async moveQuestion(questionId: string, targetSectionId: string, newOrder?: number) {
-  const question = await prisma.question.findUnique({ where: { id: questionId } });
+  async moveQuestion(questionId: string, requesterId: string, targetSectionId: string, newOrder?: number) {
+  const question = await prisma.question.findUnique({ where: { id: questionId }, include: { section: true } });
   if (!question) throw new Error('Question not found');
 
   const targetSection = await prisma.section.findUnique({ where: { id: targetSectionId } });
   if (!targetSection) throw new Error('Target section not found');
+  // Without this, a question could be silently moved into a different exam
+  // entirely just by supplying another exam's section id.
+  if (targetSection.examId !== question.section.examId) {
+    throw new Error('Target section must belong to the same exam');
+  }
+  await requireExamAccess(question.section.examId, requesterId, 'edit_questions');
 
   // If no order provided, append at the end
   if (newOrder === undefined) {

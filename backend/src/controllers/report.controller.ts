@@ -69,13 +69,28 @@ export const getExamAnalytics = async (req: Request, res: Response) => {
 const exportSchema = z.object({
   type: z.enum(['SCORES', 'ATTENDANCE', 'EXAM', 'ANTI_CHEATING', 'QUESTION_ANALYSIS']),
   examId: z.string().optional(),
+  // Only used by type: 'EXAM' — the Reports → Export tab's sidebar filters.
+  filters: z.object({
+    status: z.string().optional(),
+    subjects: z.array(z.string()).optional(),
+    dateFrom: z.string().optional(),
+    dateTo: z.string().optional(),
+  }).optional(),
 });
+
+const toExamListFilters = (filters?: { status?: string; subjects?: string[]; dateFrom?: string; dateTo?: string }) =>
+  filters && {
+    status: filters.status,
+    subjects: filters.subjects,
+    dateFrom: filters.dateFrom ? new Date(filters.dateFrom) : undefined,
+    dateTo: filters.dateTo ? new Date(filters.dateTo) : undefined,
+  };
 
 export const exportPDF = async (req: Request, res: Response) => {
   try {
     const userId = getUserId(req);
-    const { type, examId } = exportSchema.parse(req.body);
-    const result = await reportService.exportReport(type, 'PDF', userId, examId);
+    const { type, examId, filters } = exportSchema.parse(req.body);
+    const result = await reportService.exportReport(type, 'PDF', userId, examId, toExamListFilters(filters));
     res.setHeader('Content-Type', result.contentType);
     res.setHeader('Content-Disposition', `attachment; filename="${result.filename}"`);
     res.send(result.data);
@@ -87,8 +102,8 @@ export const exportPDF = async (req: Request, res: Response) => {
 export const exportExcel = async (req: Request, res: Response) => {
   try {
     const userId = getUserId(req);
-    const { type, examId } = exportSchema.parse(req.body);
-    const result = await reportService.exportReport(type, 'EXCEL', userId, examId);
+    const { type, examId, filters } = exportSchema.parse(req.body);
+    const result = await reportService.exportReport(type, 'EXCEL', userId, examId, toExamListFilters(filters));
     res.setHeader('Content-Type', result.contentType);
     res.setHeader('Content-Disposition', `attachment; filename="${result.filename}"`);
     res.send(result.data);
@@ -100,8 +115,8 @@ export const exportExcel = async (req: Request, res: Response) => {
 export const exportCSV = async (req: Request, res: Response) => {
   try {
     const userId = getUserId(req);
-    const { type, examId } = exportSchema.parse(req.body);
-    const result = await reportService.exportReport(type, 'CSV', userId, examId);
+    const { type, examId, filters } = exportSchema.parse(req.body);
+    const result = await reportService.exportReport(type, 'CSV', userId, examId, toExamListFilters(filters));
     res.setHeader('Content-Type', result.contentType);
     res.setHeader('Content-Disposition', `attachment; filename="${result.filename}"`);
     res.send(result.data);

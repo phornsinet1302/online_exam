@@ -94,6 +94,40 @@ export const declineInvitation = async (req: Request, res: Response) => {
   }
 };
 
+// ── Get (or create) a shareable invite link ──────────────────────────────
+export const getInviteLink = async (req: Request, res: Response) => {
+  try {
+    const userId = getUserId(req);
+    const { examId } = z.object({ examId: z.string() }).parse(req.params);
+    const { role } = z.object({ role: z.enum(['COLLABORATOR', 'INVIGILATOR']) }).parse(req.query);
+    const link = await collaborationService.getOrCreateInviteLink(examId, userId, role);
+    const baseUrl = process.env.FRONTEND_URL || 'http://localhost:3000';
+    res.status(200).json({
+      token: link.token,
+      role: link.role,
+      expiresAt: link.expiresAt,
+      url: `${baseUrl}/invite/accept?token=${link.token}`,
+    });
+  } catch (error: any) {
+    const status = error.message.includes('not found') ? 404
+      : error.message.includes('Only the') ? 403
+      : 400;
+    res.status(status).json({ message: error.message });
+  }
+};
+
+// ── Accept a shareable invite link ───────────────────────────────────────
+export const acceptInviteLink = async (req: Request, res: Response) => {
+  try {
+    const userId = getUserId(req);
+    const { token } = z.object({ token: z.string() }).parse(req.body);
+    const result = await collaborationService.acceptInviteLink(token, userId);
+    res.status(200).json(result);
+  } catch (error: any) {
+    res.status(400).json({ message: error.message });
+  }
+};
+
 // ── Get my collaborations ────────────────────────────────────────────────
 export const getMyCollaborations = async (req: Request, res: Response) => {
   try {

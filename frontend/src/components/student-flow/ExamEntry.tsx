@@ -3,8 +3,9 @@
 import { useState } from "react";
 import { useNavigate } from "@/lib/hooks";
 import { MOCK_EXAMS, StudentSearchParams, getSearchValue } from "@/lib/mock-data";
-import { GraduationCap, Hash, QrCode, Link, RefreshCw, ArrowRight, CheckCircle2 } from "lucide-react";
+import { Hash, QrCode, Link, RefreshCw, ArrowRight, CheckCircle2 } from "lucide-react";
 import { U, I, INK, CAMEL, CREAM } from "@/lib/tokens";
+import { Logo } from "@/components/Logo";
 
 export function ExamEntry({ searchParams }: { searchParams?: StudentSearchParams } = {}) {
   const navigate = useNavigate();
@@ -49,8 +50,7 @@ export function ExamEntry({ searchParams }: { searchParams?: StudentSearchParams
     <div className="min-h-screen flex flex-col" style={{ background:CREAM }}>
       <header className="flex items-center justify-between px-6 py-4 border-b border-gray-100 bg-white">
         <div className="flex items-center gap-2.5">
-          <div className="w-8 h-8 rounded-lg flex items-center justify-center" style={{ background:INK }}><GraduationCap size={15} className="text-white"/></div>
-          <span className="text-base font-black" style={{ fontFamily:U, color:INK }}>exam<span style={{ color:CAMEL }}>·ai</span></span>
+          <Logo height={44} href="/" />
         </div>
         <span className="text-xs text-gray-400 font-medium" style={{ fontFamily:I }}>Student portal</span>
       </header>

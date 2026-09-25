@@ -4,7 +4,7 @@ import { useState, useEffect, useMemo } from "react";
 import { useNavigate } from "@/lib/hooks";
 import { useSearchParams, useRouter, usePathname } from "next/navigation";
 import { DashboardLayout } from "@/components/dashboard/DashboardShared";
-import { CheckCircle2, Check, ThumbsDown, ThumbsUp, RefreshCw } from "lucide-react";
+import { CheckCircle2, Check, RefreshCw } from "lucide-react";
 import { U, I, INK, CAMEL } from "@/lib/tokens";
 import { gradingApi, StudentAnswer } from "@/lib/api/grading";
 import { examsApi, Exam } from "@/lib/api/exams";
@@ -28,15 +28,12 @@ export function ManualGrading() {
 
   useEffect(() => {
     examsApi.getAll().then(data => {
-      const published = data.filter(e => e.status !== "draft");
+      const published = data.filter(e => e.status !== "DRAFT");
       setExams(published);
-      if (published.length > 0) {
-        const urlExamId = searchParams.get("examId");
-        const savedExamId = typeof window !== "undefined" ? localStorage.getItem("lastSelectedExamId") : null;
-        const targetId = urlExamId || savedExamId;
-        const valid = targetId && published.some(e => e.id === targetId);
-        setExamId(valid ? (targetId as string) : published[0].id);
-      }
+      // ?examId= lets the results page link straight to the right exam
+      const requested = typeof window !== "undefined" ? new URLSearchParams(window.location.search).get("examId") : null;
+      const initial = published.find(e => e.id === requested) ?? published[0];
+      if (initial) setExamId(initial.id);
     });
   }, [searchParams]);
 
@@ -222,27 +219,16 @@ export function ManualGrading() {
           {/* Right: scoring panel */}
           <div className="sticky top-36 flex h-[calc(100vh-14rem)] min-h-0 flex-col gap-3 overflow-hidden">
             {/* Score input */}
-            <div className="bg-white rounded-2xl border border-gray-100 p-4">
-              <p className="text-xs font-black uppercase tracking-wider text-gray-500 mb-3" style={{ fontFamily:U }}>Score</p>
-              <div className="flex items-center gap-3 mb-3">
+            <div className="bg-white rounded-2xl border border-gray-100 px-4 py-3">
+              <p className="text-[11px] font-black uppercase tracking-wider text-gray-500 mb-2" style={{ fontFamily:U }}>Score</p>
+              <div className="flex items-center gap-3">
                 <div className="flex-1 relative">
                   <input type="number" value={scores[key]??""} onChange={e=>setScore(Number(e.target.value))} min={0} max={question?.points || 0}
-                    placeholder="—" className="w-full border-2 border-gray-200 rounded-xl px-4 py-2.5 text-2xl font-black text-center focus:outline-none focus:border-gray-900 transition-colors" style={{ fontFamily:U, color:INK }}/>
+                    placeholder="—" className="w-full border-2 border-gray-200 rounded-xl px-3 py-1.5 text-lg font-black text-center focus:outline-none focus:border-gray-900 transition-colors" style={{ fontFamily:U, color:INK }}/>
                 </div>
                 <div className="text-center">
-                  <p className="text-2xl font-black text-gray-300" style={{ fontFamily:U }}>/ {question?.points || 0}</p>
+                  <p className="text-lg font-black text-gray-300" style={{ fontFamily:U }}>/ {question?.points || 0}</p>
                 </div>
-              </div>
-              {/* Quick score buttons */}
-              <div className="grid grid-cols-5 gap-1.5 mb-3">
-                {[0,25,50,75,100].map(pct=>{
-                  const v = Math.round((question?.points || 0)*pct/100);
-                  return <button key={pct} onClick={()=>setScore(v)} className="py-1.5 rounded-lg border border-gray-200 text-xs font-bold text-gray-600 hover:bg-gray-50 hover:border-gray-300 transition-all" style={{ fontFamily:U }}>{pct}%</button>;
-                })}
-              </div>
-              <div className="flex gap-2">
-                <button onClick={()=>setScore(0)} className="flex items-center gap-1 flex-1 justify-center py-2 rounded-lg text-xs font-semibold text-red-500 bg-red-50 hover:bg-red-100 transition-colors" style={{ fontFamily:U }}><ThumbsDown size={12}/>Fail</button>
-                <button onClick={()=>setScore(question?.points || 0)} className="flex items-center gap-1 flex-1 justify-center py-2 rounded-lg text-xs font-semibold text-green-600 bg-green-50 hover:bg-green-100 transition-colors" style={{ fontFamily:U }}><ThumbsUp size={12}/>Full marks</button>
               </div>
             </div>
 

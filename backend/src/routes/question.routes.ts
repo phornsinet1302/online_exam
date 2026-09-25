@@ -7,6 +7,7 @@ import {
   updateQuestion,
   deleteQuestion,
   importQuestions,
+  downloadImportTemplate,
   uploadMaterial,
   generateAIQuestions,
   batchReviewQuestions,
@@ -19,6 +20,9 @@ import multer from 'multer';
 
 const router = Router();
 const upload = multer({ storage: multer.memoryStorage() });
+// Question-bank spreadsheets are small; cap them so a stray huge file can't
+// fill server memory.
+const importUpload = multer({ storage: multer.memoryStorage(), limits: { fileSize: 10 * 1024 * 1024 } });
 
 /**
  * @openapi
@@ -103,7 +107,7 @@ router.put('/exams/:examId/sections/reorder', authMiddleware, reorderSections);
  *                 description: ID of the parent section
  *               type:
  *                 type: string
- *                 enum: [MCQ, MULTIPLE_SELECT, TRUE_FALSE, SHORT_ANSWER, ESSAY, FILL_IN_BLANK, MATCHING, CHECKBOX, FILE_UPLOAD, MATH_FORMULA]
+ *                 enum: [MCQ, MULTIPLE_SELECT, TRUE_FALSE, SHORT_ANSWER, ESSAY, FILL_IN_BLANK, MATCHING, CHECKBOX, DROPDOWN, FILE_UPLOAD, MATH_FORMULA]
  *               title:
  *                 type: string
  *                 description: Optional short title
@@ -169,7 +173,7 @@ router.post('/questions', authMiddleware, createQuestion);
  *             properties:
  *               type:
  *                 type: string
- *                 enum: [MCQ, MULTIPLE_SELECT, TRUE_FALSE, SHORT_ANSWER, ESSAY, FILL_IN_BLANK, MATCHING, CHECKBOX, FILE_UPLOAD, MATH_FORMULA]
+ *                 enum: [MCQ, MULTIPLE_SELECT, TRUE_FALSE, SHORT_ANSWER, ESSAY, FILL_IN_BLANK, MATCHING, CHECKBOX, DROPDOWN, FILE_UPLOAD, MATH_FORMULA]
  *               title:
  *                 type: string
  *               description:
@@ -229,7 +233,7 @@ router.delete('/questions/:questionId', authMiddleware, deleteQuestion);
  * /api/exams/{examId}/questions/import:
  *   post:
  *     tags: [Questions & Sections]
- *     summary: Import questions from a file (PDF, DOCX, TXT)
+ *     summary: Import questions from a CSV or XLSX file (see /api/questions/import-template)
  *     security: [{ bearerAuth: [] }]
  *     parameters:
  *       - in: path
@@ -250,7 +254,20 @@ router.delete('/questions/:questionId', authMiddleware, deleteQuestion);
  *       200:
  *         description: Import successful
  */
-router.post('/exams/:examId/questions/import', authMiddleware, upload.single('file'), importQuestions);
+router.post('/exams/:examId/questions/import', authMiddleware, importUpload.single('file'), importQuestions);
+
+/**
+ * @openapi
+ * /api/questions/import-template:
+ *   get:
+ *     tags: [Questions & Sections]
+ *     summary: Download the CSV template for importing questions
+ *     security: [{ bearerAuth: [] }]
+ *     responses:
+ *       200:
+ *         description: CSV template file
+ */
+router.get('/questions/import-template', authMiddleware, downloadImportTemplate);
 
 /**
  * @openapi

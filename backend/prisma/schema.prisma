@@ -13,6 +13,12 @@ model User {
   name            String
   email           String         @unique
   avatarUrl       String?
+  phone           String?
+  institution     String?
+  department      String?
+  bio             String?
+  notificationPrefs Json?        @map("notification_prefs")
+  privacyPrefs      Json?        @map("privacy_prefs")
   createdAt       DateTime       @default(now())
   updatedAt       DateTime       @updatedAt
   role            String         @default("teacher")
@@ -20,6 +26,28 @@ model User {
   collaborations  Collaborator[] @relation("collaborations")
   invitationsSent Collaborator[] @relation("invitations_sent")
   reports         Report[]
+  notifications   Notification[]
+}
+
+model Notification {
+  id        String           @id @default(cuid())
+  userId    String           @map("user_id") // matches User.supabaseId, same convention as Exam.ownerId
+  user      User             @relation(fields: [userId], references: [supabaseId], onDelete: Cascade)
+  type      NotificationType
+  title     String
+  body      String
+  read      Boolean          @default(false)
+  createdAt DateTime         @default(now())
+
+  @@index([userId, read])
+  @@index([userId, type])
+}
+
+enum NotificationType {
+  exam
+  alert
+  grade
+  system
 }
 
 model Exam {
@@ -33,6 +61,9 @@ model Exam {
   subject              String?
   startDate            DateTime?
   endDate              DateTime?
+  // True when the teacher set the end date explicitly; a session that starts
+  // late is then cut off at endDate instead of running the full duration.
+  endDateFixed         Boolean          @default(false)
   duration             Int?
   passingScore         Float?
   maxAttempts          Int?
@@ -47,10 +78,20 @@ model Exam {
   sessionState         ExamSessionState @default(WAITING)
   // Timer configuration fields (SRS 3.9)
   autoStart            Boolean          @default(false)
+  // Teacher-controlled start: the exam never auto-starts at its scheduled time
+  // and students can wait in the lobby until the teacher presses Start.
+  manualStart          Boolean          @default(false)
   autoClose            Boolean          @default(false)
   autoSubmit           Boolean          @default(true)
   showCountdown        Boolean          @default(true)
   requireLateApproval  Boolean          @default(false)
+  shuffleAnswers       Boolean          @default(false)
+  // Session requirements (SRS 3.10 anti-cheat) — persisted here, but not yet
+  // enforced anywhere in the student exam-taking flow. See RulesConfig.tsx.
+  requireCamera          Boolean        @default(false)
+  lockFullscreen         Boolean        @default(false)
+  browserLockdown        Boolean        @default(false)
+  screenshotIntervalSec  Int            @default(30)
   attempts             ExamAttempt[]
   owner                User             @relation(fields: [ownerId], references: [supabaseId])
   materials            Material[]
@@ -58,8 +99,26 @@ model Exam {
   collaborators        Collaborator[]
   reports              Report[]
   antiCheatRules       ExamAntiCheatRule[]
+  inviteLinks          CollaboratorInviteLink[]
+  enrolledStudents     EnrolledStudent[]
 
   @@map("exams")
+}
+
+/// A teacher-uploaded roster of who is expected to take an exam, so
+/// attendance can distinguish "didn't join" from "was never invited".
+/// Matched against ExamAttempt.studentId (which is the student's email)
+/// since exams have no login/account requirement for students.
+model EnrolledStudent {
+  id        String   @id @default(cuid())
+  examId    String   @map("exam_id")
+  exam      Exam     @relation(fields: [examId], references: [id], onDelete: Cascade)
+  email     String
+  name      String?
+  createdAt DateTime @default(now())
+
+  @@unique([examId, email])
+  @@map("enrolled_students")
 }
 
 model ExamAttempt {
@@ -207,6 +266,23 @@ model Collaborator {
   @@map("collaborators")
 }
 
+/// Shareable, expiring invite link for joining an exam as a collaborator/invigilator
+/// without needing to know the invitee's email up front. Signed JWT + DB record,
+/// same pattern as MathUploadSession.
+model CollaboratorInviteLink {
+  id        String           @id @default(cuid())
+  examId    String           @map("exam_id")
+  exam      Exam             @relation(fields: [examId], references: [id], onDelete: Cascade)
+  role      CollaboratorRole
+  token     String           @unique
+  createdBy String           @map("created_by") // inviter's supabaseId
+  expiresAt DateTime         @map("expires_at")
+  createdAt DateTime         @default(now())
+
+  @@index([examId, role])
+  @@map("collaborator_invite_links")
+}
+
 // ═══════════════════════════════════════════════════════════════════════════════
 // Reports Module (SRS 3.11)
 // ═══════════════════════════════════════════════════════════════════════════════
@@ -273,6 +349,7 @@ enum QuestionType {
   FILL_IN_BLANK
   MATCHING
   CHECKBOX
+  DROPDOWN
   FILE_UPLOAD
   MATH_FORMULA
 }

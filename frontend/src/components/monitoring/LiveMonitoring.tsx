@@ -6,8 +6,9 @@ import { DashboardLayout } from "@/components/dashboard/DashboardShared";
 import { AlertTriangle, StopCircle, Users, Wifi, WifiOff, Loader2, CheckCircle2 } from "lucide-react";
 import { U, I, INK, CAMEL } from "@/lib/tokens";
 import { API_URL, fetchApi } from "@/lib/api/client";
-import { endExamSession, approveLateEntry, rejectLateEntry } from "@/lib/api/session";
+import { endExamSession, approveLateEntry, rejectLateEntry, getTeacherStreamUrl } from "@/lib/api/session";
 import { examsApi } from "@/lib/api/exams";
+import { eventLabel } from "@/lib/violationEvents";
 
 const S = "#059669";
 const BLUE = "#2563EB";
@@ -39,16 +40,26 @@ export function LiveMonitoring() {
   const [sessionState, setSessionState] = useState("WAITING");
 
   useEffect(() => {
-    examsApi.getAll().then((data: any) => {
-      const published = (data.exams || data || []).filter((e: any) => e.status === "PUBLISHED");
+    // getAccessible() includes exams shared with this teacher as a
+    // Collaborator/Invigilator, not just ones they own.
+    examsApi.getAccessible().then((data: any) => {
+      const published = (data || []).filter((e: any) => e.status === "PUBLISHED");
       setMyExams(published);
-      if (published.length > 0) {
-        setExamId(published[0].id);
-        setExamTitle(published[0].title);
-        setSessionState(published[0].sessionState || "WAITING");
+      const requestedId = typeof window !== "undefined"
+        ? new URLSearchParams(window.location.search).get("examId")
+        : null;
+      const initial = (requestedId && published.find((e: any) => e.id === requestedId)) || published[0];
+      if (initial) {
+        setExamId(initial.id);
+        setExamTitle(initial.title);
+        setSessionState(initial.sessionState || "WAITING");
       }
     }).catch(() => {});
   }, []);
+
+  // Running the session (end / remove students / late-entry decisions) is
+  // owner-only; Collaborators and Invigilators get the read-only monitor.
+  const isOwner = myExams.find(e => e.id === examId)?.role === "OWNER";
 
   // ── Live SSE data ────────────────────────────────────────────────────────────
   const [students, setStudents] = useState<LiveStudent[]>([]);
@@ -66,6 +77,19 @@ export function LiveMonitoring() {
     setAlerts(prev => [{ id: alertId.current, time, student, event, severity }, ...prev].slice(0, 50));
   };
 
+  // Token-authenticated stream URL for the selected exam (EventSource can't
+  // send an Authorization header). Tagged with its exam so a stale URL from
+  // the previously selected exam is never used.
+  const [stream, setStream] = useState<{ examId: string; url: string } | null>(null);
+  useEffect(() => {
+    if (!examId) return;
+    let cancelled = false;
+    getTeacherStreamUrl(examId)
+      .then(url => { if (!cancelled) setStream({ examId, url }); })
+      .catch(() => {});
+    return () => { cancelled = true; };
+  }, [examId]);
+
   useEffect(() => {
     if (!examId) return;
     esRef.current?.close();
@@ -73,7 +97,9 @@ export function LiveMonitoring() {
     setAlerts([]);
     setConnected(false);
 
-    const es = new EventSource(`${API_URL}/session/${examId}/teacher-live`);
+    const streamUrl = stream?.examId === examId ? stream.url : null;
+    if (!streamUrl) return;
+    const es = new EventSource(streamUrl);
     esRef.current = es;
 
     es.onopen = () => setConnected(true);
@@ -154,14 +180,25 @@ export function LiveMonitoring() {
     es.addEventListener("violation", (e) => {
       try {
         const payload = JSON.parse(e.data);
-        const student = students.find(s => s.attemptId === payload.attemptId);
-        const name = student?.studentInfo?.name || payload.studentName || "Student";
+        const name = payload.studentName || payload.studentId || "Student";
         setStudents(prev => prev.map(s =>
           s.attemptId === payload.attemptId
             ? { ...s, violationCount: (s.violationCount || 0) + 1 }
             : s
         ));
-        addAlert(name, payload.eventType || "Violation detected", payload.severity || "warn");
+        const outcome: Record<string, string> = { warned: "warned", flagged: "flagged", blocked: "blocked", auto_submitted: "auto-submitted" };
+        addAlert(
+          name,
+          `${eventLabel(payload.eventType)} — ${outcome[payload.actionTaken] ?? payload.actionTaken} (#${payload.occurrenceCount})`,
+          payload.actionTaken === "auto_submitted" || payload.actionTaken === "blocked" ? "critical" : (payload.severity || "warn"),
+        );
+      } catch {}
+    });
+
+    es.addEventListener("student_auto_submitted", (e) => {
+      try {
+        const { attemptId } = JSON.parse(e.data);
+        setStudents(prev => prev.map(s => s.attemptId === attemptId ? { ...s, submitted: true } : s));
       } catch {}
     });
 
@@ -176,7 +213,7 @@ export function LiveMonitoring() {
     });
 
     return () => { es.close(); esRef.current = null; };
-  }, [examId]);
+  }, [examId, stream]);
 
   // Optional: Belt & suspenders polling fallback
   useEffect(() => {
@@ -336,10 +373,10 @@ export function LiveMonitoring() {
                             <p className="text-xs text-amber-600 truncate" style={{ fontFamily: I }}>{s.studentInfo.email}</p>
                           </div>
                         </div>
-                        <div className="mt-3 flex gap-2">
+                        {isOwner && <div className="mt-3 flex gap-2">
                           <button onClick={() => handleApprove(s.attemptId, name)} className="flex-1 rounded-lg bg-green-500 py-2 text-xs font-bold text-white hover:bg-green-600 shadow-sm" style={{ fontFamily: U }}>Approve</button>
                           <button onClick={() => handleReject(s.attemptId, name)} className="flex-1 rounded-lg bg-red-50 py-2 text-xs font-bold text-red-600 hover:bg-red-100" style={{ fontFamily: U }}>Reject</button>
-                        </div>
+                        </div>}
                       </div>
                     );
                   })}
@@ -369,9 +406,9 @@ export function LiveMonitoring() {
                             <p className="text-xs text-red-500" style={{ fontFamily: I }}>{s.violationCount} violation{s.violationCount !== 1 ? "s" : ""}</p>
                           </div>
                         </div>
-                        <div className="mt-3 flex gap-2">
+                        {isOwner && <div className="mt-3 flex gap-2">
                           <button onClick={() => handleKick(s.attemptId, name)} className="flex-1 rounded-lg bg-red-50 py-2 text-xs font-bold text-red-600 hover:bg-red-100" style={{ fontFamily: U }}>Remove</button>
-                        </div>
+                        </div>}
                       </div>
                     );
                   })}
@@ -426,7 +463,7 @@ export function LiveMonitoring() {
                               : <span className="rounded-full bg-green-50 px-2 py-1 text-xs font-bold text-green-600" style={{ fontFamily: U }}>Clear</span>}
                           </div>
                         </div>
-                        {expanded === s.attemptId && (
+                        {isOwner && expanded === s.attemptId && (
                           <div onClick={e => e.stopPropagation()} className="mt-3 ml-12 flex flex-wrap gap-2 border-t border-gray-100 pt-3">
                             <button onClick={() => handleKick(s.attemptId, name)} className="rounded-lg bg-red-50 px-3 py-1.5 text-xs font-bold text-red-600 hover:bg-red-100" style={{ fontFamily: U }}>Remove from session</button>
                           </div>
@@ -467,7 +504,7 @@ export function LiveMonitoring() {
               ))}
             </div>
             <div className="px-4 py-3 border-t border-gray-100 flex-shrink-0 space-y-2">
-              {sessionState === "ACTIVE" && (
+              {isOwner && sessionState === "ACTIVE" && (
                 <button onClick={handleEnd} disabled={ending}
                   className="w-full flex items-center justify-center gap-2 text-xs font-bold py-2.5 rounded-xl text-white hover:opacity-90 disabled:opacity-60"
                   style={{ background: "#ef4444", fontFamily: U }}>

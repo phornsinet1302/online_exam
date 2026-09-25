@@ -3,10 +3,11 @@
 import { useState, useRef } from "react";
 import { useNavigate, useParams } from "@/lib/hooks";
 import { DashboardLayout, Toggle } from "@/components/dashboard/DashboardShared";
-import { ChevronRight, Sparkles, ChevronUp, FileText, X, Upload, ChevronDown, Check, Plus, ArrowLeftRight, Copy, Trash2, Layers, FlaskConical, RefreshCw, CheckCircle2, GripVertical, Hash } from "lucide-react";
+import { ChevronRight, Sparkles, ChevronUp, FileText, X, Upload, ChevronDown, Check, Plus, ArrowLeftRight, Copy, Trash2, Layers, FlaskConical, RefreshCw, CheckCircle2, GripVertical, Hash, Eye } from "lucide-react";
 import { DndProvider, useDrag, useDrop } from "react-dnd";
 import { HTML5Backend } from "react-dnd-html5-backend";
 import { MOCK_EXAMS, Q_TYPES } from "@/lib/mock-data";
+import { zonedParts, to12h } from "@/lib/datetime";
 import { examsApi } from "@/lib/api/exams";
 import { questionsApi } from "@/lib/api/questions";
 import { aiApi } from "@/lib/api/ai";
@@ -67,6 +68,58 @@ function makeBuilderQuestion(id: string, type = "mcq"): ExamBuilderQuestion {
     maxFiles: "1",
     wordLimit: "300",
   };
+}
+
+// Turns the sections the API returns into the builder's own question shape.
+function mapServerSections(serverSections: any[]): ExamBuilderSection[] {
+  return [...serverSections].sort((a, b) => (a.order ?? 0) - (b.order ?? 0)).map((sec: any) => ({
+    id: sec.id,
+    title: sec.title,
+    description: "",
+    questions: [...sec.questions].sort((a: any, b: any) => (a.order ?? 0) - (b.order ?? 0)).map((q: any) => {
+      let qType = q.type.toLowerCase();
+      if (qType === "true_false") qType = "truefalse";
+      if (qType === "multiple_select") qType = "checkbox";
+      if (qType === "short_answer") qType = "short";
+      if (qType === "fill_in_blank") qType = "fill";
+      if (qType === "file_upload") qType = "file";
+      if (qType === "math_formula") qType = "math";
+
+      const baseQuestion = makeBuilderQuestion(q.id, qType);
+      let pairs = baseQuestion.pairs;
+      if (qType === "matching" && q.metadata?.pairs) {
+        pairs = q.metadata.pairs.map((p: any, idx: number) => ({
+          id: `${q.id}-pair-${idx}`,
+          left: p.L,
+          right: p.R,
+        }));
+      }
+      let answer = baseQuestion.answer;
+      if (qType === "fill" && q.metadata?.expectedText) {
+        answer = q.metadata.expectedText;
+      } else if (qType === "truefalse") {
+        if (q.metadata?.expectedText) {
+          answer = q.metadata.expectedText;
+        } else if (q.options) {
+          const correctOpt = q.options.find((o: any) => o.isCorrect);
+          if (correctOpt) answer = correctOpt.text;
+        }
+      }
+
+      return {
+        ...baseQuestion,
+        title: q.text,
+        description: q.description || "",
+        points: String(q.points || 1),
+        required: q.required,
+        options: (q.options && q.options.length > 0)
+          ? [...q.options].sort((a: any, b: any) => (a.order ?? 0) - (b.order ?? 0)).map((o: any) => ({ id: o.id, text: o.text, correct: o.isCorrect }))
+          : baseQuestion.options,
+        pairs,
+        answer,
+      };
+    }),
+  }));
 }
 
 import { useEffect } from "react";
@@ -188,6 +241,199 @@ function DraggableQuestion({ question, index, sectionId, moveQuestion, children 
   </div>;
 }
 
+function ImportQuestionsModal({ sectionTitle, onClose, onImport }: { sectionTitle: string; onClose: () => void; onImport: (file: File) => Promise<void> }) {
+  const [file, setFile] = useState<File | null>(null);
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState("");
+  const inputRef = useRef<HTMLInputElement | null>(null);
+
+  const submit = async () => {
+    if (!file) return;
+    setBusy(true);
+    setError("");
+    try {
+      await onImport(file);
+      onClose();
+    } catch (e) {
+      setError(e instanceof Error && e.message ? e.message : "Import failed. Please try again.");
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  return (
+    <div className="fixed inset-0 z-[100] flex items-center justify-center px-4" style={{ background: "rgba(13,27,42,0.55)", backdropFilter: "blur(8px)" }} onClick={busy ? undefined : onClose}>
+      <div className="bg-white rounded-2xl w-full max-w-md shadow-2xl overflow-hidden" onClick={e => e.stopPropagation()}>
+        <div className="h-1 w-full" style={{ background: `linear-gradient(90deg,${INK},${CAMEL})` }} />
+        <div className="p-7">
+          <div className="flex items-center justify-between mb-2">
+            <h3 className="text-base font-black" style={{ fontFamily: U, color: INK }}>Import questions</h3>
+            <button onClick={onClose} disabled={busy} className="w-8 h-8 rounded-full bg-gray-100 flex items-center justify-center text-gray-500 disabled:opacity-50"><X size={15} /></button>
+          </div>
+          <p className="text-xs text-gray-500 mb-5" style={{ fontFamily: I }}>
+            Upload a .csv or .xlsx file. Questions are added to <strong>{sectionTitle || "the current section"}</strong> — the exam is saved as a draft first.
+          </p>
+          <button onClick={() => questionsApi.downloadImportTemplate().catch(e => setError(e instanceof Error ? e.message : "Couldn't download the template."))}
+            className="text-xs font-bold mb-4 hover:underline" style={{ color: CAMEL, fontFamily: U }}>Download the CSV template (shows every question type)</button>
+          <input ref={inputRef} type="file" accept=".csv,.xlsx" className="hidden" onChange={e => { setFile(e.target.files?.[0] || null); setError(""); }} />
+          <button onClick={() => inputRef.current?.click()} disabled={busy}
+            className="w-full flex items-center justify-center gap-2 rounded-xl border-2 border-dashed border-gray-200 py-6 text-sm font-semibold text-gray-500 hover:border-gray-300 hover:text-gray-700 transition-all disabled:opacity-50" style={{ fontFamily: U }}>
+            <Upload size={16} />{file ? file.name : "Choose a .csv or .xlsx file"}
+          </button>
+          {error && <p className="text-xs text-red-500 mt-3 leading-relaxed" style={{ fontFamily: I }}>{error}</p>}
+          <button onClick={submit} disabled={!file || busy}
+            className="w-full mt-5 flex items-center justify-center gap-2 text-white font-bold py-3.5 rounded-xl text-sm hover:opacity-90 disabled:opacity-40" style={{ background: INK, fontFamily: U }}>
+            {busy ? <><RefreshCw size={14} className="animate-spin" />Importing…</> : "Import"}
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+// One question rendered roughly as a student sees it. Interactive so the
+// teacher can try it, but nothing is saved.
+function PreviewQuestion({ q, number, showKey }: { q: ExamBuilderQuestion; number: number; showKey: boolean }) {
+  const [picked, setPicked] = useState<string[]>([]);
+  const pick = (optionId: string, multi: boolean) =>
+    setPicked(prev => multi ? (prev.includes(optionId) ? prev.filter(x => x !== optionId) : [...prev, optionId]) : [optionId]);
+  const field = "w-full rounded-xl border-2 border-gray-200 px-4 py-3 text-sm text-gray-800 focus:outline-none focus:border-gray-400";
+  const keyText = (text: string) => showKey && text ? <p className="mt-2 text-xs font-semibold text-green-600" style={{ fontFamily: I }}>Answer key: {text}</p> : null;
+
+  let body: React.ReactNode;
+  if (q.type === "mcq" || q.type === "checkbox") {
+    const multi = q.type === "checkbox";
+    body = (
+      <div className="space-y-2">
+        {q.options.map(opt => {
+          const on = picked.includes(opt.id);
+          const isKey = showKey && opt.correct;
+          return (
+            <button key={opt.id} onClick={() => pick(opt.id, multi)}
+              className={`w-full flex items-center gap-3 rounded-xl border-2 px-4 py-3 text-left text-sm transition-all ${isKey ? "border-green-400 bg-green-50" : on ? "border-gray-800 bg-gray-50" : "border-gray-200 hover:border-gray-300"}`} style={{ fontFamily: I }}>
+              <span className={`h-4 w-4 flex-shrink-0 border-2 ${multi ? "rounded" : "rounded-full"} ${on ? "border-gray-800 bg-gray-800" : "border-gray-300"}`} />
+              <span className="flex-1 text-gray-800">{opt.text}</span>
+              {isKey && <Check size={14} className="text-green-600" />}
+            </button>
+          );
+        })}
+      </div>
+    );
+  } else if (q.type === "dropdown") {
+    body = (
+      <>
+        <select className={field} style={{ fontFamily: I }} defaultValue="">
+          <option value="">Select your answer…</option>
+          {q.options.map(opt => <option key={opt.id} value={opt.id}>{opt.text}</option>)}
+        </select>
+        {keyText(q.options.filter(o => o.correct).map(o => o.text).join(", "))}
+      </>
+    );
+  } else if (q.type === "truefalse") {
+    body = (
+      <div className="grid grid-cols-2 gap-3">
+        {["True", "False"].map(v => (
+          <button key={v} onClick={() => setPicked([v])}
+            className={`rounded-xl border-2 py-3 text-sm font-bold transition-all ${showKey && q.answer === v ? "border-green-400 bg-green-50 text-green-700" : picked[0] === v ? "border-gray-800 bg-gray-800 text-white" : "border-gray-200 text-gray-600 hover:border-gray-300"}`} style={{ fontFamily: U }}>{v}</button>
+        ))}
+      </div>
+    );
+  } else if (q.type === "matching") {
+    const rights = q.pairs.map(p => p.right).filter(Boolean).sort();
+    body = (
+      <div className="space-y-2">
+        {q.pairs.map(p => (
+          <div key={p.id} className="grid gap-2 sm:grid-cols-2 sm:items-center">
+            <p className="text-sm text-gray-800" style={{ fontFamily: I }}>{p.left || "—"}</p>
+            <select className={field} style={{ fontFamily: I }} defaultValue="">
+              <option value="">Select a match…</option>
+              {rights.map(r => <option key={r} value={r}>{r}</option>)}
+            </select>
+            {showKey && <p className="text-xs font-semibold text-green-600 sm:col-span-2" style={{ fontFamily: I }}>Answer key: {p.right}</p>}
+          </div>
+        ))}
+      </div>
+    );
+  } else if (q.type === "essay") {
+    body = (
+      <>
+        <textarea rows={4} className={`${field} resize-none`} style={{ fontFamily: I }} placeholder="Type your answer…" />
+        {q.wordLimit && <p className="mt-1 text-[11px] text-gray-400" style={{ fontFamily: I }}>Word limit: {q.wordLimit}</p>}
+      </>
+    );
+  } else if (q.type === "file") {
+    body = (
+      <div className="rounded-xl border-2 border-dashed border-gray-200 px-4 py-6 text-center text-sm text-gray-500" style={{ fontFamily: I }}>
+        <Upload size={18} className="mx-auto mb-2 text-gray-400" />
+        Upload up to {q.maxFiles || "1"} file(s) — {q.fileTypes || "any type"}
+      </div>
+    );
+  } else {
+    // short answer, fill in the blank, math
+    body = (
+      <>
+        <input className={field} style={{ fontFamily: I }} placeholder={q.type === "math" ? "Enter your formula / answer…" : "Type your answer…"} />
+        {keyText(q.answer)}
+      </>
+    );
+  }
+
+  return (
+    <div className="rounded-2xl border border-gray-100 p-5">
+      <div className="flex items-start justify-between gap-3 mb-3">
+        <p className="text-sm font-bold text-gray-900" style={{ fontFamily: U }}>
+          {number}. {q.title || <span className="text-gray-300">Untitled question</span>}
+          {q.required && <span className="text-red-400"> *</span>}
+        </p>
+        <span className="flex-shrink-0 rounded-full bg-gray-100 px-2.5 py-1 text-[11px] font-bold text-gray-500" style={{ fontFamily: U }}>{q.points || 0} pt</span>
+      </div>
+      {q.description && <p className="text-xs text-gray-500 mb-3" style={{ fontFamily: I }}>{q.description}</p>}
+      {body}
+    </div>
+  );
+}
+
+function QuestionPreviewModal({ sections, startQuestionId, onClose }: { sections: ExamBuilderSection[]; startQuestionId: string | null; onClose: () => void }) {
+  const [showKey, setShowKey] = useState(false);
+  const startRef = useRef<HTMLDivElement | null>(null);
+  useEffect(() => { startRef.current?.scrollIntoView({ block: "start" }); }, []);
+
+  let number = 0;
+  return (
+    <div className="fixed inset-0 z-[100] flex items-center justify-center px-4" style={{ background: "rgba(13,27,42,0.55)", backdropFilter: "blur(8px)" }} onClick={onClose}>
+      <div className="bg-white rounded-2xl w-full max-w-2xl max-h-[88vh] shadow-2xl overflow-hidden flex flex-col" onClick={e => e.stopPropagation()}>
+        <div className="flex items-center justify-between gap-3 px-6 py-4 border-b border-gray-100">
+          <div>
+            <h3 className="text-base font-black" style={{ fontFamily: U, color: INK }}>Preview</h3>
+            <p className="text-[11px] text-gray-400" style={{ fontFamily: I }}>How students will see the questions. Answers here aren't saved.</p>
+          </div>
+          <div className="flex items-center gap-3">
+            <label className="flex items-center gap-2 text-xs font-semibold text-gray-600 cursor-pointer" style={{ fontFamily: U }}>
+              <Toggle on={showKey} onChange={() => setShowKey(s => !s)} />Show answers
+            </label>
+            <button onClick={onClose} className="w-8 h-8 rounded-full bg-gray-100 flex items-center justify-center text-gray-500"><X size={15} /></button>
+          </div>
+        </div>
+        <div className="overflow-y-auto px-6 py-5 space-y-6">
+          {sections.map(section => (
+            <div key={section.id} className="space-y-3">
+              <p className="text-xs font-black uppercase tracking-wider text-gray-400" style={{ fontFamily: U }}>{section.title}</p>
+              {section.questions.map(q => {
+                number++;
+                return (
+                  <div key={q.id} ref={q.id === startQuestionId ? startRef : undefined}>
+                    <PreviewQuestion q={q} number={number} showKey={showKey} />
+                  </div>
+                );
+              })}
+            </div>
+          ))}
+        </div>
+      </div>
+    </div>
+  );
+}
+
 export function ExamCreate() {
   const navigate = useNavigate();
   const { id } = useParams();
@@ -202,13 +448,26 @@ export function ExamCreate() {
   const [desc, setDesc] = useState("");
   const [startDate, setStartDate] = useState("2026-07-20");
   const [startTime, setStartTime] = useState("09:00");
+  // Optional hard close time — blank means start + duration (+ late allowance).
+  const [endDate, setEndDate] = useState("");
+  const [endTime, setEndTime] = useState("");
   const [duration, setDuration] = useState("60");
   const [timezone, setTimezone] = useState(() => typeof window !== "undefined" ? Intl.DateTimeFormat().resolvedOptions().timeZone || "Europe/London" : "Europe/London");
   const [passingScore, setPassingScore] = useState("50");
   const [maxAttempts, setMaxAttempts] = useState("1");
+  // Minutes after the start during which students can still join (0 = nobody once it starts)
+  const [lateAllowance, setLateAllowance] = useState("0");
+  const [privacy, setPrivacy] = useState("public");
+  const [examPassword, setExamPassword] = useState("");
+  const [hasPassword, setHasPassword] = useState(false);
   const [randomize, setRandomize] = useState(true);
+  const [shuffleAnswers, setShuffleAnswers] = useState(false);
+  const [showImport, setShowImport] = useState(false);
+  const [previewFrom, setPreviewFrom] = useState<string | null | undefined>(undefined); // undefined = closed
   const [showResults, setShowResults] = useState(true);
   const [requireLateApproval, setRequireLateApproval] = useState(false);
+  // Teacher starts the exam by hand instead of on a schedule
+  const [manualStart, setManualStart] = useState(false);
   const [saved, setSaved] = useState(false);
   const idRef = useRef(3);
   const aiFileRef = useRef<HTMLInputElement | null>(null);
@@ -221,6 +480,58 @@ export function ExamCreate() {
     },
   ]);
 
+  const DRAFT_KEY = "exam_draft_new";
+
+  // Restore draft on mount for new exams
+  useEffect(() => {
+    if (isCreateRoute && typeof window !== "undefined") {
+      try {
+        const saved = localStorage.getItem(DRAFT_KEY);
+        if (saved) {
+          const parsed = JSON.parse(saved);
+          if (parsed.title !== undefined) setTitle(parsed.title);
+          if (parsed.uniqueCode !== undefined) setUniqueCode(parsed.uniqueCode);
+          if (parsed.subject !== undefined) setSubject(parsed.subject);
+          if (parsed.desc !== undefined) setDesc(parsed.desc);
+          if (parsed.startDate !== undefined) setStartDate(parsed.startDate);
+          if (parsed.startTime !== undefined) setStartTime(parsed.startTime);
+          if (parsed.endDate !== undefined) setEndDate(parsed.endDate);
+          if (parsed.endTime !== undefined) setEndTime(parsed.endTime);
+          if (parsed.duration !== undefined) setDuration(parsed.duration);
+          if (parsed.timezone !== undefined) setTimezone(parsed.timezone);
+          if (parsed.passingScore !== undefined) setPassingScore(parsed.passingScore);
+          if (parsed.maxAttempts !== undefined) setMaxAttempts(parsed.maxAttempts);
+          if (parsed.lateAllowance !== undefined) setLateAllowance(parsed.lateAllowance);
+          if (parsed.privacy !== undefined) setPrivacy(parsed.privacy);
+          if (parsed.randomize !== undefined) setRandomize(parsed.randomize);
+          if (parsed.shuffleAnswers !== undefined) setShuffleAnswers(parsed.shuffleAnswers);
+          if (parsed.showResults !== undefined) setShowResults(parsed.showResults);
+          if (parsed.requireLateApproval !== undefined) setRequireLateApproval(parsed.requireLateApproval);
+          if (parsed.manualStart !== undefined) setManualStart(parsed.manualStart);
+          if (parsed.sections !== undefined) setSections(parsed.sections);
+        }
+      } catch (e) {
+        console.error("Failed to restore exam draft:", e);
+      }
+    }
+  }, [isCreateRoute]);
+
+  // Auto-save draft for new exams
+  useEffect(() => {
+    if (isCreateRoute && !isLoading && typeof window !== "undefined") {
+      const draft = {
+        title, uniqueCode, subject, desc, startDate, startTime, endDate, endTime, duration,
+        timezone, passingScore, maxAttempts, lateAllowance, privacy, randomize, shuffleAnswers,
+        showResults, requireLateApproval, manualStart, sections
+      };
+      localStorage.setItem(DRAFT_KEY, JSON.stringify(draft));
+    }
+  }, [
+    isCreateRoute, isLoading, title, uniqueCode, subject, desc, startDate, startTime, endDate, endTime, duration,
+    timezone, passingScore, maxAttempts, lateAllowance, privacy, randomize, shuffleAnswers,
+    showResults, requireLateApproval, manualStart, sections
+  ]);
+
   useEffect(() => {
     if (actualId) {
       examsApi.getById(actualId as string).then(exam => {
@@ -228,71 +539,39 @@ export function ExamCreate() {
         setUniqueCode(exam.uniqueCode || "");
         setSubject(exam.subject || "");
         setDesc(exam.description || "");
+        const examTz = exam.timezone || timezone;
         if (exam.startDate) {
-          const d = new Date(exam.startDate);
-          const year = d.getFullYear();
-          const month = String(d.getMonth() + 1).padStart(2, "0");
-          const day = String(d.getDate()).padStart(2, "0");
-          setStartDate(`${year}-${month}-${day}`);
-          const hh = String(d.getHours()).padStart(2, "0");
-          const mm = String(d.getMinutes()).padStart(2, "0");
-          setStartTime(`${hh}:${mm}`);
+          const { date, time } = zonedParts(exam.startDate, examTz);
+          setStartDate(date);
+          setStartTime(time);
+        }
+        // Only a teacher-set end date is shown; a derived one stays blank so it
+        // keeps following the start time and duration.
+        if (exam.endDate && exam.endDateFixed) {
+          const { date, time } = zonedParts(exam.endDate, examTz);
+          setEndDate(date);
+          setEndTime(time);
         }
         setDuration(String(exam.duration || 60));
         if (exam.timezone) setTimezone(exam.timezone);
-        setPassingScore(String(exam.passingScore || 50));
-        if (exam.maxAttempts) setMaxAttempts(String(exam.maxAttempts));
+        setPassingScore(String(exam.passingScore ?? 50));
+        setMaxAttempts(exam.maxAttempts ? String(exam.maxAttempts) : "Unlimited");
+        setLateAllowance(String(exam.lateAllowanceMinutes ?? 0));
+        if (exam.accessType === "PUBLIC") setPrivacy("public");
+        else if (exam.accessType === "PRIVATE") setPrivacy("private");
+        else if (exam.accessType === "PASSWORD_PROTECTED") setPrivacy("password");
+        setHasPassword(!!exam.hasPassword);
+        if (exam.randomizeQuestions !== undefined) setRandomize(exam.randomizeQuestions);
+        if (exam.showResults !== undefined) setShowResults(exam.showResults);
 
         if (exam.requireLateApproval !== undefined) setRequireLateApproval(exam.requireLateApproval);
+        setManualStart(!!exam.manualStart);
+
+        if (exam.randomizeQuestions !== undefined) setRandomize(exam.randomizeQuestions);
+        if (exam.shuffleAnswers !== undefined) setShuffleAnswers(exam.shuffleAnswers);
 
         if (exam.sections && exam.sections.length > 0) {
-          setSections(exam.sections.map((sec: any) => ({
-            id: sec.id,
-            title: sec.title,
-            description: "",
-            questions: sec.questions.map((q: any) => {
-              let qType = q.type.toLowerCase();
-              if (qType === "true_false") qType = "truefalse";
-              if (qType === "multiple_select") qType = "checkbox";
-              if (qType === "short_answer") qType = "short";
-              if (qType === "fill_in_blank") qType = "fill";
-              if (qType === "file_upload") qType = "file";
-              if (qType === "math_formula") qType = "math";
-
-              const baseQuestion = makeBuilderQuestion(q.id, qType);
-              let pairs = baseQuestion.pairs;
-              if (qType === "matching" && q.metadata?.pairs) {
-                pairs = q.metadata.pairs.map((p: any, idx: number) => ({
-                  id: `${q.id}-pair-${idx}`,
-                  left: p.L,
-                  right: p.R,
-                }));
-              }
-              let answer = baseQuestion.answer;
-              if (qType === "fill" && q.metadata?.expectedText) {
-                answer = q.metadata.expectedText;
-              } else if (qType === "truefalse") {
-                if (q.metadata?.expectedText) {
-                  answer = q.metadata.expectedText;
-                } else if (q.options) {
-                  const correctOpt = q.options.find((o: any) => o.isCorrect);
-                  if (correctOpt) answer = correctOpt.text;
-                }
-              }
-
-              return {
-                ...baseQuestion,
-                title: q.text,
-                description: q.description || "",
-                points: String(q.points || 1),
-                required: q.required,
-                options: (q.options && q.options.length > 0) ? q.options.map((o: any) => ({ id: o.id, text: o.text, correct: o.isCorrect })) : baseQuestion.options,
-                pairs,
-                answer
-              };
-
-            })
-          })));
+          setSections(mapServerSections(exam.sections));
         }
         setIsLoading(false);
       }).catch(err => {
@@ -390,17 +669,24 @@ export function ExamCreate() {
     try {
       let currentExamId = id;
       let currentSectionId = activeSection.id;
+      const wasNewExam = !currentExamId;
+      // Sections added in this session only exist client-side until saved —
+      // the backend generates real ids for them (see syncSectionsAndQuestions,
+      // which treats any "section-*" id as new). Generating into one of these
+      // straight away would 404 with "Section not found".
+      const sectionUnsaved = !currentSectionId || currentSectionId.startsWith("section-");
 
-      // If exam hasn't been saved yet, auto-save as draft
-      if (!currentExamId) {
+      // If the exam — or just the active section — hasn't been persisted
+      // yet, auto-save as a draft first so we have a real section id.
+      if (wasNewExam || sectionUnsaved) {
         const savedExam = await handleSave("draft", false);
         if (!savedExam) throw new Error("Failed to auto-save exam draft");
         currentExamId = savedExam.id;
 
-        // When exam is created, we need to fetch the newly created section ID
-        // The backend creates sections in order, so let's get the sections for this exam
+        // Sections are (re)created on save, so fetch the exam back to learn
+        // this section's real, persisted id. Match by position — same
+        // approach already relied on below for the newly-created-exam case.
         const examDetails = await examsApi.getById(currentExamId);
-        // Find the matching section by order (index) or title
         const activeSectionIndex = sections.findIndex(s => s.id === activeSection.id);
         if (examDetails.sections && examDetails.sections[activeSectionIndex]) {
           currentSectionId = examDetails.sections[activeSectionIndex].id;
@@ -408,8 +694,14 @@ export function ExamCreate() {
           currentSectionId = examDetails.sections[0].id;
         }
 
+        // Swap the placeholder id for the real one in local state too, so a
+        // later manual Save updates this section instead of re-creating it.
+        setSections(prev => prev.map(section =>
+          section.id === activeSection.id ? { ...section, id: currentSectionId } : section
+        ));
+
         // Update URL without a full page reload so user can keep editing
-        navigate(`/dashboard/exams/${currentExamId}/edit`);
+        if (wasNewExam) navigate(`/dashboard/exams/${currentExamId}/edit`);
       }
 
       // Prepare FormData
@@ -446,10 +738,10 @@ export function ExamCreate() {
         };
       });
 
-      // Update local state
+      // Update local state — match on currentSectionId, since the section's
+      // local id may have just been swapped for its real, persisted one above.
       setSections(prev => prev.map(section => {
-        if (section.id === activeSection.id) {
-          // If we had a temporary section ID, we might need to map it, but for UI state we just append
+        if (section.id === currentSectionId) {
           return { ...section, questions: [...section.questions, ...generatedQuestions] };
         }
         return section;
@@ -461,7 +753,10 @@ export function ExamCreate() {
 
     } catch (error) {
       console.error("AI Generation failed:", error);
-      alert("Failed to generate questions. Please ensure you have uploaded a valid PDF and filled out subject details.");
+      const message = error instanceof Error && error.message
+        ? error.message
+        : "Failed to generate questions. Please ensure you have uploaded a valid PDF and filled out subject details.";
+      alert(message);
     } finally {
       setAiGenerating(false);
     }
@@ -590,38 +885,48 @@ export function ExamCreate() {
     } : section));
   };
 
-  async function handleSave(status: string = "draft", redirect: boolean = true) {
+  async function handleSave(status: string = "draft", redirect: boolean = true, navigateAfterCreate: boolean = true) {
     try {
       setSaved(false);
       const [year, month, day] = startDate.split("-");
       const formattedStartDate = `${month}/${day}/${year}`;
+      const formattedStartTime = startTime && startTime.includes(":") ? to12h(startTime) : startTime;
 
-      let formattedStartTime = startTime;
-      if (startTime && startTime.includes(":")) {
-        const [hr, min] = startTime.split(":");
-        let h = parseInt(hr, 10);
-        const ampm = h >= 12 ? "PM" : "AM";
-        h = h % 12;
-        if (h === 0) h = 12;
-        formattedStartTime = `${h.toString().padStart(2, "0")}:${min} ${ampm}`;
+      // Optional teacher-set end (blank = start + duration + late allowance).
+      // A date without a time closes at the end of that day.
+      const hasEnd = !manualStart && !!endDate;
+      const [ey, em, ed] = endDate.split("-");
+      const formattedEndDate = hasEnd ? `${em}/${ed}/${ey}` : null;
+      const formattedEndTime = hasEnd ? to12h(endTime || "23:59") : null;
+      if (hasEnd && `${endDate}T${endTime || "23:59"}` <= `${startDate}T${startTime}`) {
+        alert("The end date must be after the start date.");
+        return;
       }
 
       const accessType = "PUBLIC";
+      const parsedPassing = parseInt(passingScore, 10);
 
       const examData = {
         title: title || "Untitled Exam",
         description: desc,
         subject,
-        startDate: formattedStartDate,
-        startTime: formattedStartTime,
+        // A manual-start exam has no schedule: the teacher starts it, and it
+        // runs for its duration from that moment.
+        ...(manualStart ? {} : { startDate: formattedStartDate, startTime: formattedStartTime, endDate: formattedEndDate, endTime: formattedEndTime }),
+        manualStart,
         duration: parseInt(duration, 10) || 60,
         timezone,
-        passingScore: parseInt(passingScore, 10) || 50,
-        maxAttempts: maxAttempts === "Unlimited" ? undefined : parseInt(maxAttempts, 10),
+        passingScore: Number.isNaN(parsedPassing) ? 50 : parsedPassing,
+        // null = unlimited (undefined would leave a previous limit in place)
+        maxAttempts: maxAttempts === "Unlimited" ? null : parseInt(maxAttempts, 10),
+        lateAllowanceMinutes: Math.min(480, Math.max(0, parseInt(lateAllowance, 10) || 0)),
         randomizeQuestions: randomize,
+        shuffleAnswers,
         showResults,
         requireLateApproval,
         accessType,
+        // Blank keeps the current password; it's only sent when (re)set.
+        ...(privacy === "password" && examPassword.trim() ? { password: examPassword.trim() } : {}),
         fullSections: sections,
         status: status === "published" ? "PUBLISHED" : "DRAFT",
       };
@@ -632,9 +937,14 @@ export function ExamCreate() {
 
       setSaved(true);
 
+      // Remove draft after a successful save of a new exam
+      if (!isEdit && typeof window !== "undefined") {
+        localStorage.removeItem(DRAFT_KEY);
+      }
+
       if (redirect) {
-        navigate(`/dashboard/exams/${exam.id}?tab=rules`);
-      } else if (!isEdit) {
+        navigate("/dashboard/exams");
+      } else if (!isEdit && navigateAfterCreate) {
         navigate(`/dashboard/exams/${exam.id}/edit`, { replace: true });
       }
       return exam;
@@ -642,6 +952,28 @@ export function ExamCreate() {
       console.error(err);
       alert("Failed to save exam: " + err.message);
     }
+  };
+
+  // Imported questions are stored server-side, so the exam and this section
+  // must exist there first: save (as a draft), import into the matching
+  // persisted section, then reload the sections so the builder shows them.
+  const handleImport = async (file: File) => {
+    const savedExam = await handleSave("draft", false, false);
+    if (!savedExam) throw new Error("Couldn't save the exam before importing. Please try again.");
+
+    const beforeSections = [...((await examsApi.getById(savedExam.id)).sections || [])].sort((a: any, b: any) => (a.order ?? 0) - (b.order ?? 0));
+    const sectionIndex = Math.max(0, sections.findIndex(s => s.id === activeSection.id));
+    const target = beforeSections[sectionIndex] || beforeSections[0];
+
+    const result = await questionsApi.importQuestions(savedExam.id, file, target?.id);
+
+    const mapped = mapServerSections((await examsApi.getById(savedExam.id)).sections || []);
+    setSections(mapped);
+    const targetSection = mapped.find(s => s.id === result.sectionId);
+    const firstNew = targetSection?.questions[targetSection.questions.length - result.count];
+    setActiveQuestionId(firstNew?.id || mapped[0]?.questions[0]?.id || "");
+
+    if (!isEdit) navigate(`/dashboard/exams/${savedExam.id}/edit`, { replace: true });
   };
 
   const renderQuestionBody = (sectionId: string, question: ExamBuilderQuestion) => {
@@ -751,7 +1083,7 @@ export function ExamCreate() {
       <div>
         <label className="text-xs font-bold text-gray-500 uppercase tracking-wider mb-1.5 block" style={{ fontFamily: U }}>{question.type === "math" ? "Formula / answer key" : "Correct answer"}</label>
         <input value={question.answer} onChange={e => updateQuestion(sectionId, question.id, { answer: e.target.value })}
-          placeholder={question.type === "fill" ? "e.g. photosynthesis" : "Type the expected answer"}
+          placeholder={question.type === "fill" ? "e.g. photosynthesis (separate accepted alternatives with |)" : "Type the expected answer"}
           className="w-full border border-gray-200 rounded-xl px-4 py-3 text-sm text-gray-900 placeholder:text-gray-400 focus:outline-none focus:border-gray-400" style={{ fontFamily: I }} />
       </div>
     );
@@ -769,6 +1101,8 @@ export function ExamCreate() {
 
   return (
     <DashboardLayout active="exams-create" title={isEdit ? "Edit Exam" : "Create Exam"} subtitle={isEdit ? title : "Set up your exam in minutes"}>
+      {showImport && <ImportQuestionsModal sectionTitle={activeSection.title} onClose={() => setShowImport(false)} onImport={handleImport} />}
+      {previewFrom !== undefined && <QuestionPreviewModal sections={sections} startQuestionId={previewFrom} onClose={() => setPreviewFrom(undefined)} />}
       <div className="w-full">
         {/* Breadcrumb */}
         <div className="flex items-center gap-2 text-xs text-gray-400 mb-6" style={{ fontFamily: I }}>
@@ -814,7 +1148,19 @@ export function ExamCreate() {
           {/* Schedule */}
           <div className="bg-white rounded-2xl border border-gray-100 p-6 xl:col-span-2">
             <h3 className="text-sm font-black mb-5" style={{ fontFamily: U, color: INK }}>Schedule</h3>
+            <div className="flex items-center justify-between gap-4 rounded-xl border border-gray-100 bg-gray-50 px-4 py-3 mb-5">
+              <div>
+                <p className="text-sm font-semibold text-gray-700" style={{ fontFamily: U }}>Start manually</p>
+                <p className="text-xs text-gray-400 mt-0.5" style={{ fontFamily: I }}>
+                  {manualStart
+                    ? "No schedule. Students wait in the lobby, and the exam starts only when you press Start on the exam page — whenever you're ready."
+                    : "Off: the exam starts by itself at the date and time below. Turn on to start it whenever you choose."}
+                </p>
+              </div>
+              <Toggle on={manualStart} onChange={() => setManualStart(m => !m)} />
+            </div>
             <div className="grid sm:grid-cols-2 gap-4">
+              {!manualStart && <>
               <div>
                 <label className="text-xs font-bold text-gray-500 uppercase tracking-wider mb-1.5 block" style={{ fontFamily: U }}>Start Date</label>
                 <input type="date" value={startDate} onChange={e => setStartDate(e.target.value)} className="w-full border border-gray-200 rounded-xl px-4 py-3 text-sm text-gray-900 focus:outline-none focus:border-gray-400" style={{ fontFamily: I }} />
@@ -823,6 +1169,20 @@ export function ExamCreate() {
                 <label className="text-xs font-bold text-gray-500 uppercase tracking-wider mb-1.5 block" style={{ fontFamily: U }}>Start Time</label>
                 <input type="time" value={startTime} onChange={e => setStartTime(e.target.value)} className="w-full border border-gray-200 rounded-xl px-4 py-3 text-sm text-gray-900 focus:outline-none focus:border-gray-400" style={{ fontFamily: I }} />
               </div>
+              <div>
+                <label className="text-xs font-bold text-gray-500 uppercase tracking-wider mb-1.5 block" style={{ fontFamily: U }}>End Date <span className="normal-case font-medium text-gray-400">(optional)</span></label>
+                <input type="date" value={endDate} min={startDate} onChange={e => setEndDate(e.target.value)} className="w-full border border-gray-200 rounded-xl px-4 py-3 text-sm text-gray-900 focus:outline-none focus:border-gray-400" style={{ fontFamily: I }} />
+              </div>
+              <div>
+                <label className="text-xs font-bold text-gray-500 uppercase tracking-wider mb-1.5 block" style={{ fontFamily: U }}>End Time <span className="normal-case font-medium text-gray-400">(optional)</span></label>
+                <input type="time" value={endTime} onChange={e => setEndTime(e.target.value)} disabled={!endDate} className="w-full border border-gray-200 rounded-xl px-4 py-3 text-sm text-gray-900 focus:outline-none focus:border-gray-400 disabled:bg-gray-50 disabled:text-gray-300" style={{ fontFamily: I }} />
+              </div>
+              <p className="sm:col-span-2 -mt-1 text-xs text-gray-400" style={{ fontFamily: I }}>
+                {endDate
+                  ? "The exam closes at this time even if it was started late. It must leave room for the full duration."
+                  : "Leave blank and the exam simply closes after its duration (plus any late-entry allowance)."}
+              </p>
+              </>}
               <div>
                 <label className="text-xs font-bold text-gray-500 uppercase tracking-wider mb-1.5 block" style={{ fontFamily: U }}>Duration (minutes)</label>
                 <input type="number" value={duration} onChange={e => setDuration(e.target.value)} min="5" max="480"
@@ -850,11 +1210,27 @@ export function ExamCreate() {
                   {["1", "2", "3", "Unlimited"].map(v => <option key={v} value={v}>{v}</option>)}
                 </select>
               </div>
+              <div className="sm:col-span-2 bg-gray-50 p-4 rounded-xl border border-gray-100">
+                <label className="text-xs font-bold text-gray-500 uppercase tracking-wider mb-1.5 block" style={{ fontFamily: U }}>Late entry allowance (minutes)</label>
+                <input type="number" value={lateAllowance} onChange={e => setLateAllowance(e.target.value)} min="0" max="480"
+                  className="w-full border border-gray-200 rounded-xl px-4 py-3 text-sm text-gray-900 focus:outline-none focus:border-gray-400 bg-white" style={{ fontFamily: I }} />
+                <p className="mt-1.5 text-xs text-gray-400 mb-4" style={{ fontFamily: I }}>
+                  How long after the exam starts students can still join. {(parseInt(lateAllowance, 10) || 0) === 0 ? "At 0, nobody new can join once it starts." : `Students can join up to ${parseInt(lateAllowance, 10)} min after the start.`}
+                </p>
+                
+                <div className="flex items-center justify-between pt-4 border-t border-gray-200">
+                  <div>
+                    <p className="text-sm font-semibold text-gray-700" style={{ fontFamily: U }}>Require late entry approval</p>
+                    <p className="text-xs text-gray-400 mt-0.5" style={{ fontFamily: I }}>Students arriving after start time need teacher approval to enter</p>
+                  </div>
+                  <Toggle on={requireLateApproval} onChange={() => setRequireLateApproval(!requireLateApproval)} />
+                </div>
+              </div>
             </div>
             <div className="space-y-3">
               {[
-                { label: "Require late entry approval", desc: "Students arriving after start time need teacher approval to enter", on: requireLateApproval, set: setRequireLateApproval },
                 { label: "Randomize question order", desc: "Shuffle questions differently for each student", on: randomize, set: setRandomize },
+                { label: "Shuffle answer options", desc: "Reorder the choices of multiple-choice, checkbox and dropdown questions for each student", on: shuffleAnswers, set: setShuffleAnswers },
                 { label: "Show results after submission", desc: "Students see their score immediately", on: showResults, set: setShowResults }
               ].map(({ label, desc, on, set }) => (
                 <div key={label} className="flex items-center justify-between py-3 border-t border-gray-50">
@@ -887,7 +1263,15 @@ export function ExamCreate() {
               <div className="mt-5 grid gap-4 xl:grid-cols-2">
                 <div>
                   <label className="text-xs font-bold text-gray-500 uppercase tracking-wider mb-1.5 block" style={{ fontFamily: U }}>Material</label>
-                  <input ref={aiFileRef} type="file" accept=".pdf" className="hidden" onChange={e => setAiFile(e.target.files?.[0] || null)} />
+                  <input ref={aiFileRef} type="file" accept=".pdf" className="hidden" onChange={e => {
+                    const file = e.target.files?.[0] || null;
+                    if (file && file.size > 10 * 1024 * 1024) {
+                      alert("That file is too large. Please upload a PDF up to 10MB.");
+                      e.target.value = "";
+                      return;
+                    }
+                    setAiFile(file);
+                  }} />
                   {aiFile ? (
                     <div className="flex items-center gap-3 rounded-xl border border-gray-200 bg-gray-50 px-4 py-3">
                       <FileText size={16} style={{ color: CAMEL }} />
@@ -1027,6 +1411,7 @@ export function ExamCreate() {
                                         <Toggle on={question.required} onChange={() => updateQuestion(section.id, question.id, { required: !question.required })} />
                                       </div>
                                       <div className="flex items-center gap-1 sm:ml-auto">
+                                        <button onClick={() => setPreviewFrom(question.id)} className="h-9 w-9 rounded-lg flex items-center justify-center text-gray-400 hover:bg-gray-50 hover:text-gray-700 transition-all" title="Preview question"><Eye size={15} /></button>
                                         <button onClick={() => duplicateQuestion(section.id, question)} className="h-9 w-9 rounded-lg flex items-center justify-center text-gray-400 hover:bg-gray-50 hover:text-gray-700 transition-all" title="Duplicate question"><Copy size={15} /></button>
                                         <button onClick={() => deleteQuestion(section.id, question.id)} className="h-9 w-9 rounded-lg flex items-center justify-center text-gray-400 hover:bg-red-50 hover:text-red-500 transition-all" title="Delete question"><Trash2 size={15} /></button>
                                       </div>
@@ -1058,6 +1443,8 @@ export function ExamCreate() {
                   <div className="grid gap-2">
                     <button onClick={() => setShowAiAssist(true)} className="flex items-center gap-3 rounded-xl px-3 py-3 text-left text-sm font-bold text-gray-700 hover:bg-gray-50" style={{ fontFamily: U }}><Sparkles size={16} style={{ color: CAMEL }} />AI generator</button>
                     <button onClick={() => addQuestion(activeSection.id, "mcq")} className="flex items-center gap-3 rounded-xl px-3 py-3 text-left text-sm font-bold text-gray-700 hover:bg-gray-50" style={{ fontFamily: U }}><Plus size={16} style={{ color: CAMEL }} />Add question</button>
+                    <button onClick={() => setShowImport(true)} className="flex items-center gap-3 rounded-xl px-3 py-3 text-left text-sm font-bold text-gray-700 hover:bg-gray-50" style={{ fontFamily: U }}><FileText size={16} style={{ color: CAMEL }} />Import questions</button>
+                    <button onClick={() => setPreviewFrom(activeQuestionId)} className="flex items-center gap-3 rounded-xl px-3 py-3 text-left text-sm font-bold text-gray-700 hover:bg-gray-50" style={{ fontFamily: U }}><Eye size={16} style={{ color: CAMEL }} />Preview exam</button>
                     <button onClick={addSection} className="flex items-center gap-3 rounded-xl px-3 py-3 text-left text-sm font-bold text-gray-700 hover:bg-gray-50" style={{ fontFamily: U }}><Layers size={16} style={{ color: CAMEL }} />Add section</button>
                     <button onClick={() => addQuestion(activeSection.id, "file")} className="flex items-center gap-3 rounded-xl px-3 py-3 text-left text-sm font-bold text-gray-700 hover:bg-gray-50" style={{ fontFamily: U }}><Upload size={16} style={{ color: CAMEL }} />File upload</button>
                     <button onClick={() => addQuestion(activeSection.id, "math")} className="flex items-center gap-3 rounded-xl px-3 py-3 text-left text-sm font-bold text-gray-700 hover:bg-gray-50" style={{ fontFamily: U }}><FlaskConical size={16} style={{ color: CAMEL }} />Formula item</button>
