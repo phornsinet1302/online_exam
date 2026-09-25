@@ -171,14 +171,6 @@ export class AntiCheatService {
   }
 
 
-  /** What a student's exam page needs to know to enforce the teacher's rules. */
-  async getStudentConfig(examId: string) {
-    const rules = await this.getExamRules(examId);
-    return {
-      rules: rules.map(({ eventType, enabled, action, threshold }) => ({ eventType, enabled, action, threshold })),
-    };
-  }
-
   // ── Rules ──────────────────────────────────────────────────────────────────
 
   /**

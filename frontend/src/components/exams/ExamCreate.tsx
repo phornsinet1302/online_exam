@@ -480,6 +480,58 @@ export function ExamCreate() {
     },
   ]);
 
+  const DRAFT_KEY = "exam_draft_new";
+
+  // Restore draft on mount for new exams
+  useEffect(() => {
+    if (isCreateRoute && typeof window !== "undefined") {
+      try {
+        const saved = localStorage.getItem(DRAFT_KEY);
+        if (saved) {
+          const parsed = JSON.parse(saved);
+          if (parsed.title !== undefined) setTitle(parsed.title);
+          if (parsed.uniqueCode !== undefined) setUniqueCode(parsed.uniqueCode);
+          if (parsed.subject !== undefined) setSubject(parsed.subject);
+          if (parsed.desc !== undefined) setDesc(parsed.desc);
+          if (parsed.startDate !== undefined) setStartDate(parsed.startDate);
+          if (parsed.startTime !== undefined) setStartTime(parsed.startTime);
+          if (parsed.endDate !== undefined) setEndDate(parsed.endDate);
+          if (parsed.endTime !== undefined) setEndTime(parsed.endTime);
+          if (parsed.duration !== undefined) setDuration(parsed.duration);
+          if (parsed.timezone !== undefined) setTimezone(parsed.timezone);
+          if (parsed.passingScore !== undefined) setPassingScore(parsed.passingScore);
+          if (parsed.maxAttempts !== undefined) setMaxAttempts(parsed.maxAttempts);
+          if (parsed.lateAllowance !== undefined) setLateAllowance(parsed.lateAllowance);
+          if (parsed.privacy !== undefined) setPrivacy(parsed.privacy);
+          if (parsed.randomize !== undefined) setRandomize(parsed.randomize);
+          if (parsed.shuffleAnswers !== undefined) setShuffleAnswers(parsed.shuffleAnswers);
+          if (parsed.showResults !== undefined) setShowResults(parsed.showResults);
+          if (parsed.requireLateApproval !== undefined) setRequireLateApproval(parsed.requireLateApproval);
+          if (parsed.manualStart !== undefined) setManualStart(parsed.manualStart);
+          if (parsed.sections !== undefined) setSections(parsed.sections);
+        }
+      } catch (e) {
+        console.error("Failed to restore exam draft:", e);
+      }
+    }
+  }, [isCreateRoute]);
+
+  // Auto-save draft for new exams
+  useEffect(() => {
+    if (isCreateRoute && !isLoading && typeof window !== "undefined") {
+      const draft = {
+        title, uniqueCode, subject, desc, startDate, startTime, endDate, endTime, duration,
+        timezone, passingScore, maxAttempts, lateAllowance, privacy, randomize, shuffleAnswers,
+        showResults, requireLateApproval, manualStart, sections
+      };
+      localStorage.setItem(DRAFT_KEY, JSON.stringify(draft));
+    }
+  }, [
+    isCreateRoute, isLoading, title, uniqueCode, subject, desc, startDate, startTime, endDate, endTime, duration,
+    timezone, passingScore, maxAttempts, lateAllowance, privacy, randomize, shuffleAnswers,
+    showResults, requireLateApproval, manualStart, sections
+  ]);
+
   useEffect(() => {
     if (actualId) {
       examsApi.getById(actualId as string).then(exam => {
@@ -889,6 +941,11 @@ export function ExamCreate() {
 
       setSaved(true);
 
+      // Remove draft after a successful save of a new exam
+      if (!isEdit && typeof window !== "undefined") {
+        localStorage.removeItem(DRAFT_KEY);
+      }
+
       if (redirect) {
         navigate("/dashboard/exams");
       } else if (!isEdit && navigateAfterCreate) {
@@ -1157,19 +1214,25 @@ export function ExamCreate() {
                   {["1", "2", "3", "Unlimited"].map(v => <option key={v} value={v}>{v}</option>)}
                 </select>
               </div>
-              <div className="sm:col-span-2">
+              <div className="sm:col-span-2 bg-gray-50 p-4 rounded-xl border border-gray-100">
                 <label className="text-xs font-bold text-gray-500 uppercase tracking-wider mb-1.5 block" style={{ fontFamily: U }}>Late entry allowance (minutes)</label>
                 <input type="number" value={lateAllowance} onChange={e => setLateAllowance(e.target.value)} min="0" max="480"
-                  className="w-full border border-gray-200 rounded-xl px-4 py-3 text-sm text-gray-900 focus:outline-none focus:border-gray-400" style={{ fontFamily: I }} />
-                <p className="mt-1.5 text-xs text-gray-400" style={{ fontFamily: I }}>
+                  className="w-full border border-gray-200 rounded-xl px-4 py-3 text-sm text-gray-900 focus:outline-none focus:border-gray-400 bg-white" style={{ fontFamily: I }} />
+                <p className="mt-1.5 text-xs text-gray-400 mb-4" style={{ fontFamily: I }}>
                   How long after the exam starts students can still join. {(parseInt(lateAllowance, 10) || 0) === 0 ? "At 0, nobody new can join once it starts." : `Students can join up to ${parseInt(lateAllowance, 10)} min after the start.`}
-                  {requireLateApproval && (parseInt(lateAllowance, 10) || 0) === 0 ? " Late entry approval below only applies if this is above 0." : ""}
                 </p>
+                
+                <div className="flex items-center justify-between pt-4 border-t border-gray-200">
+                  <div>
+                    <p className="text-sm font-semibold text-gray-700" style={{ fontFamily: U }}>Require late entry approval</p>
+                    <p className="text-xs text-gray-400 mt-0.5" style={{ fontFamily: I }}>Students arriving after start time need teacher approval to enter</p>
+                  </div>
+                  <Toggle on={requireLateApproval} onChange={() => setRequireLateApproval(!requireLateApproval)} />
+                </div>
               </div>
             </div>
             <div className="space-y-3">
               {[
-                { label: "Require late entry approval", desc: "Students arriving after start time need teacher approval to enter", on: requireLateApproval, set: setRequireLateApproval },
                 { label: "Randomize question order", desc: "Shuffle questions differently for each student", on: randomize, set: setRandomize },
                 { label: "Shuffle answer options", desc: "Reorder the choices of multiple-choice, checkbox and dropdown questions for each student", on: shuffleAnswers, set: setShuffleAnswers },
                 { label: "Show results after submission", desc: "Students see their score immediately", on: showResults, set: setShowResults }

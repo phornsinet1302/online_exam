@@ -19,7 +19,7 @@ const S  = "#059669";
 const SL = "#ecfdf5";
 const SM = "#6ee7b7";
 
-interface SQ { id:number; type:string; points:number; text:string; options?:string[]; optionIds?:string[]; pairs?:{L:string;R:string}[]; hint?:string; realId?:string; }
+interface SQ { id:number; type:string; points:number; text:string; options?:string[]; optionIds?:string[]; pairs?:{L:string;R:string}[]; hint?:string; realId?:string; rubric?:string[]; }
 
 // ─── Helpers ─────────────────────────────────────────────────────────────────
 const BLOCK_SECONDS = 15;
@@ -500,6 +500,7 @@ export function ExamTaking() {
                 optionIds: q.options?.map((o: any) => o.id) || undefined,
                 pairs: q.metadata?.pairs || undefined,
                 hint: q.metadata?.hint || undefined,
+                rubric: q.rubric || undefined,
               };
             })
           );
@@ -1024,6 +1025,19 @@ export function ExamTaking() {
               {isFlagged&&<span className="text-xs font-bold px-2.5 py-1.5 rounded-full bg-amber-50 text-amber-600" style={{fontFamily:U}}>⚑ Flagged</span>}
             </div>
             <p className={`font-bold leading-relaxed mb-6 ${FSL}`} style={{fontFamily:U,color:TEXT}}>{q.text}</p>
+            {q.rubric && q.rubric.length > 0 && (
+              <div className={`mb-6 p-4 rounded-xl border ${dark ? 'border-slate-600 bg-slate-800' : 'border-blue-100 bg-blue-50'}`}>
+                <p className="text-xs font-black uppercase tracking-wider mb-2" style={{color: dark ? '#94a3b8' : '#3b82f6', fontFamily:U}}>Grading Rubric / Notes</p>
+                <ul className="space-y-1.5">
+                  {q.rubric.map((r, i) => (
+                    <li key={i} className={`flex items-start gap-2 text-sm ${dark ? 'text-slate-300' : 'text-blue-900'}`} style={{ fontFamily:I }}>
+                      <div className={`w-1.5 h-1.5 rounded-full mt-1.5 flex-shrink-0 ${dark ? 'bg-slate-500' : 'bg-blue-400'}`}/>
+                      <span>{r}</span>
+                    </li>
+                  ))}
+                </ul>
+              </div>
+            )}
             {renderQ()}
           </div>
         </div>

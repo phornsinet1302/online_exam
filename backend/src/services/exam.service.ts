@@ -654,7 +654,7 @@ export class ExamService {
   async reopenExam(
     examId: string,
     ownerId: string,
-    opts: { startsInMinutes: number; endDate?: string | null; endTime?: string | null },
+    opts: { startsInMinutes: number; duration?: number; endDate?: string | null; endTime?: string | null },
   ) {
     const exam = await prisma.exam.findUnique({ where: { id: examId } });
     if (!exam) throw new Error('Exam not found');
@@ -662,30 +662,44 @@ export class ExamService {
     if (exam.status !== 'PUBLISHED') throw new Error('Only a published exam can be reopened.');
     if (exam.sessionState !== 'ENDED') throw new Error('Only an ended exam can be reopened.');
 
-    // Manual-start exams have no schedule to set: reopening just opens the
-    // lobby, and the teacher presses Start when ready.
+    const newDuration = opts.duration ?? exam.duration;
+
     if (exam.manualStart) {
       const reopened = await prisma.exam.update({
         where: { id: examId },
-        data: { sessionState: 'WAITING', endDate: null, endDateFixed: false },
+        data: { sessionState: 'WAITING', startDate: null, endDate: null, endDateFixed: false, duration: newDuration },
       });
       return sanitizeExam(reopened);
     }
 
-    const start = new Date(Date.now() + opts.startsInMinutes * 60_000);
+    const isImmediate = opts.startsInMinutes <= 0;
+    const start = new Date(Date.now() + Math.max(0, opts.startsInMinutes) * 60_000);
     const end = resolveEndDate({
       start,
       endDate: opts.endDate,
       endTime: opts.endTime ?? undefined,
       timezone: exam.timezone || 'UTC',
-      durationMin: exam.duration ?? 0,
+      durationMin: newDuration ?? 0,
       lateMin: exam.lateAllowanceMinutes ?? 0,
     });
 
     const updated = await prisma.exam.update({
       where: { id: examId },
-      data: { sessionState: 'WAITING', startDate: start, endDate: end, endDateFixed: !!opts.endDate },
+      data: { 
+        sessionState: isImmediate ? 'ACTIVE' : 'WAITING', 
+        startDate: start, 
+        endDate: end, 
+        endDateFixed: !!opts.endDate,
+        duration: newDuration 
+      },
     });
+    
+    // If we are starting it immediately, we should also emit the exam_started events
+    // just like scheduleAutoStart would, or let the caller handle it. We'll let the controller or caller 
+    // handle it, but wait! The frontend will just see it's active. 
+    // If it's active immediately, there are no students waiting yet, because the exam was ENDED.
+    // So nobody is in the lobby anyway.
+    
     return sanitizeExam(updated);
   }
 

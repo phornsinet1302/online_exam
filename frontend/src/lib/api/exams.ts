@@ -105,9 +105,10 @@ export const examsApi = {
   },
 
   // Gives an ended exam a new session: waiting room open, starting
-  // `startsInMinutes` from now. endDate/endTime (MM/dd/yyyy, hh:mm AM/PM, in the
-  // exam's timezone) optionally set a hard close.
-  reopen: async (id: string, opts: { startsInMinutes: number; endDate?: string | null; endTime?: string | null }): Promise<Exam> => {
+  // `startsInMinutes` from now (0 to start immediately). 
+  // duration (optional) overrides the exam's previous duration.
+  // endDate/endTime optionally set a hard close.
+  reopen: async (id: string, opts: { startsInMinutes: number; duration?: number; endDate?: string | null; endTime?: string | null }): Promise<Exam> => {
     return fetchApi<Exam>(`/exams/${id}/reopen`, { method: "POST", body: JSON.stringify(opts) });
   }
 };

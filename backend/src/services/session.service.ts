@@ -283,9 +283,9 @@ export class SessionService {
       ? new Date(exam.startDate.getTime() + exam.lateAllowanceMinutes * 60_000)
       : null;
 
-    if (!awaitingManualStart && lateDeadline && now > lateDeadline) {
-      throw new Error('The late-join window for this exam has closed.');
-    }
+    // We no longer block in joinByCode based on lateDeadline because
+    // returning students (resuming or taking 2nd attempt) would be blocked.
+    // The check is instead performed in registerStudent for first-time joiners.
 
     const totalQuestions = exam.sections.reduce(
       (sum, s) => sum + s.questions.length, 0
@@ -442,6 +442,15 @@ export class SessionService {
       attempt = null;
     }
 
+    // Check late-join window ONLY if they have never joined before (first attempt)
+    let isLateJoin = false;
+    if (previousAttempts.length === 0) {
+      const lateDeadline = exam.startDate ? new Date(exam.startDate.getTime() + exam.lateAllowanceMinutes * 60_000) : null;
+      if (!awaitingManualStart && lateDeadline && now > lateDeadline) {
+        isLateJoin = true; // Will require teacher approval instead of blocking entirely
+      }
+    }
+
     // An unfinished attempt is resumed rather than duplicated
     if (attempt) {
       // With only a typed Student ID there is nothing to prove who is asking, so
@@ -472,7 +481,7 @@ export class SessionService {
     }
 
     // Determine if student needs approval (joining late)
-    const needsApproval = exam.requireLateApproval && exam.sessionState === 'ACTIVE';
+    const needsApproval = isLateJoin || (exam.requireLateApproval && exam.sessionState === 'ACTIVE');
 
     // Otherwise, create a new attempt
     attempt = await prisma.examAttempt.create({
@@ -525,9 +534,17 @@ export class SessionService {
     });
     if (!exam) throw new Error('Exam not found.');
 
-    // Return students who are currently online OR who have submitted
+    // Return students who are currently online OR who have submitted in this session.
+    // If a student submitted before the current session's start date (or if the exam is WAITING, meaning it hasn't started), they are from a previous session and should be excluded from the live monitor.
     const joinedStudents = exam.attempts
-      .filter(a => isStudentOnline(a.id) || a.submittedAt !== null)
+      .filter(a => {
+        if (isStudentOnline(a.id)) return true;
+        if (a.submittedAt !== null) {
+          if (exam.sessionState === 'WAITING') return false; // Current session hasn't started yet
+          if (exam.startDate && a.submittedAt >= exam.startDate) return true; // Submitted during current session
+        }
+        return false;
+      })
       .map(a => {
         const answers = a.answers as any;
         const studentInfo = answers?.studentInfo || {};
