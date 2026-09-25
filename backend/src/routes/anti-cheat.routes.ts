@@ -8,6 +8,7 @@ import {
   flushOfflineQueue,
   getStudentAntiCheatConfig,
   getViolationLogs,
+  getAllViolationLogs,
   exportViolationsCsv,
   getLiveStudentSummary,
   resolveViolation,

@@ -903,11 +903,7 @@ export function ExamCreate() {
         return;
       }
 
-      const accessType = privacy === "public" ? "PUBLIC" : (privacy === "private" ? "PRIVATE" : "PASSWORD_PROTECTED");
-      if (privacy === "password" && !examPassword.trim() && !hasPassword) {
-        alert("Enter a password for this password-protected exam.");
-        return;
-      }
+      const accessType = "PUBLIC";
       const parsedPassing = parseInt(passingScore, 10);
 
       const examData = {
@@ -1245,33 +1241,6 @@ export function ExamCreate() {
             </div>
           </div>
 
-          {/* Privacy */}
-          <div className="bg-white rounded-2xl border border-gray-100 p-6">
-            <h3 className="text-sm font-black mb-5" style={{ fontFamily: U, color: INK }}>Access & Privacy</h3>
-            <div className="space-y-2">
-              {[{ id: "public", label: "Public", desc: "Anyone with the link or code can join" }, { id: "private", label: "Private", desc: "Only invited students can access" }, { id: "password", label: "Password protected", desc: "Students enter a password to access" }].map(opt => (
-                <label key={opt.id} onClick={() => setPrivacy(opt.id)} className={`flex items-center gap-4 p-4 rounded-xl border-2 cursor-pointer transition-all ${privacy === opt.id ? "border-gray-800" : "border-gray-100 hover:border-gray-200"}`}>
-                  <div className={`w-4 h-4 rounded-full border-2 flex items-center justify-center flex-shrink-0 ${privacy === opt.id ? "border-gray-800" : "border-gray-300"}`}>
-                    {privacy === opt.id && <div className="w-2 h-2 rounded-full" style={{ background: INK }} />}
-                  </div>
-                  <div><p className="text-sm font-bold text-gray-800" style={{ fontFamily: U }}>{opt.label}</p><p className="text-xs text-gray-400 mt-0.5" style={{ fontFamily: I }}>{opt.desc}</p></div>
-                </label>
-              ))}
-            </div>
-            {privacy === "password" && (
-              <div className="mt-4">
-                <label className="text-xs font-bold text-gray-500 uppercase tracking-wider mb-1.5 block" style={{ fontFamily: U }}>Exam password</label>
-                <input type="text" value={examPassword} onChange={e => setExamPassword(e.target.value)} autoComplete="off"
-                  placeholder={hasPassword ? "Leave blank to keep the current password" : "Students will need this to join"}
-                  className="w-full border border-gray-200 rounded-xl px-4 py-3 text-sm text-gray-900 placeholder:text-gray-400 focus:outline-none focus:border-gray-400" style={{ fontFamily: I }} />
-              </div>
-            )}
-            {privacy === "private" && (
-              <p className="mt-4 rounded-xl bg-amber-50 px-4 py-3 text-xs text-amber-700" style={{ fontFamily: I }}>
-                Only students on the exam&apos;s <strong>Roster</strong> can join (matched by their Google email). Add them from the Roster tab on the exam page after saving.
-              </p>
-            )}
-          </div>
 
           {/* AI Assist */}
           <div className="bg-white rounded-2xl border border-gray-100 p-6 xl:col-span-2">

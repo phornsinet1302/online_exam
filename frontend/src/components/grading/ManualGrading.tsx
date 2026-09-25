@@ -2,6 +2,7 @@
 
 import { useState, useEffect, useMemo } from "react";
 import { useNavigate } from "@/lib/hooks";
+import { useSearchParams, useRouter, usePathname } from "next/navigation";
 import { DashboardLayout } from "@/components/dashboard/DashboardShared";
 import { CheckCircle2, Check, RefreshCw } from "lucide-react";
 import { U, I, INK, CAMEL } from "@/lib/tokens";
@@ -10,6 +11,9 @@ import { examsApi, Exam } from "@/lib/api/exams";
 
 export function ManualGrading() {
   const navigate = useNavigate();
+  const searchParams = useSearchParams();
+  const router = useRouter();
+  const pathname = usePathname();
   const [exams, setExams] = useState<Exam[]>([]);
   const [examId, setExamId] = useState("");
   const [showAll, setShowAll] = useState(false);
@@ -31,7 +35,18 @@ export function ManualGrading() {
       const initial = published.find(e => e.id === requested) ?? published[0];
       if (initial) setExamId(initial.id);
     });
-  }, []);
+  }, [searchParams]);
+
+  useEffect(() => {
+    if (!examId) return;
+    if (typeof window !== "undefined") {
+      localStorage.setItem("lastSelectedExamId", examId);
+    }
+    if (searchParams.get("examId") === examId) return;
+    const params = new URLSearchParams(searchParams.toString());
+    params.set("examId", examId);
+    router.replace(`${pathname}?${params.toString()}`, { scroll: false });
+  }, [examId, searchParams, router, pathname]);
 
   useEffect(() => {
     if (!examId) return;
@@ -107,7 +122,7 @@ export function ManualGrading() {
   return (
     <DashboardLayout active="grading-manual" title="Manual Grading" subtitle={student ? `${student} · ${qIdx+1} of ${studentAnswers.length} questions` : "No questions to grade"}
       actions={<>
-        <button onClick={()=>navigate("/dashboard/grading")} className="text-xs font-semibold px-3 py-2 rounded-xl border border-gray-200 text-gray-600 hover:bg-gray-50" style={{ fontFamily:U }}>← All results</button>
+        <button onClick={()=>navigate(`/dashboard/grading?examId=${examId}`)} className="text-xs font-semibold px-3 py-2 rounded-xl border border-gray-200 text-gray-600 hover:bg-gray-50" style={{ fontFamily:U }}>← All results</button>
       </>}>
 
       {/* Controls */}
@@ -261,7 +276,7 @@ export function ManualGrading() {
               </button>
               <div className="flex gap-2">
                 <button onClick={()=>{ if(qIdx>0)setQIdx(q=>q-1); else if(studentIdx>0){setStudentIdx(s=>s-1);setQIdx((groupedByStudent[manualStudents[studentIdx-1]]?.length || 1)-1);} }} className="flex-1 py-2 text-xs font-semibold text-gray-500 border border-gray-200 rounded-xl hover:bg-gray-50" style={{ fontFamily:U }}>← Prev</button>
-                <button onClick={()=>navigate("/dashboard/grading")} className="flex-1 py-2 text-xs font-semibold text-gray-500 border border-gray-200 rounded-xl hover:bg-gray-50" style={{ fontFamily:U }}>All results</button>
+                <button onClick={()=>navigate(`/dashboard/grading?examId=${examId}`)} className="flex-1 py-2 text-xs font-semibold text-gray-500 border border-gray-200 rounded-xl hover:bg-gray-50" style={{ fontFamily:U }}>All results</button>
               </div>
             </div>
           </div>

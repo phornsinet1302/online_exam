@@ -3,7 +3,7 @@
 import { useState, useRef, useEffect, useCallback, useMemo } from "react";
 import { useNavigate } from "@/lib/hooks";
 import { QTLABELS, QTCOLORS } from "@/lib/mock-data";
-import { getExamState, autosaveAnswers, submitExam } from "@/lib/api/session";
+import { getExamState, autosaveAnswers, submitExam, reportViolation } from "@/lib/api/session";
 import { API_URL } from "@/lib/api/client";
 import { useAntiCheat, AntiCheatAction } from "@/lib/useAntiCheat";
 import { eventLabel } from "@/lib/violationEvents";
@@ -698,7 +698,13 @@ export function ExamTaking() {
     };
   }, [code]);
 
+  const requireFs = examData?.rules?.find((r: any) => r.eventType === "fullscreen_exit")?.enabled ?? true;
+  const requireFsRef = useRef(requireFs);
+  useEffect(() => { requireFsRef.current = requireFs; }, [requireFs]);
+
   const [needsFullscreen, setNeedsFullscreen] = useState(false);
+  const [isBlurred, setIsBlurred] = useState(false); // To obscure content on blur
+
   useEffect(() => {
     const checkFs = () => {
       if (!document.fullscreenElement) setNeedsFullscreen(true);
@@ -709,7 +715,7 @@ export function ExamTaking() {
     return () => document.removeEventListener("fullscreenchange", checkFs);
   }, []);
 
-  if (needsFullscreen && !lockdownBlocked && !examLoading) {
+  if (requireFs && needsFullscreen && !lockdownBlocked && !examLoading) {
     return (
       <div className="min-h-screen bg-gray-900 flex items-center justify-center p-6 text-white text-center" style={{fontFamily:'"Outfit", sans-serif'}}>
         <div className="max-w-md space-y-6">
@@ -939,7 +945,7 @@ export function ExamTaking() {
 
   return (
     <div
-      className="min-h-screen flex flex-col select-none"
+      className={`min-h-screen flex flex-col select-none transition-all duration-300 ${isBlurred ? "blur-xl grayscale pointer-events-none select-none opacity-50" : ""}`}
       style={{background:BG,userSelect:"none",WebkitUserSelect:"none"}}
       onCopy={e=>e.preventDefault()}
       onCut={e=>e.preventDefault()}
@@ -947,6 +953,17 @@ export function ExamTaking() {
       onContextMenu={e=>e.preventDefault()}
       onDragStart={e=>e.preventDefault()}
     >
+      {isBlurred && (
+        <div className="fixed inset-0 z-[100] flex flex-col items-center justify-center bg-black/60 backdrop-blur-2xl">
+          <div className="bg-white rounded-3xl p-10 max-w-md text-center shadow-2xl">
+            <AlertOctagon size={48} className="mx-auto text-red-500 mb-6 animate-pulse" />
+            <h2 className="text-2xl font-black text-gray-900 mb-2" style={{fontFamily:U}}>Exam Paused</h2>
+            <p className="text-gray-500 font-medium" style={{fontFamily:I}}>
+              Please return focus to the exam window. Leaving the exam window is a violation of the anti-cheat policy.
+            </p>
+          </div>
+        </div>
+      )}
       {lockdownBlocked&&<LockdownOverlay onResume={resumeFullscreen}/>}
       {acNotice&&<AntiCheatModal notice={acNotice} onClose={()=>setAcNotice(null)}/>}
       {block&&<BlockedOverlay event={block.event} until={block.until} onDone={()=>setBlock(null)}/>}

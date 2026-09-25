@@ -104,6 +104,17 @@ export const examsApi = {
     return fetchApi<Exam>(`/exams/${id}/unarchive`, { method: "POST" });
   },
 
+  getAntiCheatRules: async (id: string): Promise<any[]> => {
+    return fetchApi<any[]>(`/exams/${id}/anti-cheat/rules`, { method: "GET" });
+  },
+
+  updateAntiCheatRules: async (id: string, rules: any[]): Promise<any[]> => {
+    return fetchApi<any[]>(`/exams/${id}/anti-cheat/rules`, {
+      method: "PUT",
+      body: JSON.stringify({ rules }),
+    });
+  },
+
   // Gives an ended exam a new session: waiting room open, starting
   // `startsInMinutes` from now (0 to start immediately). 
   // duration (optional) overrides the exam's previous duration.

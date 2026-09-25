@@ -437,6 +437,74 @@ export class AntiCheatService {
   }
 
   /**
+   * Retrieve violation logs across all exams owned by the teacher.
+   */
+  async getAllViolationLogs(
+    ownerId: string,
+    filters: {
+      severity?:  string;
+      eventType?: string;
+      resolved?:  boolean;
+      attemptId?: string;
+      examId?:    string;
+      page?:      number;
+      pageSize?:  number;
+    } = {},
+  ) {
+    const { severity, eventType, resolved, attemptId, examId, page = 1, pageSize = 50 } = filters;
+    const where: Record<string, any> = { attempt: { exam: { ownerId } } };
+    if (examId)    where.examId = examId;
+    if (severity)  where.severity = severity;
+    if (eventType) where.eventType = eventType;
+    if (resolved !== undefined) where.resolved = resolved;
+    if (attemptId) where.attemptId = attemptId;
+
+    const [total, logs] = await prisma.$transaction([
+      prisma.violationLog.count({ where }),
+      prisma.violationLog.findMany({
+        where,
+        orderBy: { createdAt: 'desc' },
+        skip:    (page - 1) * pageSize,
+        take:    pageSize,
+        include: {
+          attempt: {
+            select: {
+              studentId: true,
+              answers:   true,  // contains studentInfo
+              exam: { select: { title: true } }
+            },
+          },
+        },
+      }),
+    ]);
+
+    const enriched = logs.map(log => {
+      const answers = log.attempt?.answers as Record<string, any> | null;
+      const info    = answers?.studentInfo as Record<string, any> | undefined;
+      return {
+        id:              log.id,
+        attemptId:       log.attemptId,
+        examId:          log.examId,
+        examTitle:       log.attempt?.exam?.title ?? 'Unknown Exam',
+        eventType:       log.eventType,
+        detail:          log.detail,
+        severity:        log.severity,
+        actionTaken:     log.actionTaken,
+        occurrenceCount: log.occurrenceCount,
+        resolved:        log.resolved,
+        resolvedBy:      log.resolvedBy,
+        resolvedAt:      log.resolvedAt,
+        createdAt:       log.createdAt,
+        studentId:       log.attempt?.studentId,
+        studentName:     info?.name    ?? 'Unknown',
+        studentEmail:    info?.email   ?? '',
+      };
+    });
+
+    return { total, page, pageSize, logs: enriched };
+  }
+
+  /**
    * Get per-student summary for a live exam (used by LiveMonitoring).
    */
   async getLiveStudentSummary(examId: string, ownerId: string) {
