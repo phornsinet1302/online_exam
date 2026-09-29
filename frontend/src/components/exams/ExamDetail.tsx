@@ -3,24 +3,26 @@
 import { useState, useEffect, useRef } from "react";
 import { useParams, useNavigate } from "@/lib/hooks";
 import { DashboardLayout, StatusBadge, CopyField, Toggle } from "@/components/dashboard/DashboardShared";
-import { Pencil, ChevronRight, Download, Clock, Users, Play, StopCircle, Wifi, WifiOff, Loader2, UserX, ClipboardList, AlertTriangle, RotateCcw, X } from "lucide-react";
+import { Pencil, ChevronRight, Download, Clock, Users, Play, StopCircle, Wifi, WifiOff, Loader2, UserX, ClipboardList, AlertTriangle, RotateCcw, X, Upload } from "lucide-react";
 import { QRCodeCanvas } from "qrcode.react";
 import { examsApi } from "@/lib/api/exams";
 import { startExamSession, endExamSession, getTeacherStreamUrl } from "@/lib/api/session";
-import { rosterApi, RosterEntry } from "@/lib/api/roster";
+import { RulesConfig } from "@/components/monitoring/RulesConfig";
 import { API_URL } from "@/lib/api/client";
 import { to12h } from "@/lib/datetime";
 import { StudentIdentityPicker, StudentIdentity } from "@/components/exams/StudentIdentityPicker";
 import { U, I, INK, CAMEL } from "@/lib/tokens";
+import { AntiCheatRuleEditor } from "@/components/monitoring/AntiCheatRuleEditor";
 
 const S = "#059669";
 const SL = "#ecfdf5";
 
 // ─── Reopen Exam dialog ───────────────────────────────────────────────────────
-const REOPEN_PRESETS = [5, 10, 15, 30, 60];
+const REOPEN_PRESETS = [0, 5, 10, 15, 30, 60];
 
 function ReopenDialog({ exam, onClose, onReopened }: { exam: any; onClose: () => void; onReopened: (exam: any) => void }) {
-  const [minutes, setMinutes] = useState(5);
+  const [minutes, setMinutes] = useState(0);
+  const [newDuration, setNewDuration] = useState(exam.duration || 10);
   const [hardClose, setHardClose] = useState(false);
   // Reopening is a natural moment to change how students join.
   const [identity, setIdentity] = useState<StudentIdentity>(exam.studentIdentity === "GOOGLE" ? "GOOGLE" : "NAME_ID");
@@ -30,20 +32,20 @@ function ReopenDialog({ exam, onClose, onReopened }: { exam: any; onClose: () =>
   const [error, setError] = useState("");
 
   const tz = exam.timezone || "UTC";
-  const duration = exam.duration || 0;
   const fmt = (d: Date) => {
     const opts: Intl.DateTimeFormatOptions = { weekday: "short", day: "numeric", month: "short", hour: "numeric", minute: "2-digit" };
     try { return new Intl.DateTimeFormat("en-GB", { ...opts, timeZone: tz }).format(d); }
     catch { return new Intl.DateTimeFormat("en-GB", opts).format(d); }
   };
-  const start = new Date(Date.now() + Math.max(1, minutes) * 60_000);
-  const end = new Date(start.getTime() + duration * 60_000);
+  const start = new Date(Date.now() + Math.max(0, minutes) * 60_000);
+  const end = new Date(start.getTime() + newDuration * 60_000);
 
   const manual = !!exam.manualStart;
 
   const submit = async () => {
     setError("");
-    if (!manual && (!Number.isInteger(minutes) || minutes < 1)) { setError("Enter a start time of at least 1 minute from now."); return; }
+    if (!manual && (!Number.isInteger(minutes) || minutes < 0)) { setError("Enter a valid start time."); return; }
+    if (!manual && (!Number.isInteger(newDuration) || newDuration < 1)) { setError("Enter a valid duration."); return; }
     let endParams: { endDate: string; endTime: string } | null = null;
     if (!manual && hardClose) {
       if (!endDate) { setError("Pick the date the exam should close, or turn the hard close off."); return; }
@@ -79,19 +81,32 @@ function ReopenDialog({ exam, onClose, onReopened }: { exam: any; onClose: () =>
           <div className="mb-5"><StudentIdentityPicker value={identity} onChange={setIdentity} locked={exam.accessType === "PRIVATE"} /></div>
 
           {!manual && <>
-          <p className="text-xs font-bold text-gray-500 uppercase tracking-wider mb-2" style={{ fontFamily: U }}>Start in</p>
-          <div className="flex flex-wrap items-center gap-2 mb-5">
-            {REOPEN_PRESETS.map(m => (
-              <button key={m} onClick={() => setMinutes(m)} className={`text-xs font-bold px-3 py-2 rounded-xl border transition-all ${minutes === m ? "text-white border-transparent" : "border-gray-200 text-gray-500 hover:border-gray-300"}`} style={{ background: minutes === m ? INK : undefined, fontFamily: U }}>{m} min</button>
-            ))}
-            <input type="number" min={1} max={20160} value={minutes} onChange={e => setMinutes(parseInt(e.target.value, 10) || 0)}
-              className="w-20 border border-gray-200 rounded-xl px-3 py-2 text-xs text-gray-800 focus:outline-none focus:border-gray-400" style={{ fontFamily: I }} aria-label="Custom minutes" />
+          <div className="grid grid-cols-2 gap-5 mb-5">
+            <div>
+              <p className="text-xs font-bold text-gray-500 uppercase tracking-wider mb-2" style={{ fontFamily: U }}>Start in</p>
+              <div className="flex flex-wrap items-center gap-2">
+                {REOPEN_PRESETS.map(m => (
+                  <button key={m} onClick={() => setMinutes(m)} className={`text-xs font-bold px-3 py-2 rounded-xl border transition-all ${minutes === m ? "text-white border-transparent" : "border-gray-200 text-gray-500 hover:border-gray-300"}`} style={{ background: minutes === m ? INK : undefined, fontFamily: U }}>{m === 0 ? 'Now' : `${m}m`}</button>
+                ))}
+                <input type="number" min={0} max={20160} value={minutes} onChange={e => setMinutes(parseInt(e.target.value, 10) || 0)}
+                  className="w-16 border border-gray-200 rounded-xl px-2 py-2 text-xs text-gray-800 focus:outline-none focus:border-gray-400" style={{ fontFamily: I }} aria-label="Custom minutes" />
+              </div>
+            </div>
+            
+            <div>
+              <p className="text-xs font-bold text-gray-500 uppercase tracking-wider mb-2" style={{ fontFamily: U }}>New Duration</p>
+              <div className="flex items-center gap-2">
+                <input type="number" min={1} max={1440} value={newDuration} onChange={e => setNewDuration(parseInt(e.target.value, 10) || 0)}
+                  className="w-20 border border-gray-200 rounded-xl px-3 py-2 text-xs text-gray-800 focus:outline-none focus:border-gray-400" style={{ fontFamily: I }} />
+                <span className="text-xs font-semibold text-gray-500">minutes</span>
+              </div>
+            </div>
           </div>
 
           <label className="flex items-center justify-between gap-3 mb-3 cursor-pointer">
             <div>
               <p className="text-sm font-semibold text-gray-700" style={{ fontFamily: U }}>Set a hard close time</p>
-              <p className="text-[11px] text-gray-400" style={{ fontFamily: I }}>Otherwise it closes {duration} min after it starts.</p>
+              <p className="text-[11px] text-gray-400" style={{ fontFamily: I }}>Otherwise it closes {newDuration} min after it starts.</p>
             </div>
             <Toggle on={hardClose} onChange={() => setHardClose(h => !h)} />
           </label>
@@ -190,6 +205,17 @@ function LiveSessionPanel({ examId, exam, sessionState, onSessionChange, onReope
       try {
         const { attemptId } = JSON.parse(e.data);
         setWaitingStudents(prev => prev.filter(s => s.attemptId !== attemptId));
+      } catch { }
+    });
+
+    es.addEventListener("violation", (e) => {
+      try {
+        const payload = JSON.parse(e.data);
+        setWaitingStudents(prev => prev.map(s => 
+          s.attemptId === payload.attemptId 
+            ? { ...s, violations: [...(s.violations || []), payload] } 
+            : s
+        ));
       } catch { }
     });
 
@@ -325,13 +351,18 @@ function LiveSessionPanel({ examId, exam, sessionState, onSessionChange, onReope
                 const color = avatarColors[idx % avatarColors.length];
                 return (
                   <div key={student.attemptId}
-                    className="flex flex-col items-center rounded-2xl border border-gray-100 bg-gray-50 p-4 text-center">
+                    className="flex flex-col items-center rounded-2xl border border-gray-100 bg-gray-50 p-4 text-center relative">
                     <div className="relative mb-3">
                       <div className="w-12 h-12 rounded-full flex items-center justify-center text-sm font-black text-white"
                         style={{ background: color, fontFamily: U }}>{initials}</div>
                       <span className="absolute bottom-0 right-0 w-3 h-3 rounded-full border-2 border-white"
                         style={{ background: S }} />
                     </div>
+                    {(student.violations && student.violations.length > 0) ? (
+                      <span className="absolute -top-2 -right-2 bg-red-500 text-white text-[10px] font-bold px-1.5 py-0.5 rounded-full border-2 border-white shadow-sm z-10" title="Violations detected">
+                        {student.violations.length}
+                      </span>
+                    ) : null}
                     <p className="text-xs font-black truncate w-full" style={{ fontFamily: U, color: INK }}>{name}</p>
                     <p className="text-[10px] text-gray-400 truncate w-full mt-0.5" style={{ fontFamily: I }}>
                       {info.studentId || info.email || "—"}
@@ -369,124 +400,19 @@ function LiveSessionPanel({ examId, exam, sessionState, onSessionChange, onReope
 }
 
 // ─── Roster Panel ─────────────────────────────────────────────────────────────
-function parseRosterText(text: string): { email: string; name?: string }[] {
-  const emailRegex = /[^\s<>,;]+@[^\s<>,;]+\.[^\s<>,;]+/;
-  const entries: { email: string; name?: string }[] = [];
-  for (const raw of text.split(/\r?\n/)) {
-    const line = raw.trim();
-    if (!line) continue;
-    const match = line.match(emailRegex);
-    if (!match) continue;
-    const email = match[0];
-    const name = line.replace(email, "").replace(/[<>,;]/g, "").trim();
-    entries.push(name ? { email, name } : { email });
-  }
-  return entries;
-}
-
-function RosterPanel({ examId }: { examId: string }) {
-  const [roster, setRoster] = useState<RosterEntry[]>([]);
-  const [loading, setLoading] = useState(true);
-  const [error, setError] = useState("");
-  const [text, setText] = useState("");
-  const [saving, setSaving] = useState(false);
-  const [saveError, setSaveError] = useState("");
-  const [removingId, setRemovingId] = useState<string | null>(null);
-
-  const load = () => {
-    setLoading(true);
-    setError("");
-    rosterApi.get(examId)
-      .then(setRoster)
-      .catch(e => setError(e instanceof Error && e.message ? e.message : "Failed to load the roster. Please try again."))
-      .finally(() => setLoading(false));
-  };
-
-  useEffect(() => { load(); }, [examId]);
-
-  const save = async () => {
-    const entries = parseRosterText(text);
-    if (entries.length === 0) { setSaveError("Paste at least one valid email, one per line."); return; }
-    setSaving(true);
-    setSaveError("");
-    try {
-      const updated = await rosterApi.upload(examId, entries);
-      setRoster(updated);
-      setText("");
-    } catch (e) {
-      setSaveError(e instanceof Error && e.message ? e.message : "Failed to save the roster. Please try again.");
-    } finally {
-      setSaving(false);
-    }
-  };
-
-  const remove = async (id: string) => {
-    setRemovingId(id);
-    try {
-      await rosterApi.remove(examId, id);
-      setRoster(p => p.filter(r => r.id !== id));
-    } catch (e) {
-      alert(e instanceof Error && e.message ? e.message : "Failed to remove student. Please try again.");
-    } finally {
-      setRemovingId(null);
-    }
-  };
-
+// ─── Shared UI Helpers ────────────────────────────────────────────────────────
+function DetailRow({ label, value, note }: { label: string; value: React.ReactNode; note?: string }) {
   return (
-    <div className="grid lg:grid-cols-[1fr_340px] gap-5">
-      <div className="bg-white rounded-2xl border border-gray-100 overflow-hidden">
-        <div className="px-6 py-4 border-b border-gray-100 flex items-center justify-between">
-          <div>
-            <h3 className="text-sm font-black" style={{ fontFamily: U, color: INK }}>Expected Students</h3>
-            <p className="text-xs text-gray-400 mt-0.5" style={{ fontFamily: I }}>{roster.length} on roster</p>
-          </div>
-        </div>
-        {error ? (
-          <div className="p-10 text-center">
-            <AlertTriangle size={28} className="mx-auto mb-2 text-red-300"/>
-            <p className="text-sm text-red-500 mb-3" style={{ fontFamily: U }}>{error}</p>
-            <button onClick={load} className="text-xs font-bold px-4 py-2 rounded-xl text-white" style={{ background: INK, fontFamily: U }}>Try again</button>
-          </div>
-        ) : loading ? (
-          <div className="p-10 text-center"><Loader2 className="animate-spin mx-auto text-gray-300" size={22}/></div>
-        ) : roster.length === 0 ? (
-          <div className="p-10 text-center">
-            <ClipboardList size={28} className="mx-auto mb-2 text-gray-200"/>
-            <p className="text-sm text-gray-400" style={{ fontFamily: I }}>No roster uploaded yet — attendance will just show who joined.</p>
-          </div>
-        ) : (
-          <div className="max-h-[420px] overflow-y-auto divide-y divide-gray-50">
-            {roster.map(r => (
-              <div key={r.id} className="flex items-center gap-3 px-6 py-3">
-                <div className="w-8 h-8 rounded-full flex items-center justify-center text-white text-xs font-bold flex-shrink-0" style={{ background: CAMEL, fontFamily: U }}>
-                  {(r.name || r.email)[0]?.toUpperCase()}
-                </div>
-                <div className="flex-1 min-w-0">
-                  <p className="text-sm font-semibold text-gray-800 truncate" style={{ fontFamily: U }}>{r.name || r.email}</p>
-                  {r.name && <p className="text-xs text-gray-400 truncate" style={{ fontFamily: I }}>{r.email}</p>}
-                </div>
-                <button onClick={() => remove(r.id)} disabled={removingId === r.id} className="w-7 h-7 rounded-lg flex items-center justify-center text-gray-300 hover:bg-red-50 hover:text-red-500 transition-colors disabled:opacity-50 flex-shrink-0">
-                  {removingId === r.id ? <Loader2 size={13} className="animate-spin"/> : <UserX size={14}/>}
-                </button>
-              </div>
-            ))}
-          </div>
-        )}
-      </div>
-
-      <div className="bg-white rounded-2xl border border-gray-100 p-5">
-        <h3 className="text-sm font-black mb-1" style={{ fontFamily: U, color: INK }}>Upload roster</h3>
-        <p className="text-xs text-gray-400 mb-4" style={{ fontFamily: I }}>Paste one student per line — email, or &quot;Name, email&quot;. This replaces the current roster.</p>
-        <textarea value={text} onChange={e => { setText(e.target.value); setSaveError(""); }} rows={8}
-          placeholder={"jane.doe@school.edu\nJohn Smith, john.smith@school.edu"}
-          className="w-full border border-gray-200 rounded-xl px-3 py-2.5 text-xs font-mono text-gray-700 focus:outline-none focus:border-gray-400 resize-none mb-3" style={{ fontFamily: I }}/>
-        {saveError && <p className="text-xs text-red-500 mb-3" style={{ fontFamily: I }}>{saveError}</p>}
-        <button onClick={save} disabled={saving || !text.trim()} className="w-full text-sm font-bold text-white py-2.5 rounded-xl hover:opacity-90 disabled:opacity-40 transition-all" style={{ background: INK, fontFamily: U }}>
-          {saving ? "Saving…" : "Save roster"}
-        </button>
-      </div>
+    <div className="py-4 border-b border-gray-50 last:border-0">
+      <p className="text-[10px] font-black uppercase tracking-wider text-gray-400 mb-1" style={{ fontFamily: U }}>{label}</p>
+      <div className="text-sm text-gray-800 font-medium" style={{ fontFamily: I }}>{value}</div>
+      {note && <p className="text-xs text-gray-400 mt-1" style={{ fontFamily: I }}>{note}</p>}
     </div>
   );
+}
+
+function copyToClipboard(text: string) {
+  navigator.clipboard.writeText(text).catch(() => {});
 }
 
 // ─── Main Component ───────────────────────────────────────────────────────────
@@ -518,7 +444,7 @@ export function ExamDetail() {
     if (typeof window !== "undefined") {
       const urlParams = new URLSearchParams(window.location.search);
       const initialTab = urlParams.get("tab");
-      if (initialTab && ["session", "overview", "sharing", "roster", "settings", "preview"].includes(initialTab)) {
+      if (initialTab && ["session", "overview", "sharing", "rules", "preview"].includes(initialTab)) {
         setTab(initialTab);
       }
     }
@@ -559,12 +485,12 @@ export function ExamDetail() {
   };
 
   // Role-aware UI: the backend enforces these rules; this just avoids showing
-  // controls that would only 403. Roster + sharing are owner-only, and an
+  // controls that would only 403. Rules + sharing are owner-only, and an
   // Invigilator is read-only (can't edit the exam).
   const isOwner = exam?.myRole === "OWNER";
   const canEdit = exam?.myRole === "OWNER" || exam?.myRole === "COLLABORATOR";
-  const tabs = ["session", "overview", "sharing", "roster", "settings", "preview"]
-    .filter(t => isOwner || (t !== "roster" && t !== "sharing" && (t !== "settings" || canEdit)));
+  const tabs = ["session", "overview", "sharing", "rules", "preview"]
+    .filter(t => isOwner || (t !== "rules" && t !== "sharing"));
 
   const sessionStateLabel: Record<string, string> = {
     WAITING: "Waiting",
@@ -812,12 +738,20 @@ export function ExamDetail() {
                     <span className="text-xs text-gray-400" style={{ fontFamily: I }}>{q.type.replace(/_/g, " ")}</span>
                   </div>
                   <p className="text-sm text-gray-800 mb-4 font-medium" style={{ fontFamily: I }}>{q.text}</p>
-                  {(q.type === 'MCQ' || q.type === 'MULTIPLE_SELECT' || q.type === 'TRUE_FALSE') && q.options ? (
+                  {(q.type === 'MCQ' || q.type === 'MULTIPLE_SELECT') && q.options ? (
                     <div className="space-y-2">
                       {q.options.map((o: any) => (
                         <div key={o.id} className="flex items-center gap-3 px-4 py-3 rounded-lg border border-gray-200 hover:bg-gray-50 cursor-pointer text-sm text-gray-700" style={{ fontFamily: I }}>
                           <div className={`w-4 h-4 flex-shrink-0 border-2 border-gray-300 ${q.type === 'MULTIPLE_SELECT' ? 'rounded' : 'rounded-full'}`} />
                           {o.text}
+                        </div>
+                      ))}
+                    </div>
+                  ) : q.type === 'TRUE_FALSE' ? (
+                    <div className="grid grid-cols-2 gap-3">
+                      {["True", "False"].map(v => (
+                        <div key={v} className="rounded-xl border-2 border-gray-200 text-gray-600 py-3 text-sm font-bold text-center" style={{ fontFamily: U }}>
+                          {v}
                         </div>
                       ))}
                     </div>
@@ -842,6 +776,11 @@ export function ExamDetail() {
                           </div>
                         ))}
                       </div>
+                    </div>
+                  ) : q.type === 'FILE_UPLOAD' ? (
+                    <div className="rounded-xl border-2 border-dashed border-gray-200 px-4 py-6 text-center text-sm text-gray-500" style={{ fontFamily: I }}>
+                      <Upload size={18} className="mx-auto mb-2 text-gray-400" />
+                      Upload up to {q.maxFiles || "1"} file(s) — {q.fileTypes || "any type"}
                     </div>
                   ) : (
                     <textarea rows={3} placeholder="Type your answer here…" className="w-full border border-gray-200 rounded-lg px-4 py-3 text-sm text-gray-700 focus:outline-none resize-none" style={{ fontFamily: I }} />

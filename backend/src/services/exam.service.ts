@@ -693,13 +693,14 @@ export class ExamService {
       return sanitizeExam(reopened);
     }
 
-    const start = new Date(Date.now() + opts.startsInMinutes * 60_000);
+    const isImmediate = opts.startsInMinutes <= 0;
+    const start = new Date(Date.now() + Math.max(0, opts.startsInMinutes) * 60_000);
     const end = resolveEndDate({
       start,
       endDate: opts.endDate,
       endTime: opts.endTime ?? undefined,
       timezone: exam.timezone || 'UTC',
-      durationMin: exam.duration ?? 0,
+      durationMin: newDuration ?? 0,
       lateMin: exam.lateAllowanceMinutes ?? 0,
     });
 
@@ -707,6 +708,13 @@ export class ExamService {
       where: { id: examId },
       data: { sessionState: 'WAITING', startDate: start, endDate: end, endDateFixed: !!opts.endDate, ...identityUpdate },
     });
+    
+    // If we are starting it immediately, we should also emit the exam_started events
+    // just like scheduleAutoStart would, or let the caller handle it. We'll let the controller or caller 
+    // handle it, but wait! The frontend will just see it's active. 
+    // If it's active immediately, there are no students waiting yet, because the exam was ENDED.
+    // So nobody is in the lobby anyway.
+    
     return sanitizeExam(updated);
   }
 

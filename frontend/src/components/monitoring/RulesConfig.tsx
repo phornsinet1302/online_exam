@@ -37,11 +37,11 @@ const EVENT_DESCRIPTIONS: Record<string, string> = {
   extension_detected:  "A browser extension is detected running.",
 };
 
-export function RulesConfig() {
+export function RulesConfig({ targetExamId }: { targetExamId?: string }) {
   const [exams, setExams] = useState<Exam[]>([]);
-  const [examsLoading, setExamsLoading] = useState(true);
+  const [examsLoading, setExamsLoading] = useState(!targetExamId);
   const [examsError, setExamsError] = useState("");
-  const [examId, setExamId] = useState("");
+  const [examId, setExamId] = useState(targetExamId || "");
 
   const [rules, setRules] = useState<AntiCheatRule[]>([]);
   const [requireCamera, setRequireCamera] = useState(false);
@@ -56,6 +56,13 @@ export function RulesConfig() {
   const [saved, setSaved] = useState(false);
 
   useEffect(() => {
+    if (targetExamId) {
+      setExamId(targetExamId);
+    }
+  }, [targetExamId]);
+
+  useEffect(() => {
+    if (targetExamId) return;
     setExamsError("");
     examsApi.getAll()
       .then((data) => {
@@ -65,7 +72,7 @@ export function RulesConfig() {
       })
       .catch((e) => setExamsError(e instanceof Error && e.message ? e.message : "Failed to load your exams. Please try again."))
       .finally(() => setExamsLoading(false));
-  }, []);
+  }, [targetExamId]);
 
   useEffect(() => {
     if (!examId) return;
@@ -131,22 +138,29 @@ export function RulesConfig() {
     );
   };
 
-  const noExams = !examsLoading && !examsError && exams.length === 0;
+  const noExams = !targetExamId && !examsLoading && !examsError && exams.length === 0;
 
-  return (
-    <DashboardLayout active="rules" title="Rules Config" subtitle="Configure anti-cheating behavior"
-      actions={examId && !noExams ? <button onClick={save} disabled={saving || detailLoading} className="flex items-center gap-2 text-white text-xs font-bold px-4 py-2 rounded-xl hover:opacity-90 disabled:opacity-60" style={{ background:INK, fontFamily:U }}>
-        {saving ? <><RefreshCw size={13} className="animate-spin"/>Saving…</> : saved?<><CheckCircle2 size={13}/>Saved!</>:"Save rules"}
-      </button> : undefined}>
-
+  const content = (
       <div className="w-full space-y-5">
-        <div className="bg-white rounded-2xl border border-gray-100 p-6">
-          <p className="text-xs font-black uppercase tracking-wider text-gray-400 mb-3" style={{ fontFamily:U }}>Exam</p>
-          <select value={examId} onChange={e=>setExamId(e.target.value)} disabled={examsLoading} className="w-full max-w-sm border border-gray-200 rounded-xl px-4 py-3 text-sm text-gray-800 bg-white focus:outline-none focus:border-gray-400 disabled:opacity-50" style={{ fontFamily:I }}>
-            {examsLoading && <option>Loading exams…</option>}
-            {exams.map(e=><option key={e.id} value={e.id}>{e.title}</option>)}
-          </select>
-        </div>
+        {targetExamId ? (
+          <div className="flex items-center justify-between mb-2">
+            <div>
+              <h2 className="text-lg font-black" style={{ fontFamily:U, color:INK }}>Rules Config</h2>
+              <p className="text-sm text-gray-400 mt-1" style={{ fontFamily:I }}>Configure anti-cheating behavior for this exam.</p>
+            </div>
+            <button onClick={save} disabled={saving || detailLoading} className="flex items-center gap-2 text-white text-xs font-bold px-4 py-2 rounded-xl hover:opacity-90 disabled:opacity-60" style={{ background:INK, fontFamily:U }}>
+              {saving ? <><RefreshCw size={13} className="animate-spin"/>Saving…</> : saved?<><CheckCircle2 size={13}/>Saved!</>:"Save rules"}
+            </button>
+          </div>
+        ) : (
+          <div className="bg-white rounded-2xl border border-gray-100 p-6">
+            <p className="text-xs font-black uppercase tracking-wider text-gray-400 mb-3" style={{ fontFamily:U }}>Exam</p>
+            <select value={examId} onChange={e=>setExamId(e.target.value)} disabled={examsLoading} className="w-full max-w-sm border border-gray-200 rounded-xl px-4 py-3 text-sm text-gray-800 bg-white focus:outline-none focus:border-gray-400 disabled:opacity-50" style={{ fontFamily:I }}>
+              {examsLoading && <option>Loading exams…</option>}
+              {exams.map(e=><option key={e.id} value={e.id}>{e.title}</option>)}
+            </select>
+          </div>
+        )}
 
         {examsError ? (
           <div className="bg-white rounded-2xl border border-red-100 py-16 flex flex-col items-center gap-3">
@@ -245,6 +259,18 @@ export function RulesConfig() {
           </>
         )}
       </div>
+  );
+
+  if (targetExamId) {
+    return content;
+  }
+
+  return (
+    <DashboardLayout active="rules" title="Rules Config" subtitle="Configure anti-cheating behavior"
+      actions={examId && !noExams ? <button onClick={save} disabled={saving || detailLoading} className="flex items-center gap-2 text-white text-xs font-bold px-4 py-2 rounded-xl hover:opacity-90 disabled:opacity-60" style={{ background:INK, fontFamily:U }}>
+        {saving ? <><RefreshCw size={13} className="animate-spin"/>Saving…</> : saved?<><CheckCircle2 size={13}/>Saved!</>:"Save rules"}
+      </button> : undefined}>
+      {content}
     </DashboardLayout>
   );
 }

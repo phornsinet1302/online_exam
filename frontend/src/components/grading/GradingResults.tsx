@@ -2,6 +2,7 @@
 
 import { Fragment, useState, useEffect } from "react";
 import { useNavigate } from "@/lib/hooks";
+import { useSearchParams, useRouter, usePathname } from "next/navigation";
 import { DashboardLayout } from "@/components/dashboard/DashboardShared";
 import { PenLine, Download, Users, ClipboardCheck, AlertTriangle, Award, TrendingUp, X, Check, RefreshCw, ChevronDown, ChevronRight, RotateCcw } from "lucide-react";
 import { U, I, INK, CAMEL } from "@/lib/tokens";
