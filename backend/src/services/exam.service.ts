@@ -33,6 +33,16 @@ function combineDateAndTime(
   return fromZonedTime(parsedDate, timezone);
 }
 
+// Teacher's choice of how students identify themselves. Invitation-only exams
+// are matched by email, so they are always Google.
+function resolveStudentIdentity(accessType: string | undefined, requested: unknown, current?: string): 'NAME_ID' | 'GOOGLE' {
+  if (requested !== undefined && requested !== 'NAME_ID' && requested !== 'GOOGLE') {
+    throw new Error('Invalid student sign-in option.');
+  }
+  if (accessType === 'PRIVATE') return 'GOOGLE';
+  return ((requested as 'NAME_ID' | 'GOOGLE' | undefined) ?? (current as 'NAME_ID' | 'GOOGLE' | undefined) ?? 'NAME_ID');
+}
+
 // The stored (hashed) exam password must never leave the server — clients only
 // learn whether one is set.
 function sanitizeExam<T extends { password?: string | null }>(exam: T): Omit<T, 'password'> & { hasPassword: boolean } {
@@ -274,6 +284,7 @@ export class ExamService {
       ...rest,
       ownerId, // after ...rest so a request body can never assign another owner
       accessType,
+      studentIdentity: resolveStudentIdentity(accessType, rest.studentIdentity),
       password: accessType === 'PASSWORD_PROTECTED' ? hashPassword(password.trim()) : null,
       startDate: combinedStartDate,
       endDate: endDateResolved,
@@ -424,6 +435,10 @@ export class ExamService {
     const endDate = manual ? undefined : rawEndDate;
     const tz = rest.timezone || exam.timezone || 'UTC';
     const updateData: any = { ...rest };
+    // Student sign-in option; switching an exam to invitation-only forces Google.
+    if (rest.accessType !== undefined || rest.studentIdentity !== undefined) {
+      updateData.studentIdentity = resolveStudentIdentity(rest.accessType ?? exam.accessType, rest.studentIdentity, exam.studentIdentity);
+    }
     // Switching to manual start drops any hard close left over from scheduling.
     if (rest.manualStart === true) updateData.endDateFixed = false;
 
@@ -521,6 +536,7 @@ export class ExamService {
         requireLateApproval: exam.requireLateApproval,
         autoStart: exam.autoStart,
         manualStart: exam.manualStart,
+        studentIdentity: exam.studentIdentity,
         autoClose: exam.autoClose,
         autoSubmit: exam.autoSubmit,
         showCountdown: exam.showCountdown,
@@ -654,7 +670,7 @@ export class ExamService {
   async reopenExam(
     examId: string,
     ownerId: string,
-    opts: { startsInMinutes: number; duration?: number; endDate?: string | null; endTime?: string | null },
+    opts: { startsInMinutes: number; endDate?: string | null; endTime?: string | null; studentIdentity?: 'NAME_ID' | 'GOOGLE' },
   ) {
     const exam = await prisma.exam.findUnique({ where: { id: examId } });
     if (!exam) throw new Error('Exam not found');
@@ -662,12 +678,17 @@ export class ExamService {
     if (exam.status !== 'PUBLISHED') throw new Error('Only a published exam can be reopened.');
     if (exam.sessionState !== 'ENDED') throw new Error('Only an ended exam can be reopened.');
 
-    const newDuration = opts.duration ?? exam.duration;
+    // Reopening is the natural moment to change how students join.
+    const identityUpdate = opts.studentIdentity !== undefined
+      ? { studentIdentity: resolveStudentIdentity(exam.accessType, opts.studentIdentity, exam.studentIdentity) }
+      : {};
 
+    // Manual-start exams have no schedule to set: reopening just opens the
+    // lobby, and the teacher presses Start when ready.
     if (exam.manualStart) {
       const reopened = await prisma.exam.update({
         where: { id: examId },
-        data: { sessionState: 'WAITING', startDate: null, endDate: null, endDateFixed: false, duration: newDuration },
+        data: { sessionState: 'WAITING', endDate: null, endDateFixed: false, ...identityUpdate },
       });
       return sanitizeExam(reopened);
     }
@@ -685,13 +706,7 @@ export class ExamService {
 
     const updated = await prisma.exam.update({
       where: { id: examId },
-      data: { 
-        sessionState: isImmediate ? 'ACTIVE' : 'WAITING', 
-        startDate: start, 
-        endDate: end, 
-        endDateFixed: !!opts.endDate,
-        duration: newDuration 
-      },
+      data: { sessionState: 'WAITING', startDate: start, endDate: end, endDateFixed: !!opts.endDate, ...identityUpdate },
     });
     
     // If we are starting it immediately, we should also emit the exam_started events

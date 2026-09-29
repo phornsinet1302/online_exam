@@ -92,7 +92,7 @@ export function ExamInstructions() {
     if (!exam) return;
     setRegistering(true);
     try {
-      const res = await registerStudent(exam.examId, studentName, studentId, studentEmail);
+      const res = await registerStudent(exam.examId, studentName, studentId);
       localStorage.setItem("student_token", res.token);
       
       const waitingParams = new URLSearchParams();

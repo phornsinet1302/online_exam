@@ -24,6 +24,8 @@ export interface Exam {
   requireLateApproval?: boolean;
   // true = the teacher presses Start; the exam never auto-starts on its schedule
   manualStart?: boolean;
+  // How students identify themselves: a typed name + Student ID, or Google sign-in + Student ID
+  studentIdentity?: "NAME_ID" | "GOOGLE";
   accessType?: "PUBLIC" | "PRIVATE" | "PASSWORD_PROTECTED";
   // The hashed password never leaves the server — only whether one is set.
   hasPassword?: boolean;
@@ -116,10 +118,9 @@ export const examsApi = {
   },
 
   // Gives an ended exam a new session: waiting room open, starting
-  // `startsInMinutes` from now (0 to start immediately). 
-  // duration (optional) overrides the exam's previous duration.
-  // endDate/endTime optionally set a hard close.
-  reopen: async (id: string, opts: { startsInMinutes: number; duration?: number; endDate?: string | null; endTime?: string | null }): Promise<Exam> => {
+  // `startsInMinutes` from now. endDate/endTime (MM/dd/yyyy, hh:mm AM/PM, in the
+  // exam's timezone) optionally set a hard close.
+  reopen: async (id: string, opts: { startsInMinutes: number; endDate?: string | null; endTime?: string | null; studentIdentity?: "NAME_ID" | "GOOGLE" }): Promise<Exam> => {
     return fetchApi<Exam>(`/exams/${id}/reopen`, { method: "POST", body: JSON.stringify(opts) });
   }
 };

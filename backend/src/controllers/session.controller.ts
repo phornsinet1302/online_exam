@@ -12,6 +12,7 @@ import {
   verifyTeacherStreamToken,
 } from '../services/session.service.js';
 import { CollaborationService } from '../services/collaboration.service.js';
+import { supabase, supabaseAdmin } from '../config/supabase.js';
 
 const sessionService = new SessionService();
 const collaborationService = new CollaborationService();
@@ -50,13 +51,31 @@ export const registerStudent = async (req: Request, res: Response) => {
   try {
     const schema = z.object({
       examId: z.string(),
-      name: z.string().trim().min(2, 'Please enter your full name.'),
+      // Required for name + ID joins; a Google sign-in supplies the name itself.
+      name: z.string().trim().optional(),
       studentId: z.string().trim().min(1, 'Please enter your Student ID.'),
-      // Optional: only present when the student signed in with Google.
-      email: z.union([z.string().trim().email(), z.literal('')]).optional(),
       password: z.string().optional(),
+      // The Google session from the sign-in redirect. The email is never taken
+      // from the request body: it is read from this token, so it can't be faked.
+      googleToken: z.string().optional(),
     });
-    const { examId, name, studentId, email, password } = schema.parse(req.body);
+    const { examId, name: typedName, studentId, password, googleToken } = schema.parse(req.body);
+
+    let email: string | undefined;
+    let name = typedName;
+    if (googleToken) {
+      const { data, error } = await supabase.auth.getUser(googleToken);
+      if (error || !data.user?.email) {
+        throw new Error('Your Google sign-in could not be verified. Please try again.');
+      }
+      email = data.user.email;
+      // Students only use Google to prove who they are, once. End that session now
+      // (this one only) so a student is never left signed in — best effort.
+      supabaseAdmin.auth.admin.signOut(googleToken, 'local').catch(() => {});
+      // The name on the verified Google account beats whatever was posted.
+      name = data.user.user_metadata?.full_name || data.user.user_metadata?.name || typedName || data.user.email;
+    }
+    if (!name || name.length < 2) throw new Error('Please enter your full name.');
 
     // A device that already joined presents its student token, which lets a
     // Student-ID-only student resume their own attempt (see registerStudent).
@@ -71,7 +90,7 @@ export const registerStudent = async (req: Request, res: Response) => {
 
     const result = await sessionService.registerStudent(
       examId,
-      { name, studentId, email: email || undefined },
+      { name, studentId, email },
       { password, clientKey: req.ip, resumeAttemptId },
     );
     return res.status(201).json(result);

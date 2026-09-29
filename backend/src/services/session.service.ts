@@ -305,6 +305,8 @@ export class SessionService {
       // Lets the entry form ask for the password up front. The password
       // itself never leaves the server.
       accessType: exam.accessType,
+      // Which form the student sees. Invitation-only exams are matched by email, so always Google.
+      studentIdentity: exam.accessType === 'PRIVATE' ? 'GOOGLE' : exam.studentIdentity,
       requiresPassword: exam.accessType === 'PASSWORD_PROTECTED',
     };
   }
@@ -342,7 +344,15 @@ export class SessionService {
     if (!awaitingManualStart && effectiveEnd && now >= effectiveEnd) throw new Error('This exam has already concluded.');
 
     // ── Exam privacy (SRS 3.3) ───────────────────────────────────────────────
-    const studentEmail = (studentInfo.email || '').toLowerCase().trim();
+    // How this exam identifies students is the teacher's choice: a typed name +
+    // Student ID, or Google sign-in (verified email) + Student ID. Invitation-only
+    // exams are matched by email, so they always need Google. An email sent to a
+    // name + ID exam is ignored — the teacher chose not to use Google there.
+    const requiresGoogle = exam.studentIdentity === 'GOOGLE' || exam.accessType === 'PRIVATE';
+    const studentEmail = requiresGoogle ? (studentInfo.email || '').toLowerCase().trim() : '';
+    if (exam.studentIdentity === 'GOOGLE' && exam.accessType !== 'PRIVATE' && !studentEmail) {
+      throw new Error('This exam requires signing in with Google. Please continue with Google.');
+    }
     // Who this student is. A verified email when they signed in with Google;
     // otherwise the Student ID they typed (prefixed so it can never collide with an email).
     const identity = studentEmail || `id:${studentInfo.studentId.trim().toLowerCase()}`;

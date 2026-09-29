@@ -8,6 +8,7 @@ import { DndProvider, useDrag, useDrop } from "react-dnd";
 import { HTML5Backend } from "react-dnd-html5-backend";
 import { MOCK_EXAMS, Q_TYPES } from "@/lib/mock-data";
 import { zonedParts, to12h } from "@/lib/datetime";
+import { StudentIdentityPicker, StudentIdentity } from "@/components/exams/StudentIdentityPicker";
 import { examsApi } from "@/lib/api/exams";
 import { questionsApi } from "@/lib/api/questions";
 import { aiApi } from "@/lib/api/ai";
@@ -458,6 +459,8 @@ export function ExamCreate() {
   // Minutes after the start during which students can still join (0 = nobody once it starts)
   const [lateAllowance, setLateAllowance] = useState("0");
   const [privacy, setPrivacy] = useState("public");
+  // How students identify themselves when joining (teacher's choice)
+  const [studentIdentity, setStudentIdentity] = useState<StudentIdentity>("NAME_ID");
   const [examPassword, setExamPassword] = useState("");
   const [hasPassword, setHasPassword] = useState(false);
   const [randomize, setRandomize] = useState(true);
@@ -561,6 +564,7 @@ export function ExamCreate() {
         else if (exam.accessType === "PRIVATE") setPrivacy("private");
         else if (exam.accessType === "PASSWORD_PROTECTED") setPrivacy("password");
         setHasPassword(!!exam.hasPassword);
+        setStudentIdentity(exam.studentIdentity === "GOOGLE" ? "GOOGLE" : "NAME_ID");
         if (exam.randomizeQuestions !== undefined) setRandomize(exam.randomizeQuestions);
         if (exam.showResults !== undefined) setShowResults(exam.showResults);
 
@@ -925,6 +929,8 @@ export function ExamCreate() {
         showResults,
         requireLateApproval,
         accessType,
+        // Invitation-only exams are matched by email, so they are always Google.
+        studentIdentity: privacy === "private" ? "GOOGLE" : studentIdentity,
         // Blank keeps the current password; it's only sent when (re)set.
         ...(privacy === "password" && examPassword.trim() ? { password: examPassword.trim() } : {}),
         fullSections: sections,
@@ -1241,6 +1247,38 @@ export function ExamCreate() {
             </div>
           </div>
 
+          {/* Privacy */}
+          <div className="bg-white rounded-2xl border border-gray-100 p-6">
+            <h3 className="text-sm font-black mb-5" style={{ fontFamily: U, color: INK }}>Access & Privacy</h3>
+            <div className="space-y-2">
+              {[{ id: "public", label: "Public", desc: "Anyone with the link or code can join" }, { id: "private", label: "Private", desc: "Only invited students can access" }, { id: "password", label: "Password protected", desc: "Students enter a password to access" }].map(opt => (
+                <label key={opt.id} onClick={() => setPrivacy(opt.id)} className={`flex items-center gap-4 p-4 rounded-xl border-2 cursor-pointer transition-all ${privacy === opt.id ? "border-gray-800" : "border-gray-100 hover:border-gray-200"}`}>
+                  <div className={`w-4 h-4 rounded-full border-2 flex items-center justify-center flex-shrink-0 ${privacy === opt.id ? "border-gray-800" : "border-gray-300"}`}>
+                    {privacy === opt.id && <div className="w-2 h-2 rounded-full" style={{ background: INK }} />}
+                  </div>
+                  <div><p className="text-sm font-bold text-gray-800" style={{ fontFamily: U }}>{opt.label}</p><p className="text-xs text-gray-400 mt-0.5" style={{ fontFamily: I }}>{opt.desc}</p></div>
+                </label>
+              ))}
+            </div>
+            {privacy === "password" && (
+              <div className="mt-4">
+                <label className="text-xs font-bold text-gray-500 uppercase tracking-wider mb-1.5 block" style={{ fontFamily: U }}>Exam password</label>
+                <input type="text" value={examPassword} onChange={e => setExamPassword(e.target.value)} autoComplete="off"
+                  placeholder={hasPassword ? "Leave blank to keep the current password" : "Students will need this to join"}
+                  className="w-full border border-gray-200 rounded-xl px-4 py-3 text-sm text-gray-900 placeholder:text-gray-400 focus:outline-none focus:border-gray-400" style={{ fontFamily: I }} />
+              </div>
+            )}
+            {privacy === "private" && (
+              <p className="mt-4 rounded-xl bg-amber-50 px-4 py-3 text-xs text-amber-700" style={{ fontFamily: I }}>
+                Only students on the exam&apos;s <strong>Roster</strong> can join (matched by their Google email). Add them from the Roster tab on the exam page after saving.
+              </p>
+            )}
+
+            <div className="mt-6 border-t border-gray-100 pt-5">
+              <p className="text-xs font-bold text-gray-500 uppercase tracking-wider mb-3" style={{ fontFamily: U }}>How students join</p>
+              <StudentIdentityPicker value={studentIdentity} onChange={setStudentIdentity} locked={privacy === "private"} />
+            </div>
+          </div>
 
           {/* AI Assist */}
           <div className="bg-white rounded-2xl border border-gray-100 p-6 xl:col-span-2">
