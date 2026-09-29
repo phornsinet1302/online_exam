@@ -33,56 +33,36 @@ export default function StudentAuthCallback() {
         return;
       }
 
+      // The Google session token is only needed once, to prove who this student is.
+      // Take it out of the address bar and browser history straight away.
+      window.history.replaceState(null, "", window.location.pathname);
+
+      // Where to send the student if something goes wrong: back to their details form.
+      let backTo = "/student/enter";
       try {
-        const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL || "https://jfebblgfihkhuaewxnjs.supabase.co";
-        // Note: The Anon key is required by Supabase to hit the /auth/v1/user endpoint.
-        const anonKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY || "";
-        
-        const res = await fetch(`${supabaseUrl}/auth/v1/user`, {
-          headers: {
-            "Authorization": `Bearer ${accessToken}`,
-            "apikey": anonKey
-          }
-        });
-
-        if (!res.ok) {
-          throw new Error("Failed to fetch user profile from Google.");
-        }
-
-        const data = await res.json();
-        const email = data.email || "";
-        const typedName = localStorage.getItem("pending_student_name") || "";
-        // The full name they typed on the form wins over what Google has on file.
-        const name = typedName || data.user_metadata?.full_name || "Student";
-        
         const studentId = localStorage.getItem("pending_student_id") || "";
         const code = localStorage.getItem("pending_exam_code") || "";
         const examId = localStorage.getItem("pending_exam_id") || "";
         const examPassword = sessionStorage.getItem("pending_exam_password") || undefined;
 
-        // Sign out from Supabase so the student doesn't stay logged in as a teacher
-        fetch(`${supabaseUrl}/auth/v1/logout`, {
-          method: "POST",
-          headers: {
-            "Authorization": `Bearer ${accessToken}`,
-            "apikey": anonKey
-          }
-        }).catch(() => {}); // fire and forget
-
         // Clean up
         localStorage.removeItem("pending_student_id");
-        localStorage.removeItem("pending_student_name");
         localStorage.removeItem("pending_exam_code");
         localStorage.removeItem("pending_exam_id");
         sessionStorage.removeItem("pending_exam_password");
+
+        backTo = code ? `/student/info?code=${encodeURIComponent(code)}` : "/student/enter";
 
         if (!studentId || !code || !examId) {
           throw new Error("Missing session details. Please try again.");
         }
 
-        // Register the student directly and go to waiting room
+        // The server verifies the Google session itself and takes the student's
+        // real name and email from it (so nothing is asked of Supabase from the
+        // browser, and nothing can be faked). It also ends that Google session
+        // straight away — a student must not stay signed in.
         setStatus("Registering you for the exam...");
-        const regResult = await registerStudent(examId, name, studentId, email, examPassword);
+        const regResult = await registerStudent(examId, "Student", studentId, { password: examPassword, googleToken: accessToken });
         localStorage.setItem("student_token", regResult.token);
 
         const waitingParams = new URLSearchParams();
@@ -92,7 +72,7 @@ export default function StudentAuthCallback() {
       } catch (err: any) {
         console.error(err);
         setError(err.message || "Failed to complete authentication.");
-        setTimeout(() => router.push("/student/enter"), 3000);
+        setTimeout(() => router.push(backTo), 3500);
       }
     };
 

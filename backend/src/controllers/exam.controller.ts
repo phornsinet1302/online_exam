@@ -37,6 +37,8 @@ const examSchema = z.object({
   lateAllowanceMinutes: z.number().int().min(0).max(480).optional(),
   // true = the teacher starts the exam by hand; it never auto-starts on schedule
   manualStart: z.boolean().optional(),
+  // How students identify themselves: typed name + ID, or Google sign-in + ID
+  studentIdentity: z.enum(['NAME_ID', 'GOOGLE']).optional(),
   accessType: z.enum(['PUBLIC', 'PRIVATE', 'PASSWORD_PROTECTED']).optional(),
   password: z.string().optional(),
   fullSections: z.array(z.any()).optional(),
@@ -187,6 +189,7 @@ const reopenSchema = z.object({
   startsInMinutes: z.number().int().min(1).max(60 * 24 * 14).default(5),
   endDate: z.string().regex(/^\d{2}\/\d{2}\/\d{4}$/, 'Format must be MM/dd/yyyy').nullable().optional(),
   endTime: z.string().regex(/^\d{2}:\d{2} (AM|PM)$/, 'Format must be hh:mm AM/PM').nullable().optional(),
+  studentIdentity: z.enum(['NAME_ID', 'GOOGLE']).optional(),
 });
 
 export const reopenExam = async (req: Request, res: Response) => {
