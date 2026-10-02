@@ -217,7 +217,8 @@ export function GradingResults() {
                               <div className="w-8 h-8 rounded-full flex items-center justify-center text-white text-xs font-bold flex-shrink-0" style={{ background: CAMEL, fontFamily: U }}>{a.studentName.substring(0, 2).toUpperCase()}</div>
                               <div className="min-w-0">
                                 <p className="font-semibold text-gray-800 whitespace-nowrap" style={{ fontFamily: U }}>{a.studentName}{a.attemptNumber > 1 && <span className="ml-1.5 text-[10px] font-bold text-gray-400">attempt {a.attemptNumber}</span>}</p>
-                                {a.studentEmail && a.studentEmail !== a.studentName && <p className="text-[11px] text-gray-400 truncate" style={{ fontFamily: I }}>{a.studentEmail}</p>}
+                                {a.studentId && a.studentId !== a.studentName && <p className="text-[11px] text-gray-400 truncate" style={{ fontFamily: I }}>{a.studentId}</p>}
+                                {a.studentEmail && a.studentEmail !== a.studentName && a.studentEmail !== a.studentId && <p className="text-[10px] text-gray-300 truncate" style={{ fontFamily: I }}>{a.studentEmail}</p>}
                               </div>
                             </div>
                           </td>

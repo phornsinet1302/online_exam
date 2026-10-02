@@ -8,6 +8,21 @@ const DEDUPE_MS = 1_500;      // the same event within this window is one event
 const EXT_SCHEME = /^(chrome|moz|safari|edge)-extension:\/\//i;
 const SEVERITY_ORDER = ["auto_submitted", "blocked", "flagged", "warned"];
 
+const BLUR_GRACE_MS = 8000;
+
+/** Call just before opening a native dialog (file picker, permission prompt,
+ *  etc.) so the resulting blur / fullscreen-exit is not reported as a
+ *  violation. Both handlers below check this without consuming it. */
+export function grantBlurGrace(ms: number = BLUR_GRACE_MS) {
+  if (typeof window !== "undefined") {
+    (window as any).__AC_GRACE_UNTIL__ = Date.now() + ms;
+  }
+}
+
+const inGrace = () =>
+  typeof window !== "undefined" &&
+  Date.now() < ((window as any).__AC_GRACE_UNTIL__ ?? 0);
+
 export interface AntiCheatAction extends ViolationResult {
   eventType: string;
 }
@@ -169,9 +184,11 @@ export function useAntiCheat(options: Options) {
       if (document.hidden) { lastTabSwitch = Date.now(); report("tab_switch", "Left the exam tab"); }
     });
     on(window, "blur", () => {
+      if (inGrace()) return;
       window.setTimeout(() => {
         if (document.hidden || document.hasFocus() || mediaPromptRef.current) return;
         if (Date.now() - lastTabSwitch < 1_000) return; // already reported as a tab switch
+        if (inGrace()) return; // grace may have been granted during the 300ms wait
         report("window_blur", "Exam window lost focus");
       }, 300);
     });
@@ -179,7 +196,9 @@ export function useAntiCheat(options: Options) {
     // Full screen
     on(document, "fullscreenchange", () => {
       lastFullscreenChangeRef.current = Date.now();
-      if (!document.fullscreenElement) report("fullscreen_exit", "Left fullscreen");
+      if (document.fullscreenElement) return;   // entered fullscreen — nothing to report
+      if (inGrace()) return;                    // picker / permission prompt caused it
+      report("fullscreen_exit", "Left fullscreen");
     });
 
     // Right-click, copy, paste — blocked unless the teacher allows them

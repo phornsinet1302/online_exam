@@ -50,6 +50,13 @@ export const validateAttempt = async (
     }
 
     if (attempt.submittedAt) {
+      if (req.path.endsWith('/submit') || req.path.endsWith('/submit/')) {
+        return res.status(200).json({
+          message: 'Exam submitted successfully.',
+          attemptId: attempt.id,
+          submittedAt: attempt.submittedAt,
+        });
+      }
       console.error('validateAttempt error: Attempt already submitted for id:', attemptId);
       return res.status(409).json({
         message: 'This attempt has already been submitted.',

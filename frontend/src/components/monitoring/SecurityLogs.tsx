@@ -153,7 +153,10 @@ export function SecurityLogs() {
                     <td className="px-5 py-3.5">
                       <div className="flex items-center gap-2">
                         <div className="w-6 h-6 rounded-full flex items-center justify-center text-white text-[9px] font-bold flex-shrink-0" style={{ background:CAMEL, fontFamily:U }}>{log.studentName.split(" ").map(w=>w[0]).join("").toUpperCase().substring(0,2)}</div>
-                        <span className="font-semibold text-gray-800 text-xs whitespace-nowrap" style={{ fontFamily:U }}>{log.studentName}</span>
+                        <div className="min-w-0">
+                          <p className="font-semibold text-gray-800 text-xs whitespace-nowrap" style={{ fontFamily:U }}>{log.studentName}</p>
+                          <p className="text-[10px] text-gray-400 truncate" style={{ fontFamily:I }}>{log.studentId ?? "—"}</p>
+                        </div>
                       </div>
                     </td>
                     <td className="px-5 py-3.5 text-xs text-gray-500 whitespace-nowrap" style={{ fontFamily:I }}>{log.examTitle}</td>

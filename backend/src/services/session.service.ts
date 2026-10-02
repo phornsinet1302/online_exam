@@ -538,7 +538,7 @@ export class SessionService {
         title: true,
         subject: true,
         attempts: {
-          select: { id: true, answers: true, startedAt: true, isApproved: true, submittedAt: true }
+          select: { id: true, answers: true, snapshot: true, startedAt: true, isApproved: true, submittedAt: true }
         }
       },
     });
@@ -548,16 +548,13 @@ export class SessionService {
     // If a student submitted before the current session's start date (or if the exam is WAITING, meaning it hasn't started), they are from a previous session and should be excluded from the live monitor.
     const joinedStudents = exam.attempts
       .filter(a => {
+        if (a.submittedAt !== null) return false; // Exclude submitted students
         if (isStudentOnline(a.id)) return true;
-        if (a.submittedAt !== null) {
-          if (exam.sessionState === 'WAITING') return false; // Current session hasn't started yet
-          if (exam.startDate && a.submittedAt >= exam.startDate) return true; // Submitted during current session
-        }
         return false;
       })
       .map(a => {
         const answers = a.answers as any;
-        const studentInfo = answers?.studentInfo || {};
+        const studentInfo = answers?.studentInfo || (a.snapshot as any)?.studentInfo || {};
         // Progress object stores violations
         const progress = answers?.progress || {};
         const violationCount = progress.violationCount || 0;

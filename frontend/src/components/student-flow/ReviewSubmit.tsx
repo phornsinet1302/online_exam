@@ -29,18 +29,60 @@ export function ReviewSubmit() {
   const [answers, setAnswers] = useState<Record<number,any>>({});
   const [flagged, setFlagged] = useState<number[]>([]);
   const [attemptId, setAttemptId] = useState<string>("");
+  const [examTitle, setExamTitle] = useState<string>("Exam");
 
   const raw  = typeof window !== "undefined" ? new URLSearchParams(window.location.search) : null;
   const code = raw?.get("code") ?? "";
+  const attemptIdParam = raw?.get("attemptId") ?? "";
 
   useEffect(() => {
-    try {
-      setQuestions(JSON.parse(localStorage.getItem("exam_review_q") || "[]"));
-      setAnswers(JSON.parse(localStorage.getItem("exam_review_a") || "{}"));
-      setFlagged(JSON.parse(localStorage.getItem("exam_review_f") || "[]"));
-      setAttemptId(localStorage.getItem("exam_review_attempt") || "");
-    } catch (e) {}
-  }, []);
+    if (attemptIdParam) {
+      setAttemptId(attemptIdParam);
+      import("@/lib/api/session").then(({ getExamState }) => {
+        getExamState().then((state) => {
+          if (state && state.snapshot) {
+            const allQs = state.snapshot.sections.flatMap((s: any) => s.questions);
+            let qIndex = 0;
+            const formattedQs = allQs.map((q: any) => {
+              qIndex++;
+              return { ...q, realId: q.id, id: qIndex };
+            });
+            setQuestions(formattedQs);
+            
+            const rawAnswers = state.autosaveData || {};
+            const flatAnswers: Record<number, any> = {};
+            formattedQs.forEach((q: any) => {
+              if (rawAnswers[q.realId]) {
+                flatAnswers[q.id] = (rawAnswers[q.realId] as any).answer;
+              }
+            });
+            setAnswers(flatAnswers);
+            
+            // Map review flags (which are stored as realIds) to qIndex
+            const flagRealIds = state.reviewFlags || [];
+            const flagIndices = formattedQs.filter((q: any) => flagRealIds.includes(q.realId)).map((q: any) => q.id);
+            setFlagged(flagIndices);
+            setExamTitle(state.snapshot.title || "Exam");
+          }
+        }).catch(() => {
+          // Fallback to localStorage if offline/error
+          try {
+            setQuestions(JSON.parse(localStorage.getItem("exam_review_q") || "[]"));
+            setAnswers(JSON.parse(localStorage.getItem("exam_review_a") || "{}"));
+            setFlagged(JSON.parse(localStorage.getItem("exam_review_f") || "[]"));
+            setAttemptId(localStorage.getItem("exam_review_attempt") || attemptIdParam);
+          } catch (e) {}
+        });
+      });
+    } else {
+      try {
+        setQuestions(JSON.parse(localStorage.getItem("exam_review_q") || "[]"));
+        setAnswers(JSON.parse(localStorage.getItem("exam_review_a") || "{}"));
+        setFlagged(JSON.parse(localStorage.getItem("exam_review_f") || "[]"));
+        setAttemptId(localStorage.getItem("exam_review_attempt") || "");
+      } catch (e) {}
+    }
+  }, [attemptIdParam]);
 
   const isAns = (q:any) => {
     const a = answers[q.id];
@@ -63,7 +105,7 @@ export function ReviewSubmit() {
       // Save result for success and results pages
       const resultData = {
         ...response,
-        title: localStorage.getItem("exam_review_title") || "Exam",
+        title: examTitle || localStorage.getItem("exam_review_title") || "Exam",
         answeredCount: answeredIds.length,
         totalCount: questions.length,
         date: new Date().toISOString()

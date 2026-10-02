@@ -700,7 +700,7 @@ export class ExamService {
       endDate: opts.endDate,
       endTime: opts.endTime ?? undefined,
       timezone: exam.timezone || 'UTC',
-      durationMin: newDuration ?? 0,
+      durationMin: exam.duration ?? 0,
       lateMin: exam.lateAllowanceMinutes ?? 0,
     });
 

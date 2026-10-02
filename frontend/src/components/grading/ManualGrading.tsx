@@ -59,7 +59,11 @@ export function ManualGrading() {
       
       // Group by student to align with the UI
       const grouped = data.reduce((acc, curr) => {
-        const key = curr.attempt?.studentId || "Unknown";
+        const info = curr.attempt?.snapshot?.studentInfo ?? curr.attempt?.answers?.studentInfo ?? {};
+        const name = info.name || curr.attempt?.studentId || "Unknown";
+        const num = curr.attempt?.attemptNumber ?? 1;
+        const id = info.studentId || curr.attempt?.studentId || "Unknown";
+        const key = `${name}::${num}::${id}`;
         if (!acc[key]) acc[key] = [];
         acc[key].push(curr);
         return acc;
@@ -83,7 +87,11 @@ export function ManualGrading() {
 
   const groupedByStudent = useMemo(() => {
     return answers.reduce((acc, curr) => {
-      const key = curr.attempt?.studentId || "Unknown";
+      const info = curr.attempt?.snapshot?.studentInfo ?? curr.attempt?.answers?.studentInfo ?? {};
+      const name = info.name || curr.attempt?.studentId || "Unknown";
+      const num = curr.attempt?.attemptNumber ?? 1;
+      const id = info.studentId || curr.attempt?.studentId || "Unknown";
+      const key = `${name}::${num}::${id}`;
       if (!acc[key]) acc[key] = [];
       acc[key].push(curr);
       return acc;
@@ -91,8 +99,9 @@ export function ManualGrading() {
   }, [answers]);
 
   const manualStudents = Object.keys(groupedByStudent);
-  const student = manualStudents[studentIdx];
-  const studentAnswers = student ? groupedByStudent[student] : [];
+  const studentKey = manualStudents[studentIdx];
+  const [currentName, currentNum, currentId] = studentKey ? studentKey.split("::") : ["", "", ""];
+  const studentAnswers = studentKey ? groupedByStudent[studentKey] || [] : [];
   const questionAnswer = studentAnswers[qIdx];
   const question = questionAnswer?.question;
   const key = `${studentIdx}-${qIdx}`;
@@ -119,8 +128,32 @@ export function ManualGrading() {
     }
   };
 
+  const openInNewTab = (fileUrl: string) => {
+    if (fileUrl.startsWith('data:')) {
+      try {
+        const arr = fileUrl.split(',');
+        const mimeMatch = arr[0].match(/:(.*?);/);
+        if (!mimeMatch) return;
+        const mime = mimeMatch[1];
+        const bstr = atob(arr[1]);
+        let n = bstr.length;
+        const u8arr = new Uint8Array(n);
+        while (n--) {
+          u8arr[n] = bstr.charCodeAt(n);
+        }
+        const blob = new Blob([u8arr], { type: mime });
+        const url = URL.createObjectURL(blob);
+        window.open(url, '_blank');
+      } catch (e) {
+        console.error("Failed to open data URL", e);
+      }
+    } else {
+      window.open(fileUrl, '_blank');
+    }
+  };
+
   return (
-    <DashboardLayout active="grading-manual" title="Manual Grading" subtitle={student ? `${student} · ${qIdx+1} of ${studentAnswers.length} questions` : "No questions to grade"}
+    <DashboardLayout active="grading-manual" title="Manual Grading" subtitle={studentKey ? `${currentName} · ${qIdx+1} of ${studentAnswers.length} questions` : "No questions to grade"}
       actions={<>
         <button onClick={()=>navigate(`/dashboard/grading?examId=${examId}`)} className="text-xs font-semibold px-3 py-2 rounded-xl border border-gray-200 text-gray-600 hover:bg-gray-50" style={{ fontFamily:U }}>← All results</button>
       </>}>
@@ -154,15 +187,19 @@ export function ManualGrading() {
               <p className="text-[11px] text-gray-400 mt-0.5" style={{ fontFamily:I }}>{manualStudents.length} {showAll ? "students" : "need review"}</p>
             </div>
             {manualStudents.map((s,i)=>{
+              const [sName, sNum, sId] = s.split("::");
               const qAnswers = groupedByStudent[s];
               const done = qAnswers.every((_,qi)=>scores[`${i}-${qi}`]!==undefined);
               return (
                 <button key={s} onClick={()=>{setStudentIdx(i);setQIdx(0);}}
                   className={`w-full flex items-center gap-3 px-4 py-3 border-b border-gray-50 last:border-0 transition-all ${studentIdx===i?"bg-gray-50":"hover:bg-gray-50/50"}`}>
-                  <div className="w-8 h-8 rounded-full flex items-center justify-center text-white text-xs font-bold flex-shrink-0" style={{ background:studentIdx===i?INK:CAMEL, fontFamily:U }}>{s.substring(0, 2).toUpperCase()}</div>
+                  <div className="w-8 h-8 rounded-full flex items-center justify-center text-white text-xs font-bold flex-shrink-0" style={{ background:studentIdx===i?INK:CAMEL, fontFamily:U }}>{sName.substring(0, 2).toUpperCase()}</div>
                   <div className="flex-1 text-left min-w-0">
-                    <p className={`text-xs font-semibold truncate ${studentIdx===i?"text-gray-900":"text-gray-600"}`} style={{ fontFamily:U }}>{s}</p>
-                    <p className="text-[10px] text-gray-400" style={{ fontFamily:I }}>{done?"Complete":"In progress"}</p>
+                    <p className={`text-xs font-semibold truncate ${studentIdx===i?"text-gray-900":"text-gray-600"}`} style={{ fontFamily:U }}>
+                      {sName} {parseInt(sNum) > 1 && <span className="ml-1 text-[10px] text-gray-400 font-normal border border-gray-200 px-1 rounded">Att. {sNum}</span>}
+                    </p>
+                    <p className="text-[10px] text-gray-400 truncate mt-0.5" style={{ fontFamily: I }}>{sId}</p>
+                    <p className="text-[10px] text-gray-400 mt-0.5" style={{ fontFamily:I }}>{done?"Complete":"In progress"}</p>
                   </div>
                   {done&&<CheckCircle2 size={13} className="text-green-500 flex-shrink-0"/>}
                 </button>
@@ -193,8 +230,11 @@ export function ManualGrading() {
             <div className="bg-white rounded-2xl border border-gray-100 flex-1 overflow-auto flex flex-col">
               <div className="flex items-center justify-between px-5 py-3.5 border-b border-gray-100 flex-shrink-0">
                 <div className="flex items-center gap-2.5">
-                  <div className="w-7 h-7 rounded-full flex items-center justify-center text-white text-[10px] font-bold" style={{ background:CAMEL, fontFamily:U }}>{student?.substring(0, 2).toUpperCase()}</div>
-                  <p className="text-sm font-bold text-gray-800" style={{ fontFamily:U }}>{student}</p>
+                  <div className="w-7 h-7 rounded-full flex items-center justify-center text-white text-[10px] font-bold" style={{ background:CAMEL, fontFamily:U }}>{currentName?.substring(0, 2).toUpperCase()}</div>
+                  <div>
+                    <p className="text-sm font-bold text-gray-800" style={{ fontFamily:U }}>{currentName}</p>
+                    <p className="text-[10px] text-gray-400 truncate mt-0.5" style={{ fontFamily:I }}>{currentId}</p>
+                  </div>
                 </div>
                 <span className="text-xs text-gray-400" style={{ fontFamily:I }}>Submitted {new Date(questionAnswer?.attempt?.submittedAt || "").toLocaleString()}</span>
               </div>
@@ -203,7 +243,12 @@ export function ManualGrading() {
                 {questionAnswer?.fileUrl && (
                   <div className="mt-4 p-4 bg-gray-50 rounded-xl border border-gray-100">
                     <p className="text-xs font-bold text-gray-500 mb-2 uppercase" style={{ fontFamily:U }}>Attached File</p>
-                    <a href={questionAnswer.fileUrl} target="_blank" rel="noreferrer" className="text-indigo-600 text-sm hover:underline">{questionAnswer.fileUrl}</a>
+                    <button 
+                      onClick={() => openInNewTab(questionAnswer.fileUrl!)}
+                      className="text-indigo-600 text-sm hover:underline font-bold flex items-center gap-1"
+                    >
+                      📎 View / Download Attached File
+                    </button>
                   </div>
                 )}
                 {questionAnswer?.status === "auto_graded" && (
