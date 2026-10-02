@@ -1,6 +1,6 @@
 // backend/src/controllers/auth.controller.ts
 import { Request, Response } from 'express';
-import { AuthService, DEFAULT_NOTIFICATION_PREFS, DEFAULT_PRIVACY_PREFS } from '../services/auth.service.js';
+import { AuthService, DEFAULT_NOTIFICATION_PREFS, DEFAULT_PRIVACY_PREFS, toClientUser } from '../services/auth.service.js';
 import { supabase } from '../config/supabase.js';
 
 const authService = new AuthService();
@@ -195,13 +195,7 @@ export const googleAuth = async (req: Request, res: Response) => {
     // We'll just return the user and a success message.
     res.status(200).json({
       message: 'Google login successful.',
-      user: {
-        id: dbUser.supabaseId,
-        name: dbUser.name,
-        email: dbUser.email,
-        role: dbUser.role,
-        avatarUrl: dbUser.avatarUrl,
-      },
+      user: toClientUser(dbUser),
     });
   } catch (error: any) {
     res.status(400).json({ message: error.message });

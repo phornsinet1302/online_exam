@@ -117,7 +117,7 @@ export function StudentInfo() {
 
     setJoining(true);
     try {
-      const res = await registerStudent(exam.examId, name, id, "", examPassword || undefined);
+      const res = await registerStudent(exam.examId, name, id, { password: examPassword || undefined });
       localStorage.setItem("student_token", res.token);
       const waitingParams = new URLSearchParams();
       waitingParams.set("examId", exam.examId);
@@ -130,8 +130,8 @@ export function StudentInfo() {
   };
 
   const handleGoogle = () => {
-    if (fullName.trim().length < 2 || !studentId.trim()) {
-      setFormError("Please enter your full name and Student ID first.");
+    if (!studentId.trim()) {
+      setFormError("Please enter your Student ID first.");
       return;
     }
     if (exam.requiresPassword && !examPassword) {
@@ -143,7 +143,6 @@ export function StudentInfo() {
     // outlive this tab; the auth-callback page reads and clears it.
     if (exam.requiresPassword) sessionStorage.setItem('pending_exam_password', examPassword);
     localStorage.setItem('pending_student_id', studentId.trim());
-    localStorage.setItem('pending_student_name', fullName.trim().replace(/\s+/g, " "));
     localStorage.setItem('pending_exam_code', code || "");
     localStorage.setItem('pending_exam_id', exam.examId);
     
@@ -176,6 +175,9 @@ export function StudentInfo() {
     );
   }
 
+  // How this exam identifies students is the teacher's choice (invitation-only
+  // exams are always Google, which the server reports here too).
+  const useGoogle = exam.studentIdentity === "GOOGLE";
   const isPrivate = exam.accessType === "PRIVATE";
 
   // ── Returning student screen ────────────────────────────────────────────────
@@ -284,30 +286,36 @@ export function StudentInfo() {
 
           <div className="rounded-3xl border border-gray-100 bg-white p-7 shadow-sm flex flex-col justify-center">
             <div className="mb-6">
-              <h2 className="text-xl font-black" style={{ fontFamily:U, color:INK }}>Your details</h2>
-              <p className="mt-1 text-sm text-gray-500" style={{ fontFamily:I }}>Enter your full name and Student ID to join the waiting room.</p>
+              <h2 className="text-xl font-black" style={{ fontFamily:U, color:INK }}>{useGoogle ? "Sign in to join" : "Your details"}</h2>
+              <p className="mt-1 text-sm text-gray-500" style={{ fontFamily:I }}>
+                {useGoogle
+                  ? "Enter your Student ID, then continue with Google. Your name comes from your Google account."
+                  : "Enter your full name and Student ID to join the waiting room."}
+              </p>
             </div>
 
             {isPrivate && (
               <div className="mb-5 rounded-2xl border border-amber-100 bg-amber-50 px-4 py-3 text-xs leading-relaxed text-amber-700" style={{ fontFamily:I }}>
-                This exam is invitation-only. Fill in your details, then continue with the Google account your teacher invited.
+                This exam is invitation-only. Use the Google account your teacher invited.
               </div>
             )}
 
-            <form onSubmit={handleJoin} className="space-y-4">
-              <label className="block">
-                <span className="mb-2 block text-xs font-black uppercase tracking-wider text-gray-400" style={{ fontFamily:U }}>Full name</span>
-                <div className="relative">
-                  <User size={16} className="absolute left-4 top-1/2 -translate-y-1/2 text-gray-400"/>
-                  <input type="text" value={fullName} onChange={e => setFullName(e.target.value)} placeholder="e.g. Sok Dara" required autoFocus autoComplete="name"
-                    className="w-full rounded-2xl border border-gray-200 bg-white px-11 py-4 text-sm text-gray-900 transition-colors placeholder:text-gray-300 focus:border-gray-900 focus:outline-none" style={{ fontFamily:I }}/>
-                </div>
-              </label>
+            <form onSubmit={useGoogle ? (e => { e.preventDefault(); handleGoogle(); }) : handleJoin} className="space-y-4">
+              {!useGoogle && (
+                <label className="block">
+                  <span className="mb-2 block text-xs font-black uppercase tracking-wider text-gray-400" style={{ fontFamily:U }}>Full name</span>
+                  <div className="relative">
+                    <User size={16} className="absolute left-4 top-1/2 -translate-y-1/2 text-gray-400"/>
+                    <input type="text" value={fullName} onChange={e => setFullName(e.target.value)} placeholder="e.g. Sok Dara" required autoFocus autoComplete="name"
+                      className="w-full rounded-2xl border border-gray-200 bg-white px-11 py-4 text-sm text-gray-900 transition-colors placeholder:text-gray-300 focus:border-gray-900 focus:outline-none" style={{ fontFamily:I }}/>
+                  </div>
+                </label>
+              )}
               <label className="block">
                 <span className="mb-2 block text-xs font-black uppercase tracking-wider text-gray-400" style={{ fontFamily:U }}>Student ID</span>
                 <div className="relative">
                   <Hash size={16} className="absolute left-4 top-1/2 -translate-y-1/2 text-gray-400"/>
-                  <input type="text" value={studentId} onChange={e => setStudentId(e.target.value)} placeholder="e.g. STU-1029" required autoComplete="off"
+                  <input type="text" value={studentId} onChange={e => setStudentId(e.target.value)} placeholder="e.g. STU-1029" required autoComplete="off" autoFocus={useGoogle}
                     className="w-full rounded-2xl border border-gray-200 bg-white px-11 py-4 text-sm text-gray-900 transition-colors placeholder:text-gray-300 focus:border-gray-900 focus:outline-none" style={{ fontFamily:I }}/>
                 </div>
               </label>
@@ -324,7 +332,14 @@ export function StudentInfo() {
 
               {formError && <p className="text-xs font-semibold text-red-500 leading-relaxed" style={{ fontFamily:I }}>{formError}</p>}
 
-              {!isPrivate && (
+              {useGoogle ? (
+                <button type="submit" disabled={!studentId.trim() || (exam.requiresPassword && !examPassword)}
+                  className="w-full flex items-center justify-center gap-3 rounded-2xl py-4 text-sm font-black text-white transition-all hover:opacity-90 active:scale-[0.99] disabled:opacity-50"
+                  style={{ background:INK, fontFamily:U }}>
+                  <span className="flex h-6 w-6 items-center justify-center rounded-full bg-white"><svg width="14" height="14" viewBox="0 0 48 48" fill="none"><path d="M43.6 20.5H42V20H24v8h11.3C33.7 32.7 29.3 36 24 36c-6.6 0-12-5.4-12-12s5.4-12 12-12c3.1 0 5.8 1.2 7.9 3l5.7-5.7C34.5 6.5 29.5 4 24 4 12.9 4 4 12.9 4 24s8.9 20 20 20 20-8.9 20-20c0-1.2-.1-2.3-.4-3.5z" fill="#FFC107"/><path d="M6.3 14.7l6.6 4.8C14.5 16 19 13 24 13c3.1 0 5.8 1.2 7.9 3l5.7-5.7C34.5 6.5 29.5 4 24 4 16.3 4 9.7 8.4 6.3 14.7z" fill="#FF3D00"/><path d="M24 44c5.2 0 9.9-2 13.4-5.2l-6.2-5.2C29.3 35.3 26.8 36 24 36c-5.3 0-9.7-3.3-11.3-8H6.3C9.7 35.6 16.3 44 24 44z" fill="#4CAF50"/><path d="M43.6 20.5H42V20H24v8h11.3c-.8 2.1-2.2 3.9-4 5.2l6.2 5.2C37.2 38.6 44 33.3 44 24c0-1.2-.1-2.3-.4-3.5z" fill="#1976D2"/></svg></span>
+                  Continue with Google
+                </button>
+              ) : (
                 <button type="submit" disabled={joining || fullName.trim().length < 2 || !studentId.trim() || (exam.requiresPassword && !examPassword)}
                   className="w-full flex items-center justify-center gap-2 rounded-2xl py-4 text-sm font-black text-white transition-all hover:opacity-90 active:scale-[0.99] disabled:opacity-50"
                   style={{ background:S, fontFamily:U }}>
@@ -332,14 +347,6 @@ export function StudentInfo() {
                 </button>
               )}
             </form>
-
-            {!isPrivate && <div className="my-4 flex items-center gap-3"><div className="h-px flex-1 bg-gray-200"/><span className="text-xs text-gray-400" style={{ fontFamily:I }}>or</span><div className="h-px flex-1 bg-gray-200"/></div>}
-            {isPrivate && <div className="mb-1"/>}
-
-            <button type="button" onClick={handleGoogle} disabled={joining} className="w-full flex items-center justify-center gap-3 border border-gray-200 hover:bg-gray-50 rounded-xl py-3 text-sm font-semibold text-gray-700 transition-all mb-4 disabled:opacity-50" style={{ fontFamily: U }}>
-              <svg width="17" height="17" viewBox="0 0 48 48" fill="none"><path d="M43.6 20.5H42V20H24v8h11.3C33.7 32.7 29.3 36 24 36c-6.6 0-12-5.4-12-12s5.4-12 12-12c3.1 0 5.8 1.2 7.9 3l5.7-5.7C34.5 6.5 29.5 4 24 4 12.9 4 4 12.9 4 24s8.9 20 20 20 20-8.9 20-20c0-1.2-.1-2.3-.4-3.5z" fill="#FFC107"/><path d="M6.3 14.7l6.6 4.8C14.5 16 19 13 24 13c3.1 0 5.8 1.2 7.9 3l5.7-5.7C34.5 6.5 29.5 4 24 4 16.3 4 9.7 8.4 6.3 14.7z" fill="#FF3D00"/><path d="M24 44c5.2 0 9.9-2 13.4-5.2l-6.2-5.2C29.3 35.3 26.8 36 24 36c-5.3 0-9.7-3.3-11.3-8H6.3C9.7 35.6 16.3 44 24 44z" fill="#4CAF50"/><path d="M43.6 20.5H42V20H24v8h11.3c-.8 2.1-2.2 3.9-4 5.2l6.2 5.2C37.2 38.6 44 33.3 44 24c0-1.2-.1-2.3-.4-3.5z" fill="#1976D2"/></svg>
-              {isPrivate ? "Continue with Google" : "Continue with Google instead"}
-            </button>
 
             <div className="mt-2 flex flex-col sm:flex-row">
               <button type="button" onClick={()=>navigate("/student/enter")}

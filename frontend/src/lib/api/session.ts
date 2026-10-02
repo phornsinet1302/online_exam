@@ -14,10 +14,12 @@ export async function joinByCode(code: string) {
   });
 }
 
-export async function registerStudent(examId: string, name: string, studentId: string, email: string, password?: string) {
+// googleToken: the Google session from the sign-in redirect. The server reads the
+// student's verified email and name from it, so the email is never sent directly.
+export async function registerStudent(examId: string, name: string, studentId: string, opts: { password?: string; googleToken?: string } = {}) {
   return fetchApi<any>("/join/register", {
     method: "POST",
-    body: JSON.stringify({ examId, name, studentId, email, password }),
+    body: JSON.stringify({ examId, name, studentId, password: opts.password, googleToken: opts.googleToken }),
   });
 }
 
@@ -72,4 +74,11 @@ export async function approveLateEntry(examId: string, attemptId: string) {
 
 export async function rejectLateEntry(examId: string, attemptId: string) {
   return fetchApi<any>(`/session/${examId}/reject/${attemptId}`, { method: "POST" });
+}
+
+export async function reportViolation(attemptId: string, payload: { eventType: string; count?: number; action?: string; detail?: string; batchCount?: number }) {
+  return fetchApi<any>(`/attempts/${attemptId}/violations`, {
+    method: "POST",
+    body: JSON.stringify(payload),
+  });
 }

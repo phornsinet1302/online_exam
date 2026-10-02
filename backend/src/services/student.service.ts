@@ -10,6 +10,8 @@ import { GradingService, SubmittedAnswer } from './grading.service.js';
 const MATH_JWT_SECRET = process.env.JWT_SECRET || 'fallback-secret';
 const MATH_SESSION_TTL_MINUTES = 15;
 
+import { AntiCheatService } from './anti-cheat.service.js';
+
 // ─────────────────────────────────────────────────────────────────────────────
 // 1. GET /api/exam/state  — recover active exam progress
 // ─────────────────────────────────────────────────────────────────────────────
@@ -36,6 +38,9 @@ export async function getExamState(attemptId: string) {
     isExpired = remainingMs <= 0;
   }
 
+  const acService = new AntiCheatService();
+  const rules = await acService.getExamRules(exam.id);
+
   return {
     attemptId: attempt.id,
     examId: exam.id,
@@ -55,6 +60,7 @@ export async function getExamState(attemptId: string) {
     },
     isSubmitted: !!attempt.submittedAt,
     submittedAt: attempt.submittedAt,
+    rules, // provide rules to the frontend
   };
 }
 

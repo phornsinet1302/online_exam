@@ -10,7 +10,9 @@ import { startExamSession, endExamSession, getTeacherStreamUrl } from "@/lib/api
 import { RulesConfig } from "@/components/monitoring/RulesConfig";
 import { API_URL } from "@/lib/api/client";
 import { to12h } from "@/lib/datetime";
+import { StudentIdentityPicker, StudentIdentity } from "@/components/exams/StudentIdentityPicker";
 import { U, I, INK, CAMEL } from "@/lib/tokens";
+import { AntiCheatRuleEditor } from "@/components/monitoring/AntiCheatRuleEditor";
 
 const S = "#059669";
 const SL = "#ecfdf5";
@@ -22,6 +24,8 @@ function ReopenDialog({ exam, onClose, onReopened }: { exam: any; onClose: () =>
   const [minutes, setMinutes] = useState(0);
   const [newDuration, setNewDuration] = useState(exam.duration || 10);
   const [hardClose, setHardClose] = useState(false);
+  // Reopening is a natural moment to change how students join.
+  const [identity, setIdentity] = useState<StudentIdentity>(exam.studentIdentity === "GOOGLE" ? "GOOGLE" : "NAME_ID");
   const [endDate, setEndDate] = useState("");
   const [endTime, setEndTime] = useState("23:59");
   const [busy, setBusy] = useState(false);
@@ -50,7 +54,7 @@ function ReopenDialog({ exam, onClose, onReopened }: { exam: any; onClose: () =>
     }
     setBusy(true);
     try {
-      const updated = await examsApi.reopen(exam.id, { startsInMinutes: minutes, duration: newDuration, ...(endParams ?? {}) });
+      const updated = await examsApi.reopen(exam.id, { startsInMinutes: minutes, ...(endParams ?? {}), ...(exam.accessType === "PRIVATE" ? {} : { studentIdentity: identity }) });
       onReopened(updated);
     } catch (e: any) {
       setError(e?.message || "Couldn't reopen the exam. Please try again.");
@@ -72,6 +76,9 @@ function ReopenDialog({ exam, onClose, onReopened }: { exam: any; onClose: () =>
               ? <>Opens the waiting room for <strong>{exam.title?.trim()}</strong> again. Nothing is scheduled: students wait in the lobby and the exam starts when you press Start. Earlier results are kept, and Max Attempts still applies.</>
               : <>Starts a new session for <strong>{exam.title?.trim()}</strong>. The waiting room opens right away, so students can enter the code before it starts. Earlier results are kept, and Max Attempts still applies.</>}
           </p>
+
+          <p className="text-xs font-bold text-gray-500 uppercase tracking-wider mb-2" style={{ fontFamily: U }}>How students join</p>
+          <div className="mb-5"><StudentIdentityPicker value={identity} onChange={setIdentity} locked={exam.accessType === "PRIVATE"} /></div>
 
           {!manual && <>
           <div className="grid grid-cols-2 gap-5 mb-5">
@@ -208,6 +215,17 @@ function LiveSessionPanel({ examId, exam, sessionState, onSessionChange, onReope
       } catch { }
     });
 
+    es.addEventListener("violation", (e) => {
+      try {
+        const payload = JSON.parse(e.data);
+        setWaitingStudents(prev => prev.map(s => 
+          s.attemptId === payload.attemptId 
+            ? { ...s, violations: [...(s.violations || []), payload] } 
+            : s
+        ));
+      } catch { }
+    });
+
     es.addEventListener("exam_started", () => {
       onSessionChange("ACTIVE");
     });
@@ -340,13 +358,18 @@ function LiveSessionPanel({ examId, exam, sessionState, onSessionChange, onReope
                 const color = avatarColors[idx % avatarColors.length];
                 return (
                   <div key={student.attemptId}
-                    className="flex flex-col items-center rounded-2xl border border-gray-100 bg-gray-50 p-4 text-center">
+                    className="flex flex-col items-center rounded-2xl border border-gray-100 bg-gray-50 p-4 text-center relative">
                     <div className="relative mb-3">
                       <div className="w-12 h-12 rounded-full flex items-center justify-center text-sm font-black text-white"
                         style={{ background: color, fontFamily: U }}>{initials}</div>
                       <span className="absolute bottom-0 right-0 w-3 h-3 rounded-full border-2 border-white"
                         style={{ background: S }} />
                     </div>
+                    {(student.violations && student.violations.length > 0) ? (
+                      <span className="absolute -top-2 -right-2 bg-red-500 text-white text-[10px] font-bold px-1.5 py-0.5 rounded-full border-2 border-white shadow-sm z-10" title="Violations detected">
+                        {student.violations.length}
+                      </span>
+                    ) : null}
                     <p className="text-xs font-black truncate w-full" style={{ fontFamily: U, color: INK }}>{name}</p>
                     <p className="text-[10px] text-gray-400 truncate w-full mt-0.5" style={{ fontFamily: I }}>
                       {info.studentId || info.email || "—"}
@@ -415,6 +438,7 @@ export function ExamDetail() {
         setSessionState(data.sessionState || "WAITING");
         setPrivacy(data.accessType === "PRIVATE" ? "private" : data.accessType === "PASSWORD_PROTECTED" ? "password" : "public");
         setShuffleQ(!!data.randomizeQuestions);
+        setStudentIdentity(data.studentIdentity === "GOOGLE" ? "GOOGLE" : "NAME_ID");
       }).catch(() => setExam(null)).finally(() => setLoading(false));
     } else {
       setLoading(false);
@@ -427,7 +451,7 @@ export function ExamDetail() {
     if (typeof window !== "undefined") {
       const urlParams = new URLSearchParams(window.location.search);
       const initialTab = urlParams.get("tab");
-      if (initialTab && ["session", "overview", "sharing", "rules", "settings", "preview"].includes(initialTab)) {
+      if (initialTab && ["session", "overview", "sharing", "rules", "preview"].includes(initialTab)) {
         setTab(initialTab);
       }
     }
@@ -435,6 +459,7 @@ export function ExamDetail() {
 
   // Settings tab — initialised from the exam once it loads
   const [privacy, setPrivacy] = useState("public");
+  const [studentIdentity, setStudentIdentity] = useState<StudentIdentity>("NAME_ID");
   const [shuffleQ, setShuffleQ] = useState(false);
   const [settingsPassword, setSettingsPassword] = useState("");
   const [settingsSaving, setSettingsSaving] = useState(false);
@@ -471,8 +496,8 @@ export function ExamDetail() {
   // Invigilator is read-only (can't edit the exam).
   const isOwner = exam?.myRole === "OWNER";
   const canEdit = exam?.myRole === "OWNER" || exam?.myRole === "COLLABORATOR";
-  const tabs = ["session", "overview", "sharing", "rules", "settings", "preview"]
-    .filter(t => isOwner || (t !== "rules" && t !== "sharing" && (t !== "settings" || canEdit)));
+  const tabs = ["session", "overview", "sharing", "rules", "preview"]
+    .filter(t => isOwner || (t !== "rules" && t !== "sharing"));
 
   const sessionStateLabel: Record<string, string> = {
     WAITING: "Waiting",
@@ -491,6 +516,7 @@ export function ExamDetail() {
       const updated = await examsApi.update(exam.id, {
         accessType: privacy === "private" ? "PRIVATE" : privacy === "password" ? "PASSWORD_PROTECTED" : "PUBLIC",
         randomizeQuestions: shuffleQ,
+        studentIdentity: privacy === "private" ? "GOOGLE" : studentIdentity,
         ...(privacy === "password" && settingsPassword.trim() ? { password: settingsPassword.trim() } : {}),
       });
       setExam((prev: any) => ({ ...prev, ...updated }));
@@ -655,8 +681,7 @@ export function ExamDetail() {
         </div>
       )}
 
-      {/* Rules tab */}
-      {tab === "rules" && <RulesConfig targetExamId={exam.id} />}
+      
 
       {/* Settings tab */}
       {tab === "settings" && (
@@ -670,8 +695,8 @@ export function ExamDetail() {
             <div className="py-4 border-b border-gray-50">
               <p className="text-sm font-semibold text-gray-700" style={{ fontFamily: U }}>Live proctoring</p>
               <p className="text-xs text-gray-400 mt-0.5" style={{ fontFamily: I }}>
-                Tab-switch, copy/paste and other monitoring rules are configured per event in the{" "}
-                <button onClick={() => setTab("rules")} className="font-semibold underline" style={{ color: CAMEL }}>Rules tab</button>.
+                Tab-switch, copy/paste and other monitoring rules are configured per event in{" "}
+                <button onClick={() => navigate("/dashboard/monitoring/rules")} className="font-semibold underline" style={{ color: CAMEL }}>Monitoring → Rules</button>.
               </p>
             </div>
             <div className="pt-4">
@@ -683,7 +708,7 @@ export function ExamDetail() {
               </div>
               <p className="text-xs text-gray-400 mt-2" style={{ fontFamily: I }}>
                 {privacy === "public" && "Anyone with the code or link can join."}
-                {privacy === "private" && "Only invited students can join (matched by Google email)."}
+                {privacy === "private" && "Only students on the Roster tab can join (matched by Google email)."}
                 {privacy === "password" && "Students must enter the password to join."}
               </p>
               {privacy === "password" && (
@@ -691,6 +716,10 @@ export function ExamDetail() {
                   placeholder={exam.hasPassword ? "Leave blank to keep the current password" : "Set a password"}
                   className="mt-3 w-full border border-gray-200 rounded-xl px-4 py-2.5 text-sm text-gray-900 placeholder:text-gray-400 focus:outline-none focus:border-gray-400" style={{ fontFamily: I }} />
               )}
+            </div>
+            <div className="pt-6">
+              <p className="text-sm font-semibold text-gray-700 mb-3" style={{ fontFamily: U }}>How students join</p>
+              <StudentIdentityPicker value={studentIdentity} onChange={setStudentIdentity} locked={privacy === "private"} />
             </div>
           </div>
           <div className="mt-4 flex items-center gap-3">

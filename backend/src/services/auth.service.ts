@@ -23,6 +23,27 @@ export const DEFAULT_PRIVACY_PREFS = {
   allowResearch: false,
 };
 
+// Shape sent to the frontend for any "here's the signed-in user" response
+// (login, Google login, getMe). Keeping this in one place means a fresh
+// login always carries the same fields getMe does — profile details and
+// saved prefs included — instead of a stripped-down object that makes
+// Settings look like it reverted until the next full page load.
+export function toClientUser(dbUser: User) {
+  return {
+    id: dbUser.supabaseId,
+    name: dbUser.name,
+    email: dbUser.email,
+    role: dbUser.role,
+    avatarUrl: dbUser.avatarUrl,
+    phone: dbUser.phone,
+    institution: dbUser.institution,
+    department: dbUser.department,
+    bio: dbUser.bio,
+    notificationPrefs: dbUser.notificationPrefs,
+    privacyPrefs: dbUser.privacyPrefs,
+  };
+}
+
 // Where confirmation / recovery links send the user back to. Not hard-coded:
 // a fixed localhost address breaks as soon as the app is opened from another
 // address (or deployed), and Supabase then drops the user on the home page.
@@ -103,13 +124,7 @@ export class AuthService {
 
     return {
       message: 'Login successful.',
-      user: {
-        id: dbUser.supabaseId,
-        name: dbUser.name,
-        email: dbUser.email,
-        role: dbUser.role,
-        avatarUrl: dbUser.avatarUrl,
-      },
+      user: toClientUser(dbUser),
       access_token: data.session.access_token,
       refresh_token: data.session.refresh_token,
     };
@@ -121,7 +136,7 @@ export class AuthService {
       where: { supabaseId: supabaseUserId },
     });
     if (!user) throw new Error('User not found in database');
-    return user;
+    return toClientUser(user);
   }
 
   // Update editable profile fields (name + the extra profile details).

@@ -828,7 +828,13 @@ export function ExamTaking() {
     };
   }, [code]);
 
+  const requireFs = examData?.rules?.find((r: any) => r.eventType === "fullscreen_exit")?.enabled ?? true;
+  const requireFsRef = useRef(requireFs);
+  useEffect(() => { requireFsRef.current = requireFs; }, [requireFs]);
+
   const [needsFullscreen, setNeedsFullscreen] = useState(false);
+  const [isBlurred, setIsBlurred] = useState(false); // To obscure content on blur
+
   useEffect(() => {
     const checkFs = () => {
       if (!document.fullscreenElement) setNeedsFullscreen(true);
@@ -839,6 +845,24 @@ export function ExamTaking() {
     return () => document.removeEventListener("fullscreenchange", checkFs);
   }, []);
 
+  if (requireFs && needsFullscreen && !lockdownBlocked && !examLoading) {
+    return (
+      <div className="min-h-screen bg-gray-900 flex items-center justify-center p-6 text-white text-center" style={{fontFamily:'"Outfit", sans-serif'}}>
+        <div className="max-w-md space-y-6">
+          <AlertOctagon className="w-24 h-24 mx-auto text-blue-500 animate-bounce" />
+          <h1 className="text-3xl font-black tracking-tight">Fullscreen Required</h1>
+          <p className="text-gray-300">Your browser prevented automatic fullscreen entry. You must enter fullscreen mode to take this exam.</p>
+          <button 
+            onClick={() => document.documentElement.requestFullscreen().catch(()=>alert("Please allow fullscreen to continue."))}
+            className="w-full py-4 font-bold rounded-xl shadow-lg transition-all text-white hover:opacity-90"
+            style={{background: S}}
+          >
+            Click here to Enter Fullscreen
+          </button>
+        </div>
+      </div>
+    );
+  }
 
 
   const setAnswer = (v: any) => setAnswers(prev => ({ ...prev, [q.id]: v }));

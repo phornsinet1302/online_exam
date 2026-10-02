@@ -81,6 +81,9 @@ model Exam {
   // Teacher-controlled start: the exam never auto-starts at its scheduled time
   // and students can wait in the lobby until the teacher presses Start.
   manualStart          Boolean          @default(false)
+  // How students identify themselves when joining (teacher's choice):
+  // NAME_ID = a typed full name + Student ID, GOOGLE = Google sign-in + Student ID.
+  studentIdentity      StudentIdentity  @default(NAME_ID)
   autoClose            Boolean          @default(false)
   autoSubmit           Boolean          @default(true)
   showCountdown        Boolean          @default(true)
@@ -312,6 +315,11 @@ enum Role {
   INVIGILATOR
 }
 
+
+enum StudentIdentity {
+  NAME_ID
+  GOOGLE
+}
 
 enum ExamSessionState {
   WAITING
