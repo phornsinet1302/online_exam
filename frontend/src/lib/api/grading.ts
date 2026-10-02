@@ -16,6 +16,9 @@ export interface StudentAnswer {
     id: string;
     studentId: string;
     submittedAt: string;
+    answers?: any;
+    snapshot?: any;
+    attemptNumber?: number;
   };
 }
 
@@ -37,6 +40,7 @@ export interface GradeAnswerRow {
 export interface GradeAttemptRow {
   attemptId: string;
   attemptNumber: number;
+  studentId: string | null;
   studentName: string;
   studentRoll: string | null;
   studentEmail: string | null;

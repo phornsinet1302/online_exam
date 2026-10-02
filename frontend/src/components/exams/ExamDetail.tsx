@@ -194,6 +194,13 @@ function LiveSessionPanel({ examId, exam, sessionState, onSessionChange, onReope
       } catch { }
     });
 
+    es.addEventListener("student_submitted", (e) => {
+      try {
+        const { attemptId } = JSON.parse(e.data);
+        setWaitingStudents(prev => prev.filter(s => s.attemptId !== attemptId));
+      } catch { }
+    });
+
     es.addEventListener("student_kicked", (e) => {
       try {
         const { attemptId } = JSON.parse(e.data);
@@ -596,7 +603,10 @@ export function ExamDetail() {
                       const hasScore = attempt.score !== null;
                       return (
                         <tr key={attempt.id} className="border-b border-gray-50 last:border-0 hover:bg-gray-50/50">
-                          <td className="px-6 py-3 text-sm font-medium text-gray-800" style={{ fontFamily: U }}>{attempt.studentId || "Anonymous"}</td>
+                          <td className="px-6 py-3">
+                            <p className="text-sm font-semibold text-gray-800" style={{ fontFamily: U }}>{(attempt.snapshot?.studentInfo ?? attempt.answers?.studentInfo)?.name || attempt.studentId || "Anonymous"}</p>
+                            <p className="text-[11px] text-gray-400">{(attempt.snapshot?.studentInfo ?? attempt.answers?.studentInfo)?.studentId || attempt.studentId}</p>
+                          </td>
                           <td className="px-6 py-3 text-xs text-gray-500" style={{ fontFamily: I }}>{new Date(attempt.startedAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}</td>
                           <td className="px-6 py-3 text-sm font-bold" style={{ fontFamily: U, color: hasScore ? (isPass ? "#16a34a" : "#ef4444") : "#9ca3af" }}>{hasScore ? `${attempt.score}%` : "—"}</td>
                           <td className="px-6 py-3">

@@ -212,7 +212,19 @@ export class GradingService {
               }));
             }
           } else if (question.type === 'FILE_UPLOAD') {
-            sub.fileUrl = String(answer);
+            sub.fileUrl = typeof answer === 'object' && answer !== null ? (answer as any).fileUrl : String(answer);
+          } else if (question.type === 'MATH_FORMULA') {
+            if (typeof answer === 'object' && answer !== null) {
+              sub.textAnswer = (answer as any).text || '';
+              sub.fileUrl = (answer as any).fileUrl || undefined;
+            } else {
+              const str = String(answer);
+              if (str.startsWith('http') || str.startsWith('data:')) {
+                sub.fileUrl = str;
+              } else {
+                sub.textAnswer = str;
+              }
+            }
           } else {
             sub.textAnswer = String(answer);
           }
@@ -371,7 +383,7 @@ export class GradingService {
         ...(filterAll ? {} : { status: GradingStatus.needs_review }),
       },
       include: {
-        attempt: { select: { id: true, studentId: true, submittedAt: true } },
+        attempt: { select: { id: true, studentId: true, submittedAt: true, answers: true, snapshot: true } },
       },
       orderBy: { createdAt: 'asc' },
     });
@@ -383,9 +395,28 @@ export class GradingService {
     });
     const qMap = new Map(questions.map((q) => [q.id, q]));
 
+    const allAttempts = await prisma.examAttempt.findMany({
+      where: { examId },
+      orderBy: { startedAt: 'asc' },
+      select: { id: true, studentId: true, answers: true, snapshot: true }
+    });
+    const attemptNumbers = new Map<string, number>();
+    const seen = new Map<string, number>();
+    for (const a of allAttempts) {
+      const info = (a.snapshot as any)?.studentInfo || (a.answers as any)?.studentInfo || {};
+      const key = info.name || a.studentId || 'Unknown';
+      const num = (seen.get(key) ?? 0) + 1;
+      seen.set(key, num);
+      attemptNumbers.set(a.id, num);
+    }
+
     return answers.map((a) => ({
       ...a,
       question: qMap.get(a.questionId) || null,
+      attempt: {
+        ...a.attempt,
+        attemptNumber: attemptNumbers.get(a.attempt.id) || 1,
+      }
     }));
   }
 

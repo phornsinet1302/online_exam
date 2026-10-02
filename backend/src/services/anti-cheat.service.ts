@@ -296,7 +296,8 @@ export class AntiCheatService {
     // ── SSE broadcast to teacher ────────────────────────────────────────────
     // Fetch student name from attempt.answers (stored on registration)
     const answersBlob = attempt.answers as Record<string, any> | null;
-    const studentInfo = answersBlob?.studentInfo as Record<string, any> | undefined;
+    const snapshotBlob = attempt.snapshot as Record<string, any> | null;
+    const studentInfo = (answersBlob?.studentInfo || snapshotBlob?.studentInfo) as Record<string, any> | undefined;
     const studentName = studentInfo?.name ?? attempt.studentId ?? 'Unknown';
 
     // Events the rules allow (or that haven't reached their threshold yet) are
@@ -405,6 +406,7 @@ export class AntiCheatService {
             select: {
               studentId: true,
               answers:   true,  // contains studentInfo
+              snapshot:  true,
             },
           },
         },
@@ -413,7 +415,8 @@ export class AntiCheatService {
 
     const enriched = logs.map(log => {
       const answers = log.attempt.answers as Record<string, any> | null;
-      const info    = answers?.studentInfo as Record<string, any> | undefined;
+      const snapshot = log.attempt.snapshot as Record<string, any> | null;
+      const info    = (answers?.studentInfo || snapshot?.studentInfo) as Record<string, any> | undefined;
       return {
         id:              log.id,
         attemptId:       log.attemptId,
@@ -427,8 +430,8 @@ export class AntiCheatService {
         resolvedBy:      log.resolvedBy,
         resolvedAt:      log.resolvedAt,
         createdAt:       log.createdAt,
-        studentId:       log.attempt.studentId,
-        studentName:     info?.name    ?? 'Unknown',
+        studentId:       info?.studentId || log.attempt.studentId,
+        studentName:     info?.name    || log.attempt.studentId || 'Student',
         studentEmail:    info?.email   ?? '',
       };
     });
@@ -593,7 +596,7 @@ export class AntiCheatService {
         take:    pageSize,
         include: {
           attempt: {
-            select: { studentId: true, answers: true },
+            select: { studentId: true, answers: true, snapshot: true },
           },
         },
       }),
@@ -601,7 +604,8 @@ export class AntiCheatService {
 
     const enriched = logs.map(log => {
       const answers = log.attempt.answers as Record<string, any> | null;
-      const info    = answers?.studentInfo as Record<string, any> | undefined;
+      const snapshot = log.attempt.snapshot as Record<string, any> | null;
+      const info    = (answers?.studentInfo || snapshot?.studentInfo) as Record<string, any> | undefined;
       return {
         id:              log.id,
         attemptId:       log.attemptId,
@@ -616,8 +620,8 @@ export class AntiCheatService {
         resolvedBy:      log.resolvedBy,
         resolvedAt:      log.resolvedAt,
         createdAt:       log.createdAt,
-        studentId:       log.attempt.studentId,
-        studentName:     info?.name    ?? 'Unknown',
+        studentId:       info?.studentId || log.attempt.studentId,
+        studentName:     info?.name    || log.attempt.studentId || 'Student',
         studentEmail:    info?.email   ?? '',
       };
     });

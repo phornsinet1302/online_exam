@@ -20,8 +20,8 @@ export const uploadPDF = multer({
 }).single('file'); // Matches the form-data key "file" in your Swagger docs
 
 // ─── Math Upload Config (SRS 3.13) ───────────────────────────────────────────
-// Accepts JPG, PNG, PDF up to 5 MB from student phone uploads
-const MATH_UPLOAD_MAX_SIZE = 5 * 1024 * 1024; // 5 MB
+// Accepts JPG, PNG, PDF up to 10 MB from student phone uploads
+const MATH_UPLOAD_MAX_SIZE = 10 * 1024 * 1024; // 10 MB
 
 const ALLOWED_MATH_MIME_TYPES = new Set([
   'image/jpeg',

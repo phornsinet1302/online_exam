@@ -106,6 +106,7 @@ export class GradeReportService {
       return {
         attemptId: at.id,
         attemptNumber,
+        studentId: at.studentId,
         studentName: info?.name || at.studentId || 'Unknown',
         studentRoll: info?.studentId || null,
         studentEmail: at.studentId?.startsWith('id:') ? null : at.studentId,

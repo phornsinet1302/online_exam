@@ -271,7 +271,12 @@ export async function submitExam(attemptId: string) {
   });
   if (!attempt) throw new Error('Attempt not found');
   if (attempt.submittedAt) {
-    throw new Error('This attempt has already been submitted');
+    return {
+      message: 'Exam submitted successfully.',
+      attemptId: attempt.id,
+      submittedAt: attempt.submittedAt,
+      alreadySubmitted: true
+    };
   }
 
   // Check time expiry (respect extra time)
