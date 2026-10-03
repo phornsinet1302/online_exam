@@ -4,7 +4,7 @@ import { Prisma } from '@prisma/client';
 import { supabase } from '../config/supabase.js';
 import jwt from 'jsonwebtoken';
 import { v4 as uuidv4 } from 'uuid';
-import { broadcastToTeacher } from './session.service.js';
+import { broadcastToTeacher, broadcast } from './session.service.js';
 import { GradingService, SubmittedAnswer } from './grading.service.js';
 
 const MATH_JWT_SECRET = process.env.JWT_SECRET || 'fallback-secret';
@@ -125,7 +125,7 @@ export async function toggleReviewFlag(
 // ─────────────────────────────────────────────────────────────────────────────
 // 4. POST /api/exam/math-upload/session  — create QR session token
 // ─────────────────────────────────────────────────────────────────────────────
-export async function createMathUploadSession(attemptId: string) {
+export async function createMathUploadSession(attemptId: string, questionId?: string) {
   const expiresAt = new Date(
     Date.now() + MATH_SESSION_TTL_MINUTES * 60_000
   );
@@ -135,6 +135,7 @@ export async function createMathUploadSession(attemptId: string) {
     {
       type: 'math-upload-session',
       attemptId,
+      questionId, // ← include in JWT as backup
       jti: uuidv4(), // unique per token to prevent reuse
     },
     MATH_JWT_SECRET,
@@ -148,7 +149,9 @@ export async function createMathUploadSession(attemptId: string) {
 
   const uploadBaseUrl =
     process.env.FRONTEND_URL || 'http://localhost:3000';
-  const uploadUrl = `${uploadBaseUrl}/exam/math-upload?session=${token}`;
+  // ← append &q=... so the mobile page knows which question
+  const qParam = questionId ? `&q=${encodeURIComponent(questionId)}` : '';
+  const uploadUrl = `${uploadBaseUrl}/exam/math-upload?session=${token}${qParam}`;
 
   return {
     token,
@@ -167,7 +170,7 @@ export async function processMathUpload(
   questionId?: string
 ) {
   // Verify session token
-  let payload: { attemptId: string; type: string; jti: string };
+  let payload: { attemptId: string; type: string; jti: string; questionId?: string };
   try {
     payload = jwt.verify(sessionToken, MATH_JWT_SECRET) as typeof payload;
   } catch {
@@ -226,6 +229,9 @@ export async function processMathUpload(
     fileUrl = urlData.publicUrl;
   }
 
+  // Determine effective question id: prefer what the mobile sent, fall back to the token
+  const effectiveQuestionId = questionId || payload.questionId;
+
   // Mark session as used and persist the upload record
   const [, mathUpload] = await prisma.$transaction([
     prisma.mathUploadSession.update({
@@ -235,13 +241,40 @@ export async function processMathUpload(
     prisma.mathUpload.create({
       data: {
         attemptId,
-        questionId: questionId ?? null,
+        questionId: effectiveQuestionId ?? null,
         fileUrl,
         fileName: file.originalname,
         mimeType: file.mimetype,
       },
     }),
   ]);
+
+  // ── NEW: merge this upload into the student's autosaved answer ──────────
+  if (effectiveQuestionId) {
+    const currentAutosave = (attempt.autosaveData as Record<string, any>) ?? {};
+    const existing = currentAutosave[effectiveQuestionId]?.answer;
+
+    // Preserve any typed text the student already has, e.g. LaTeX from math-field
+    const currentAnswer =
+      typeof existing === 'object' && existing !== null ? existing : {};
+
+    currentAutosave[effectiveQuestionId] = {
+      answer: { ...currentAnswer, fileUrl },
+      savedAt: new Date().toISOString(),
+    };
+
+    await prisma.examAttempt.update({
+      where: { id: attemptId },
+      data: { autosaveData: currentAutosave },
+    });
+
+    // Notify the desktop frontend over SSE
+    broadcast(attempt.examId, 'math_upload_completed', { 
+      attemptId, 
+      questionId: effectiveQuestionId, 
+      fileUrl 
+    });
+  }
 
   return {
     message: 'Math upload processed successfully.',

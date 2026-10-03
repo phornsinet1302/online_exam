@@ -66,7 +66,8 @@ export const createMathUploadSession = async (
 ) => {
   try {
     const attemptId = req.attempt!.id;
-    const session = await StudentService.createMathUploadSession(attemptId);
+    const { questionId } = req.body;
+    const session = await StudentService.createMathUploadSession(attemptId, questionId);
     res.status(201).json(session);
   } catch (error: any) {
     res.status(400).json({ message: error.message });

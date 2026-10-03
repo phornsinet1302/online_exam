@@ -15,6 +15,7 @@ import {
 import dynamic from "next/dynamic";
 import { U, I, INK, CAMEL, CREAM } from "@/lib/tokens";
 import { Logo } from "@/components/Logo";
+import { QRCodeCanvas } from "qrcode.react";
 import "@/lib/mathlive-config";
 import "mathlive";
 
@@ -196,12 +197,46 @@ function MathUploadFlow({
   const ALLOWED_TYPES = new Set(["image/jpeg", "image/png", "application/pdf"]);
 
   const [step, setStep] = useState<"qr" | "uploading" | "done">("qr");
+  const [session, setSession] = useState<{ token: string; uploadUrl: string } | null>(null);
+  const [sessionError, setSessionError] = useState<string | null>(null);
   const [preview, setPreview] = useState<string | null>(null);
   const [fileName, setFileName] = useState<string | null>(null);
   const [fileType, setFileType] = useState<string | null>(null);
   const [uploadedUrl, setUploadedUrl] = useState<string | null>(null);
   const [fileError, setFileError] = useState<string | null>(null);
   const fileRef = useRef<HTMLInputElement>(null);
+
+  useEffect(() => {
+    setSession(null);
+    fetchApi<any>('/exam/math-upload/session', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ attemptId, questionId: realQuestionId }),
+    })
+      .then(setSession)
+      .catch(e => setSessionError(e.message || "Couldn't create upload session"));
+  }, [attemptId, realQuestionId]);
+
+  useEffect(() => {
+    if (step !== "qr" || !attemptId) return;
+
+    const id = setInterval(async () => {
+      try {
+        const state = await getExamState();
+        const saved = state?.autosaveData?.[realQuestionId]?.answer;
+        const url = typeof saved === 'object' ? saved?.fileUrl : undefined;
+
+        if (url) {
+          setUploadedUrl(url);
+          setStep("done");
+        }
+      } catch {
+        // ignore transient errors, we'll try again in 3s
+      }
+    }, 3000);
+
+    return () => clearInterval(id);
+  }, [step, attemptId, realQuestionId]);
 
   const handleFile = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const f = e.target.files?.[0];
@@ -234,15 +269,19 @@ function MathUploadFlow({
     try {
       // Bug #1 fix: send attemptId so validateAttempt middleware resolves the attempt.
       // Bug #2 fix: send the real DB question id, not the sequential display number.
-      const sessionData = await fetchApi<any>('/exam/math-upload/session', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ attemptId, questionId: realQuestionId }),
-      });
+      let currentToken = session?.token;
+      if (!currentToken) {
+        const sessionData = await fetchApi<any>('/exam/math-upload/session', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ attemptId, questionId: realQuestionId }),
+        });
+        currentToken = sessionData.token;
+      }
 
       const formData = new FormData();
       formData.append('file', f);
-      formData.append('sessionToken', sessionData.token);
+      formData.append('sessionToken', currentToken!);
       formData.append('questionId', realQuestionId);
 
       const uploadData = await fetchApi<any>('/exam/math-upload', {
@@ -288,9 +327,16 @@ function MathUploadFlow({
               )}
 
               <div className="flex justify-center mb-4">
-                <div className="p-4 rounded-2xl border-2 border-gray-100"><QRPattern /></div>
+                <div className="p-4 rounded-2xl border-2 border-gray-100 flex justify-center items-center h-48 w-48">
+                  {session ? (
+                    <QRCodeCanvas value={session.uploadUrl} size={160} />
+                  ) : sessionError ? (
+                    <p className="text-xs text-red-500 text-center px-4">{sessionError}</p>
+                  ) : (
+                    <RefreshCw className="animate-spin text-gray-400" />
+                  )}
+                </div>
               </div>
-              <p className="text-center text-[11px] text-gray-400 mb-4" style={{ fontFamily: I }}>cheating.me/upload?q={seqId}&amp;session=demo</p>
               <div className="flex items-center gap-3 mb-4">
                 <div className="h-px flex-1 bg-gray-100" />
                 <span className="text-xs text-gray-400" style={{ fontFamily: I }}>or upload here</span>
@@ -698,6 +744,22 @@ export function ExamTaking() {
           // Sync timer drift
           setSecs(state.timer.remainingSeconds);
         }
+      } catch { }
+    });
+
+    es.addEventListener("math_upload_completed", (e) => {
+      try {
+        const { attemptId: aid, questionId, fileUrl } = JSON.parse(e.data);
+        if (aid !== attemptId) return;
+        
+        setQuestions(qs => {
+          const mq = qs.find(q => q.realId === questionId);
+          if (mq) {
+            setAnswers(prev => ({ ...prev, [mq.id]: { ...(prev[mq.id] || {}), fileUrl } }));
+            setMathUploaded(p => ({ ...p, [mq.id]: true }));
+          }
+          return qs;
+        });
       } catch { }
     });
 

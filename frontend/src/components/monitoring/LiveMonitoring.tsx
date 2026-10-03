@@ -74,7 +74,8 @@ export function LiveMonitoring() {
     const now = new Date();
     const time = `${now.getHours().toString().padStart(2,"0")}:${now.getMinutes().toString().padStart(2,"0")}:${now.getSeconds().toString().padStart(2,"0")}`;
     alertId.current++;
-    setAlerts(prev => [{ id: alertId.current, time, student, event, severity }, ...prev].slice(0, 50));
+    const id = alertId.current; // Capture synchronously to prevent batching bugs
+    setAlerts(prev => [{ id, time, student, event, severity }, ...prev].slice(0, 50));
   };
 
   // Token-authenticated stream URL for the selected exam (EventSource can't
