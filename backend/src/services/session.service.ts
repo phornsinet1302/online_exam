@@ -185,7 +185,7 @@ function broadcastToStudents(examId: string, event: string, data: object, exclud
 }
 
 // Keep backward-compat alias used by startSession / endSession
-function broadcast(examId: string, event: string, data: object, exclude?: any) {
+export function broadcast(examId: string, event: string, data: object, exclude?: any) {
   broadcastToStudents(examId, event, data, exclude);
 }
 
